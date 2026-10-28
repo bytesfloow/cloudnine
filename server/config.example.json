@@ -1,0 +1,14 @@
+{
+  "port": 8480,
+  "host": "0.0.0.0",
+  "fileRoot": "/data",
+  "dataDir": "./data",
+  "siteName": "文件管理系统",
+  "sessionDays": 7,
+  "rememberDays": 30,
+  "maxUploadMB": 4096,
+  "trashRetentionDays": 30,
+  "maxExtractMB": 8192,
+  "auditCommands": false,
+  "trustProxy": true
+}
