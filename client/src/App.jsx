@@ -1,6 +1,6 @@
 import React, { useEffect, useState, Suspense, lazy } from 'react';
 import { api, AuthError } from './api.js';
-import { useStore, setState, applyTheme, notify } from './store.js';
+import { useStore, getState, setState, applyTheme, notify } from './store.js';
 import InitWizard from './auth/InitWizard.jsx';
 import Login from './auth/Login.jsx';
 import Desktop from './desktop/Desktop.jsx';

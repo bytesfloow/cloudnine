@@ -10,7 +10,7 @@ try { pty = (await import('node-pty')).default; } catch { /* fallback below */ }
 
 function sessionFromRequest(req) {
   const cookies = cookie.parse(req.headers.cookie || '');
-  const token = cookies.skydesk_sid;
+  const token = cookies.cloudnine_sid;
   const s = token && getDB().sessions[token];
   if (!s || s.expiresAt < Date.now()) return null;
   return s;
@@ -33,7 +33,8 @@ export function setupTerminal(server) {
 
     const flush = () => {
       if (!outBuf.length) return;
-      const data = outBuf.map((b) => b.toString('base64')).join('');
+      // 必须先合并原始字节再整体编码：分别编码会因块长度非 3 的倍数产生非法 base64
+      const data = Buffer.concat(outBuf).toString('base64');
       outBuf.length = 0;
       if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'out', data }));
     };

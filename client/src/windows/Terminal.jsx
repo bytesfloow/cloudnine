@@ -5,7 +5,15 @@ import '@xterm/xterm/css/xterm.css';
 import { useStore, bus, getState, nextId, basename } from '../store.js';
 
 const utf8ToB64 = (s) => btoa(unescape(encodeURIComponent(s)));
-const b64ToUtf8 = (s) => decodeURIComponent(escape(atob(s)));
+// 流式 UTF-8 解码：多字节字符被输出块边界切开时（跨 WebSocket 消息）也能正确解码
+const b64ToBytes = (s) => {
+  const bin = atob(s);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+};
+const outDecoder = new TextDecoder('utf-8');
+const b64ToUtf8 = (s) => outDecoder.decode(b64ToBytes(s), { stream: true });
 
 function termTheme() {
   return document.documentElement.dataset.theme === 'dark'
@@ -93,7 +101,7 @@ export function TerminalView({ cwd, actionFilter, className = '', terminalRef })
       if (wsRef.current?.readyState === 1) wsRef.current.send(JSON.stringify({ type: 'in', data: utf8ToB64(e.detail.data) }));
       term.focus();
     };
-    window.addEventListener('skydesk-term-input', onExtInput);
+    window.addEventListener('cloudnine-term-input', onExtInput);
 
     // 主题切换跟随
     const unsubTheme = bus.on('theme-changed', () => { term.options.theme = termTheme(); });
@@ -102,7 +110,7 @@ export function TerminalView({ cwd, actionFilter, className = '', terminalRef })
       alive = false;
       closedByUser = true;
       unsubAction(); unsubTheme();
-      window.removeEventListener('skydesk-term-input', onExtInput);
+      window.removeEventListener('cloudnine-term-input', onExtInput);
       ro.disconnect();
       try { wsRef.current?.close(); } catch { /* 忽略 */ }
       term.dispose();
