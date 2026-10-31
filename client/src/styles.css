@@ -26,6 +26,7 @@
   --menu-bg: rgba(250, 250, 252, 0.92);
   --input-bg: rgba(255, 255, 255, 0.85);
   --bar-bg: rgba(238, 239, 243, 0.9);
+  --cap-glyph: #1f1f1f;
   --shadow: 0 22px 70px rgba(0, 0, 0, 0.28), 0 4px 16px rgba(0, 0, 0, 0.12);
   --shadow-soft: 0 10px 34px rgba(0, 0, 0, 0.14);
 }
@@ -46,6 +47,7 @@
   --menu-bg: rgba(40, 40, 47, 0.94);
   --input-bg: rgba(20, 20, 26, 0.7);
   --bar-bg: rgba(34, 34, 40, 0.9);
+  --cap-glyph: #ececf0;
   --shadow: 0 22px 70px rgba(0, 0, 0, 0.6), 0 4px 16px rgba(0, 0, 0, 0.4);
   --shadow-soft: 0 10px 34px rgba(0, 0, 0, 0.45);
 }
@@ -242,35 +244,47 @@ a { color: var(--accent); text-decoration: none; }
 .window:not(.focused) { box-shadow: 0 10px 34px rgba(0,0,0,.18); }
 .window.minimized { display: none; }
 .window-titlebar {
-  /* 39px：扣除 1px 底边框后可用高度为偶数 38px，14px 按钮居中偏移为整数，避免半像素模糊 */
-  height: 39px; flex: none; display: flex; align-items: center; padding: 0 12px;
+  /* 39px：扣除 1px 底边框后内容高度为偶数 38px，Windows 风格按钮可整格占满，无半像素 */
+  height: 39px; flex: none; display: flex; align-items: center; padding: 0 0 0 12px;
   border-bottom: 1px solid var(--line); cursor: default; user-select: none;
   background: var(--bar-bg);
 }
-.win-controls { display: flex; gap: 8px; }
-/* 红绿灯按钮：符号用细线 SVG（mask）绘制，画布与按钮同为 14 单位（1:1 渲染，无缩放模糊），坐标严格对称于圆心 (7,7) */
+.win-controls { display: flex; margin-left: auto; align-self: stretch; }
+/* Windows 风格标题栏按钮：矩形平铺于右上角，细线符号常显；符号用 SVG（mask）绘制，
+   画布 14 单位按 1:1 渲染（无缩放模糊），坐标对称于中心 (7,7) */
 .tc {
-  width: 14px; height: 14px; border-radius: 50%; position: relative; padding: 0;
+  width: 46px; position: relative; padding: 0;
+  transition: background-color .08s ease;
 }
 .tc::before {
-  content: ''; position: absolute; inset: 0; background-color: rgba(0,0,0,.55);
-  opacity: 0; transition: opacity .08s ease;
-}
-.window-titlebar:hover .tc::before, .tc:active::before { opacity: 1; }
-.tc-close::before {
-  -webkit-mask: url('data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"%3E%3Cpath d="M4.25 4.25l5.5 5.5M9.75 4.25l-5.5 5.5" fill="none" stroke="black" stroke-width="1.1" stroke-linecap="round"/%3E%3C/svg%3E') center / 14px 14px no-repeat;
-  mask: url('data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"%3E%3Cpath d="M4.25 4.25l5.5 5.5M9.75 4.25l-5.5 5.5" fill="none" stroke="black" stroke-width="1.1" stroke-linecap="round"/%3E%3C/svg%3E') center / 14px 14px no-repeat;
+  content: ''; position: absolute; inset: 0; background-color: var(--cap-glyph);
+  transition: background-color .08s ease, opacity .08s ease;
 }
 .tc-min::before {
-  -webkit-mask: url('data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"%3E%3Cpath d="M4.25 7h5.5" fill="none" stroke="black" stroke-width="1.1" stroke-linecap="round"/%3E%3C/svg%3E') center / 14px 14px no-repeat;
-  mask: url('data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"%3E%3Cpath d="M4.25 7h5.5" fill="none" stroke="black" stroke-width="1.1" stroke-linecap="round"/%3E%3C/svg%3E') center / 14px 14px no-repeat;
+  -webkit-mask: url('data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"%3E%3Cpath d="M3 7h8" fill="none" stroke="black" stroke-width="1"/%3E%3C/svg%3E') center / 14px 14px no-repeat;
+  mask: url('data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"%3E%3Cpath d="M3 7h8" fill="none" stroke="black" stroke-width="1"/%3E%3C/svg%3E') center / 14px 14px no-repeat;
 }
 .tc-max::before {
-  -webkit-mask: url('data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"%3E%3Cpath d="M7 4.25v5.5M4.25 7h5.5" fill="none" stroke="black" stroke-width="1.1" stroke-linecap="round"/%3E%3C/svg%3E') center / 14px 14px no-repeat;
-  mask: url('data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"%3E%3Cpath d="M7 4.25v5.5M4.25 7h5.5" fill="none" stroke="black" stroke-width="1.1" stroke-linecap="round"/%3E%3C/svg%3E') center / 14px 14px no-repeat;
+  -webkit-mask: url('data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"%3E%3Cpath d="M3.5 3.5h7v7h-7z" fill="none" stroke="black" stroke-width="1"/%3E%3C/svg%3E') center / 14px 14px no-repeat;
+  mask: url('data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"%3E%3Cpath d="M3.5 3.5h7v7h-7z" fill="none" stroke="black" stroke-width="1"/%3E%3C/svg%3E') center / 14px 14px no-repeat;
 }
-.tc-close { background: #ff5f57; } .tc-min { background: #febc2e; } .tc-max { background: #28c840; }
-.window:not(.focused) .tc { background: #b9b9bf; }
+.tc-close::before {
+  -webkit-mask: url('data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"%3E%3Cpath d="M3.5 3.5l7 7M10.5 3.5l-7 7" fill="none" stroke="black" stroke-width="1"/%3E%3C/svg%3E') center / 14px 14px no-repeat;
+  mask: url('data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"%3E%3Cpath d="M3.5 3.5l7 7M10.5 3.5l-7 7" fill="none" stroke="black" stroke-width="1"/%3E%3C/svg%3E') center / 14px 14px no-repeat;
+}
+/* 最大化状态下切换为 Windows「还原」双框符号 */
+.window.maximized .tc-max::before {
+  -webkit-mask: url('data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"%3E%3Cpath d="M2.5 4.5h7v7h-7zM4.5 4.5v-2h7v7h-2" fill="none" stroke="black" stroke-width="1"/%3E%3C/svg%3E') center / 14px 14px no-repeat;
+  mask: url('data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"%3E%3Cpath d="M2.5 4.5h7v7h-7zM4.5 4.5v-2h7v7h-2" fill="none" stroke="black" stroke-width="1"/%3E%3C/svg%3E') center / 14px 14px no-repeat;
+}
+/* 悬停/按下底色复用主题变量 --hover/--active，保证关闭键的红色规则（后置）在两套主题下都胜出 */
+.tc:hover { background: var(--hover); }
+.tc:active { background: var(--active); }
+.tc-close:hover { background: #c42b1c; }
+.tc-close:active { background: #b92718; }
+.tc-close:hover::before, .tc-close:active::before { background-color: #fff; }
+.window:not(.focused) .tc::before { opacity: .45; }
+.window:not(.focused) .tc:hover::before { opacity: 1; }
 .window-title {
   position: absolute; left: 0; right: 0; text-align: center; pointer-events: none;
   font-weight: 600; font-size: 13px; color: var(--text-2);
