@@ -1,4 +1,4 @@
-# SkyDesk — macOS 风格云服务器桌面
+# CloudNine — macOS 风格云服务器桌面
 
 自托管的单用户云桌面：部署在云服务器上，浏览器打开即进入一个 **macOS 风格的桌面环境**——菜单栏、桌面图标、可自由拖动的窗口、底部 Dock。文件在"访达"窗口里管理，命令在"终端"窗口里执行，手机浏览器自动切换为 iOS 风格单屏形态。
 
@@ -16,13 +16,13 @@
 - **磁盘监控**：菜单栏常驻指示器 + 完整窗口（各挂载点用量、inode、自动刷新、点击跳转目录）
 - **废纸篓**：删除默认移入废纸篓（数据目录内），还原 / 彻底删除 / 清倒，保留 30 天自动清理
 - **账号**：首次访问初始化向导（仅可创建一个账号）、密码登录（bcrypt + 登录限流）、会话滑动续期、修改密码、退出登录
-- **移动端**：≤768px 自动切换 iOS 风格形态——单屏页面栈、底部 Tab 栏、长按操作菜单（Action Sheet）、多选批量操作、拍照/相册上传、终端快捷键栏
+- **移动端**：≤768px 自动切换 iPhone 风格形态——主屏幕桌面（应用图标网格 + Dock）、应用全屏缩放动画、Home 指示条（点按/上滑返回桌面）、长按操作菜单（Action Sheet）、多选批量操作、拍照/相册上传、终端快捷键栏
 - **其他**：浅色/深色主题（跟随系统）、通知中心、全局快捷键、桌面右键菜单
 
 ## 目录结构
 
 ```
-skydesk/
+cloudnine/
 ├── 需求文档.md          # PRD（v2.1）
 ├── server/              # Node.js + Express + ws 服务端
 │   └── src/
@@ -78,7 +78,7 @@ npm run dev:client   # 终端 2：Vite :5173（/api 与 /ws 已代理到 8480）
 | 监听地址 | `HOST` | 0.0.0.0 | 建议配合反向代理 |
 | **文件根目录** | `FILE_ROOT` | Linux `/`（Windows 开发默认用户主目录） | 可浏览的起始目录，建议限制到数据盘 |
 | 数据目录 | `DATA_DIR` | `server/data` | 账号、分享、废纸篓、上传临时文件 |
-| 站点名称 | `SITE_NAME` | SkyDesk | 菜单栏与标题显示 |
+| 站点名称 | `SITE_NAME` | CloudNine | 菜单栏与标题显示 |
 | 会话有效期 | `SESSION_DAYS` | 7 | "记住我" 30 天 |
 | 上传上限 | `MAX_UPLOAD_MB` | 4096 | 单文件大小上限 |
 | 废纸篓保留 | `TRASH_RETENTION_DAYS` | 30 | 到期自动清理 |
@@ -97,23 +97,23 @@ npm run dev:client   # 终端 2：Vite :5173（/api 与 /ws 已代理到 8480）
 npm run install:all && npm run build
 
 # 以 systemd 常驻（示例）
-sudo tee /etc/systemd/system/skydesk.service <<'EOF'
+sudo tee /etc/systemd/system/cloudnine.service <<'EOF'
 [Unit]
-Description=SkyDesk
+Description=CloudNine
 After=network.target
 
 [Service]
-WorkingDirectory=/opt/skydesk/server
+WorkingDirectory=/opt/cloudnine/server
 Environment=FILE_ROOT=/data
 Environment=PORT=8480
 ExecStart=/usr/bin/node src/index.js
 Restart=always
-User=skydesk
+User=cloudnine
 
 [Install]
 WantedBy=multi-user.target
 EOF
-sudo systemctl enable --now skydesk
+sudo systemctl enable --now cloudnine
 ```
 
 建议配合 Nginx/Caddy 反向代理 + HTTPS：

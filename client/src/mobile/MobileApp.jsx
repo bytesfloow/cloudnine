@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   useStore, getState, bus, setState, setTheme, promptDialog, confirmDialog, notify, setClipboard,
   basename, dirname, joinPath, fmtSize, fmtTime, fmtSpeed, TEXT_EDITABLE, openFile,
@@ -10,73 +10,79 @@ import { TerminalView } from '../windows/Terminal.jsx';
 import { PreviewContent } from '../windows/Preview.jsx';
 import EditorWindow from '../windows/Editor.jsx';
 import {
-  FileIcon, IconFinder, IconTerminal, IconUpload, IconTransfer, IconMore,
-  IconChevron, IconSearch, IconRefresh, IconGrid,
+  FileIcon, IconChevron, IconSearch, IconRefresh, IconGrid,
 } from '../icons.jsx';
+import { HomeScreen, StatusBar, HomeIndicator, Glyph } from './HomeScreen.jsx';
 
-// iOS 风格移动形态：单屏页面栈 + 底部工具栏（F-11 / 决策 Q10）
+// iOS 风格移动形态：主屏幕（应用图标 + Dock）+ 全屏应用层 + Home 指示条返回（F-11 / 决策 Q10 的 v2 演进）
+const APP_TITLES = { finder: '访达', terminal: '终端', upload: '上传', transfers: '传输', settings: '设置' };
+
 export default function MobileApp() {
   const s = useStore();
-  const [tab, setTab] = useState('finder');
+  const [app, setApp] = useState(null); // 'finder' | 'terminal' | 'upload' | 'transfers' | 'settings'
+  const [phase, setPhase] = useState('closed'); // closed | open | closing（缩放动画状态）
+  const [origin, setOrigin] = useState('50% 85%'); // 应用打开/关闭动画的缩放原点（图标位置）
   const [dir, setDir] = useState(s.homeRel || '');
-  const [showMore, setShowMore] = useState(false);
   const [quickLookPath, setQuickLookPath] = useState(null);
   const [editorPath, setEditorPath] = useState(null);
+  const closeTimer = useRef(null);
+  useEffect(() => () => clearTimeout(closeTimer.current), []);
+
+  function openApp(key, e) {
+    clearTimeout(closeTimer.current);
+    if (e?.currentTarget) {
+      const r = e.currentTarget.getBoundingClientRect();
+      setOrigin(`${(((r.left + r.width / 2) / window.innerWidth) * 100).toFixed(1)}% ${(((r.top + r.height / 2) / window.innerHeight) * 100).toFixed(1)}%`);
+    }
+    if (key === 'trash') { setDir('__trash__'); setApp('finder'); } else setApp(key);
+    setPhase('open');
+  }
+  function goHome() {
+    if (phase !== 'open') return;
+    setPhase('closing');
+    closeTimer.current = setTimeout(() => setPhase('closed'), 230);
+  }
 
   function openMobileFile(path, name) {
-    if (TEXT_EDITABLE(name)) { setEditorPath(path); setTab('editor'); return; }
+    if (TEXT_EDITABLE(name)) { setEditorPath(path); return; }
     setQuickLookPath(path);
   }
 
+  const finderTitle = dir === '__trash__' ? '废纸篓' : (basename(dir) || '根目录');
+  const title = app === 'finder' ? finderTitle : APP_TITLES[app] || '';
+  const badges = {
+    trash: s.trashCount,
+    transfers: s.transfers.filter((x) => ['uploading', 'pending'].includes(x.status)).length,
+  };
+
   return (
     <div className="mobile-app">
-      <header className="m-header">
-        <span className="m-title ellipsis">{tab === 'finder' ? (dir === '__trash__' ? '废纸篓' : basename(dir) || '根目录') : tabTitle(tab)}</span>
-        <div className="m-header-actions">
-          {s.transfers.some((x) => ['uploading', 'pending'].includes(x.status)) && (
-            <button className="m-hbtn active" onClick={() => setTab('transfers')}>⬆</button>
-          )}
-          <button className="m-hbtn" onClick={() => setShowMore(true)}>⋯</button>
+      <StatusBar />
+      <HomeScreen onOpen={openApp} badges={badges} />
+
+      {(phase === 'open' || phase === 'closing') && (
+        <div className={`m-apphost${phase === 'closing' ? ' closing' : ''}`} style={{ transformOrigin: origin }}>
+          <div className="m-appbar">
+            <button className="m-back" onClick={goHome} aria-label="返回桌面"><IconChevron dir="left" size={14} /></button>
+            <span className="m-apptitle ellipsis">{title}</span>
+            <span className="m-appbar-side" />
+          </div>
+          <div className="m-appcontent">
+            {app === 'finder' && <FinderMobile dir={dir} setDir={setDir} openFile={openMobileFile} />}
+            {app === 'terminal' && (
+              <div className="m-terminal">
+                <TerminalView cwd={dir === '__trash__' ? '' : dir} actionFilter="mobile-term" />
+                <MobileTermKeys />
+              </div>
+            )}
+            {app === 'upload' && <UploadMobile dir={dir === '__trash__' ? '' : dir} />}
+            {app === 'transfers' && <TransfersMobile />}
+            {app === 'settings' && <SettingsApp openApp={openApp} />}
+          </div>
         </div>
-      </header>
+      )}
 
-      <main className="m-body">
-        {tab === 'finder' && <FinderMobile dir={dir} setDir={setDir} openFile={openMobileFile} />}
-        {tab === 'terminal' && (
-          <div className="m-terminal">
-            <TerminalView cwd={dir === '__trash__' ? '' : dir} actionFilter="mobile-term" />
-            <MobileTermKeys />
-          </div>
-        )}
-        {tab === 'upload' && <UploadMobile dir={dir === '__trash__' ? '' : dir} />}
-        {tab === 'transfers' && <TransfersMobile />}
-        {tab === 'editor' && editorPath && (
-          <div className="m-editor">
-            <div className="m-editor-head">
-              <button className="btn btn-small" onClick={() => setTab('finder')}>← 关闭</button>
-              <span className="ellipsis">{basename(editorPath)}</span>
-            </div>
-            <div className="m-editor-body">
-              <EditorWindow win={{ id: 'mobile-editor', type: 'editor', props: { path: editorPath, name: basename(editorPath) }, title: basename(editorPath) }} />
-            </div>
-          </div>
-        )}
-      </main>
-
-      <nav className="m-tabbar">
-        {[
-          ['finder', '访达', IconFinder], ['terminal', '终端', IconTerminal], ['upload', '上传', IconUpload], ['transfers', '传输', IconTransfer],
-        ].map(([key, label, Icon]) => (
-          <button key={key} className={`m-tab${tab === key ? ' active' : ''}`} onClick={() => setTab(key)}>
-            <Icon size={22} />
-            <span>{label}</span>
-          </button>
-        ))}
-        <button className={`m-tab${showMore ? ' active' : ''}`} onClick={() => setShowMore(true)}>
-          <IconMore size={22} />
-          <span>更多</span>
-        </button>
-      </nav>
+      <HomeIndicator onHome={goHome} />
 
       {quickLookPath && (
         <div className="m-quicklook">
@@ -91,13 +97,19 @@ export default function MobileApp() {
         </div>
       )}
 
-      {showMore && <MoreSheet close={() => setShowMore(false)} setTab={setTab} setDir={(d) => { setDir(d); setTab('finder'); }} />}
+      {editorPath && (
+        <div className="m-quicklook">
+          <div className="m-ql-head">
+            <button className="btn btn-small" onClick={() => setEditorPath(null)}>关闭</button>
+            <span className="ellipsis">{basename(editorPath)}</span>
+          </div>
+          <div className="m-ql-body">
+            <EditorWindow win={{ id: 'mobile-editor', type: 'editor', props: { path: editorPath, name: basename(editorPath) }, title: basename(editorPath) }} />
+          </div>
+        </div>
+      )}
     </div>
   );
-}
-
-function tabTitle(t) {
-  return { terminal: '终端', upload: '上传', transfers: '传输', editor: '编辑' }[t] || '';
 }
 
 // ---------- 访达（移动形态，含废纸篓模式） ----------
@@ -112,6 +124,7 @@ function FinderMobile({ dir, setDir, openFile }) {
   const [sheet, setSheet] = useState(null);
   const [search, setSearch] = useState('');
   const [searchMode, setSearchMode] = useState(false);
+  const longPress = useRef({ timer: null, fired: false });
 
   const load = async () => {
     setLoading(true);
@@ -133,6 +146,18 @@ function FinderMobile({ dir, setDir, openFile }) {
     else if (!isTrash && (d === dir || dir === '' || (d && dir.startsWith(d + '/')))) load();
   }), [dir, isTrash]);
 
+  // 触摸长按 → 操作菜单（桌面浏览器走 contextmenu）
+  const lpStart = (entry) => (e) => {
+    longPress.current.fired = false;
+    clearTimeout(longPress.current.timer);
+    longPress.current.timer = setTimeout(() => { longPress.current.fired = true; setSheet({ entry }); }, 480);
+  };
+  const lpCancel = () => clearTimeout(longPress.current.timer);
+  const lpClick = (fn) => () => {
+    if (longPress.current.fired) { longPress.current.fired = false; return; }
+    fn();
+  };
+
   function openEntry(entry) {
     if (selectMode) { toggle(entry); return; }
     if (entry.trashId) return;
@@ -141,10 +166,6 @@ function FinderMobile({ dir, setDir, openFile }) {
   }
   function toggle(entry) {
     setSel((s0) => { const n = new Set(s0); if (n.has(entry.name)) n.delete(entry.name); else n.add(entry.name); return n; });
-  }
-  function longPress(e, entry) {
-    e.preventDefault();
-    setSheet({ entry });
   }
 
   const selPaths = [...sel].map((n) => joinPath(isTrash ? '' : dir, n));
@@ -250,6 +271,14 @@ function FinderMobile({ dir, setDir, openFile }) {
 
   const shown = (entries || []).filter((e) => !e.hidden && (!searchMode || e.name.toLowerCase().includes(search.toLowerCase())));
 
+  const rowHandlers = (entry) => ({
+    onClick: lpClick(() => openEntry(entry)),
+    onContextMenu: (e) => { e.preventDefault(); setSheet({ entry }); },
+    onTouchStart: lpStart(entry),
+    onTouchMove: lpCancel,
+    onTouchEnd: lpCancel,
+  });
+
   return (
     <div className="m-finder" onContextMenu={(e) => { e.preventDefault(); if (!e.target.closest('.m-row, .m-cell, input, button')) setSheet({ entry: null }); }}>
       <div className="m-toolbar">
@@ -271,18 +300,13 @@ function FinderMobile({ dir, setDir, openFile }) {
         : view === 'list' ? (
           <div className="m-list">
             {shown.map((entry) => (
-              <div
-                key={entry.name}
-                className={`m-row${sel.has(entry.name) ? ' selected' : ''}`}
-                onClick={() => openEntry(entry)}
-                onContextMenu={(e) => longPress(e, entry)}
-              >
+              <div key={entry.name} className={`m-row${sel.has(entry.name) ? ' selected' : ''}`} {...rowHandlers(entry)}>
                 {selectMode && <span className={`m-check${sel.has(entry.name) ? ' on' : ''}`} onClick={(e) => { e.stopPropagation(); toggle(entry); }} />}
-                <FileIcon name={entry.name} type={entry.type} size={30} />
-                <div className="m-row-info">
+                <span className="m-row-ic"><FileIcon name={entry.name} type={entry.type} size={30} /></span>
+                <span className="m-row-info">
                   <span className="m-row-name ellipsis">{entry.name}</span>
                   <span className="m-row-sub">{entry.type === 'dir' ? '文件夹' : fmtSize(entry.size)} · {fmtTime(entry.mtimeMs)}</span>
-                </div>
+                </span>
                 <button className="m-row-more" onClick={(e) => { e.stopPropagation(); setSheet({ entry }); }}>⋯</button>
               </div>
             ))}
@@ -290,9 +314,9 @@ function FinderMobile({ dir, setDir, openFile }) {
         ) : (
           <div className="m-grid">
             {shown.map((entry) => (
-              <button key={entry.name} className={`m-cell${sel.has(entry.name) ? ' selected' : ''}`} onClick={() => openEntry(entry)} onContextMenu={(e) => longPress(e, entry)}>
-                <FileIcon name={entry.name} type={entry.type} size={44} />
-                <span className="ellipsis">{entry.name}</span>
+              <button key={entry.name} className={`m-cell${sel.has(entry.name) ? ' selected' : ''}`} {...rowHandlers(entry)}>
+                <FileIcon name={entry.name} type={entry.type} size={42} />
+                <span className="m-cell-name ellipsis">{entry.name}</span>
               </button>
             ))}
           </div>
@@ -363,7 +387,7 @@ function MobileTermKeys() {
   return (
     <div className="m-termkeys">
       {Object.keys(KEY_MAP).map((k) => (
-        <button key={k} onClick={() => window.dispatchEvent(new CustomEvent('skydesk-term-input', { detail: { filter: 'mobile-term', data: KEY_MAP[k] } }))}>{k}</button>
+        <button key={k} onClick={() => window.dispatchEvent(new CustomEvent('cloudnine-term-input', { detail: { filter: 'mobile-term', data: KEY_MAP[k] } }))}>{k}</button>
       ))}
     </div>
   );
@@ -372,7 +396,6 @@ function MobileTermKeys() {
 // ---------- 上传页 ----------
 function UploadMobile({ dir }) {
   const s = useStore();
-  const { setTab } = { setTab: null };
   return (
     <div className="m-upload">
       <div className="m-upload-cards">
@@ -439,62 +462,71 @@ function TransfersMobile() {
   );
 }
 
-// ---------- 更多（Action Sheet 承载分享管理/磁盘/设置） ----------
-function MoreSheet({ close, setDir }) {
+// ---------- 设置（分组列表：废纸篓 / 外观 / 分享管理 / 磁盘 / 退出登录） ----------
+function SettingsApp({ openApp }) {
   const s = useStore();
-  const [page, setPage] = useState(null);
   const [shares, setShares] = useState(null);
   const [disk, setDisk] = useState(s.disk || []);
 
   useEffect(() => {
-    if (page === 'shares') api.shares().then((r) => setShares(r.shares)).catch(() => {});
-    if (page === 'disk') refreshDisk().then(() => setDisk(getState().disk || []));
-  }, [page]);
+    api.shares().then((r) => setShares(r.shares)).catch(() => setShares([]));
+    refreshDisk().then(() => setDisk(getState().disk || [])).catch(() => {});
+  }, []);
 
   return (
-    <div className="sheet-overlay" onClick={close}>
-      <div className="action-sheet" onClick={(e) => e.stopPropagation()}>
-        {!page ? (
-          <>
-            <div className="sheet-title">更多</div>
-            <button className="dropdown-item" onClick={() => { setDir('__trash__'); close(); }}>🗑 废纸篓（{s.trashCount}）</button>
-            <button className="dropdown-item" onClick={() => setPage('shares')}>🔗 分享管理</button>
-            <button className="dropdown-item" onClick={() => setPage('disk')}>💽 磁盘空间</button>
-            <div className="dropdown-sep" />
-            <button className="dropdown-item" onClick={() => setTheme(s.theme === 'dark' ? 'light' : 'dark')}>🌓 切换主题</button>
-            <button className="dropdown-item danger" onClick={async () => {
-              if (await confirmDialog({ title: '退出登录', message: '确定退出当前会话？' })) {
-                await api.logout().catch(() => {});
-                setState({ user: null, windows: [] });
-              }
-            }}>退出登录</button>
-          </>
-        ) : page === 'shares' ? (
-          <>
-            <div className="sheet-title">分享管理</div>
-            {!shares ? <div className="boot-spinner" /> : shares.length === 0 ? <p className="empty-hint">暂无分享</p> : shares.map((sh) => (
-              <div key={sh.id} className="m-share-row">
-                <span className="ellipsis">{sh.name}</span>
-                <button className="btn btn-small" onClick={() => navigator.clipboard?.writeText(`${location.origin}/s/${sh.token}`).then(() => notify({ title: '链接已复制' }))}>复制</button>
-                <button className="btn btn-small" onClick={async () => { await api.shareUpdate(sh.id, { action: 'cancel' }); api.shares().then((r) => setShares(r.shares)); }}>取消</button>
-              </div>
-            ))}
-            <button className="dropdown-item" onClick={() => setPage(null)}>返回</button>
-          </>
-        ) : (
-          <>
-            <div className="sheet-title">磁盘空间</div>
-            {disk.map((m) => (
-              <div key={m.mount} className="disk-row">
-                <span className="disk-path">{m.mount}</span>
-                <span className="disk-bar"><i style={{ width: `${m.usePct}%` }} className={m.usePct > 85 ? 'danger' : ''} /></span>
-                <span className="disk-free">{fmtSize(m.free)} 可用</span>
-              </div>
-            ))}
-            <button className="dropdown-item" onClick={() => setPage(null)}>返回</button>
-          </>
-        )}
-        <button className="dropdown-item cancel" onClick={close}>取消</button>
+    <div className="m-settings">
+      <div className="m-setgroup">
+        <button className="m-setrow" onClick={(e) => openApp('trash', e)}>
+          <span className="m-set-ic" style={{ background: 'linear-gradient(180deg,#a9adb6,#7d828c)' }}><Glyph name="trash" size={16} /></span>
+          <span className="m-set-label">废纸篓</span>
+          <span className="m-set-value">{s.trashCount > 0 ? `${s.trashCount} 项` : '空'}</span>
+          <IconChevron size={11} />
+        </button>
+        <div className="m-setrow">
+          <span className="m-set-ic" style={{ background: 'linear-gradient(180deg,#5a5f6a,#2c2f36)' }}><Glyph name="settings" size={16} /></span>
+          <span className="m-set-label">深色模式</span>
+          <button
+            className={`m-switch${s.theme === 'dark' ? ' on' : ''}`}
+            aria-label="切换深色模式"
+            onClick={() => setTheme(s.theme === 'dark' ? 'light' : 'dark')}
+          ><i /></button>
+        </div>
+      </div>
+
+      <div className="m-settitle">分享管理</div>
+      <div className="m-setgroup">
+        {shares === null ? <div className="m-setrow"><span className="boot-spinner" /></div>
+          : shares.length === 0 ? <div className="m-setrow"><span className="m-set-label" style={{ color: 'var(--text-2)' }}>暂无分享</span></div>
+          : shares.map((sh) => (
+            <div key={sh.id} className="m-setrow">
+              <span className="m-set-ic" style={{ background: 'linear-gradient(180deg,#53b0ff,#146ffe)' }}><Glyph name="finder" size={16} /></span>
+              <span className="m-set-label ellipsis">{sh.name}</span>
+              <button className="btn btn-small" onClick={() => navigator.clipboard?.writeText(`${location.origin}/s/${sh.token}`).then(() => notify({ title: '链接已复制' }))}>复制</button>
+              <button className="btn btn-small btn-danger" onClick={async () => { await api.shareUpdate(sh.id, { action: 'cancel' }); api.shares().then((r) => setShares(r.shares)); }}>取消</button>
+            </div>
+          ))}
+      </div>
+
+      <div className="m-settitle">磁盘空间</div>
+      <div className="m-setgroup">
+        {disk.map((m) => (
+          <div key={m.mount} className="m-setrow">
+            <span className="m-set-label ellipsis" style={{ maxWidth: '40%' }}>{m.mount}</span>
+            <span className="disk-bar"><i style={{ width: `${m.usePct}%` }} className={m.usePct > 85 ? 'danger' : ''} /></span>
+            <span className="m-set-value">{fmtSize(m.free)} 可用</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="m-setgroup">
+        <button className="m-setrow" onClick={async () => {
+          if (await confirmDialog({ title: '退出登录', message: '确定退出当前会话？' })) {
+            await api.logout().catch(() => {});
+            setState({ user: null, windows: [] });
+          }
+        }}>
+          <span className="m-set-label" style={{ color: 'var(--danger, #ff3b30)', textAlign: 'center', width: '100%' }}>退出登录</span>
+        </button>
       </div>
     </div>
   );
