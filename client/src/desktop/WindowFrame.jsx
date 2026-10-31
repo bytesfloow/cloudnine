@@ -75,9 +75,9 @@ export default function WindowFrame({ win, focused, children }) {
     >
       <div className="window-titlebar" onPointerDown={startDrag} onDoubleClick={() => toggleMaxWindow(win.id)}>
         <div className="win-controls">
-          <button className="tc tc-close" title="关闭" onClick={(e) => { e.stopPropagation(); closeWindow(win.id); }}>×</button>
-          <button className="tc tc-min" title="最小化" onClick={(e) => { e.stopPropagation(); minimizeWindow(win.id); }}>−</button>
-          <button className="tc tc-max" title="最大化" onClick={(e) => { e.stopPropagation(); toggleMaxWindow(win.id); }}>+</button>
+          <button className="tc tc-close" title="关闭" aria-label="关闭" onClick={(e) => { e.stopPropagation(); closeWindow(win.id); }} />
+          <button className="tc tc-min" title="最小化" aria-label="最小化" onClick={(e) => { e.stopPropagation(); minimizeWindow(win.id); }} />
+          <button className="tc tc-max" title="最大化" aria-label="最大化" onClick={(e) => { e.stopPropagation(); toggleMaxWindow(win.id); }} />
         </div>
         <div className="window-title">{win.title}</div>
         <div className="titlebar-spacer" />

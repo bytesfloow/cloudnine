@@ -19,8 +19,11 @@ function statfsInfo(mount, fstype, s) {
   const total = Number(s.bsize) * Number(s.blocks);
   const free = Number(s.bsize) * Number(s.bavail);
   const used = total - free;
+  // Windows 跨盘符时 path.relative 会返回绝对路径（如 D:/），需一并判定为根外
+  const rel = toRel(mount);
+  const outside = rel.startsWith('..') || path.isAbsolute(rel);
   return {
-    mount, mountRel: toRel(mount).startsWith('..') ? null : toRel(mount), fstype,
+    mount, mountRel: outside ? null : rel, fstype,
     total, free, used,
     usePct: total > 0 ? Math.round((used / total) * 1000) / 10 : 0,
     inodes: Number(s.files) || null, inodesFree: Number(s.ffree) || null,

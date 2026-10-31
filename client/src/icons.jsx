@@ -71,9 +71,17 @@ export const IconEditor = ({ size = 26 }) => (
 );
 export const IconTransfer = ({ size = 26 }) => (
   <svg width={size} height={size} viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
-    <path d="M14 26l10-12 10 12" stroke="#30a5ff" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-    <path d="M24 15v22" stroke="#30a5ff" strokeWidth="4" strokeLinecap="round" />
-    <path d="M12 38h24" stroke="#8e9299" strokeWidth="4" strokeLinecap="round" />
+    <defs>
+      <linearGradient id="iconTransferTile" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stopColor="#55b7ff" />
+        <stop offset="1" stopColor="#1f78e0" />
+      </linearGradient>
+    </defs>
+    <rect x="4" y="4" width="40" height="40" rx="10" fill="url(#iconTransferTile)" />
+    <path d="M17 33V17" stroke="#fff" strokeWidth="4.4" strokeLinecap="round" />
+    <path d="M11 22.5 17 16.5l6 6" stroke="#fff" strokeWidth="4.4" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+    <path d="M31 15v16" stroke="#fff" strokeWidth="4.4" strokeLinecap="round" />
+    <path d="M25 25.5 31 31.5l6-6" stroke="#fff" strokeWidth="4.4" strokeLinecap="round" strokeLinejoin="round" fill="none" />
   </svg>
 );
 export const IconShare = ({ size = 26 }) => (

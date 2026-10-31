@@ -179,6 +179,24 @@ export function quickLookNav(delta) {
 }
 
 // ---------- 窗口管理 ----------
+// 手动调整过的窗口几何按类型持久化到 localStorage，下次打开同类型窗口时恢复
+const GEOM_KEY = 'wfm-win-geom';
+
+function loadGeom() {
+  try {
+    const v = JSON.parse(localStorage.getItem(GEOM_KEY));
+    return v && typeof v === 'object' ? v : {};
+  } catch { return {}; }
+}
+
+function saveGeom(type, rect) {
+  try {
+    const all = loadGeom();
+    all[type] = { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.w), h: Math.round(rect.h) };
+    localStorage.setItem(GEOM_KEY, JSON.stringify(all));
+  } catch { /* 忽略持久化失败 */ }
+}
+
 const WINDOW_DEFAULTS = {
   finder: { title: '访达', w: 860, h: 560, minW: 560, minH: 380, multi: true },
   terminal: { title: '终端', w: 760, h: 460, minW: 420, minH: 300, multi: true },
@@ -200,18 +218,27 @@ export function openWindow(type, props = {}) {
     if (same) { focusWindow(same.id); return same.id; }
   }
   const vw = window.innerWidth, vh = window.innerHeight;
-  const w = Math.min(def.w, vw - 40), h = Math.min(def.h, vh - 110);
   const n = state.windowCount;
+  const saved = loadGeom()[type];
+  let x, y, w, h;
+  if (saved) {
+    // 恢复上次手动调整的几何；视口可能已变化，先收敛尺寸再保证窗口可见、可拖回
+    w = Math.max(def.minW, Math.min(saved.w, vw - 40));
+    h = Math.max(def.minH, Math.min(saved.h, vh - 110));
+    x = Math.min(Math.max(saved.x, -(w - 120)), vw - 120); // 边界与 WindowFrame 拖动限制一致
+    y = Math.min(Math.max(saved.y, 28), vh - 44);
+  } else {
+    w = Math.min(def.w, vw - 40);
+    h = Math.min(def.h, vh - 110);
+    x = Math.max(10, Math.min((vw - w) / 2 + ((n % 6) - 2.5) * 32, vw - w - 10));
+    y = Math.max(38, Math.min(52 + ((n % 6) - 2) * 28, vh - h - 80));
+  }
   const win = {
     id: nextId(),
     type,
     props,
     title: def.title,
-    rect: {
-      x: Math.max(10, Math.min((vw - w) / 2 + ((n % 6) - 2.5) * 32, vw - w - 10)),
-      y: Math.max(38, Math.min(52 + ((n % 6) - 2) * 28, vh - h - 80)),
-      w, h, max: false,
-    },
+    rect: { x, y, w, h, max: false },
     minW: def.minW, minH: def.minH,
     minimized: false,
     z: ++state.zTop,
@@ -254,9 +281,12 @@ export const minimizeWindow = (id) =>
   setState((s) => ({ windows: s.windows.map((w) => (w.id === id ? { ...w, minimized: true } : w)), focusId: s.focusId === id ? null : s.focusId }));
 export const toggleMaxWindow = (id) =>
   setState((s) => ({ windows: s.windows.map((w) => (w.id === id ? { ...w, rect: { ...w.rect, max: !w.rect.max } } : w)) }));
-// 拖拽/缩放时直接操作 DOM，落点提交到 store
-export const commitRect = (id, rect) =>
+// 拖拽/缩放时直接操作 DOM，落点提交到 store，并按窗口类型记忆几何
+export const commitRect = (id, rect) => {
   setState((s) => ({ windows: s.windows.map((w) => (w.id === id ? { ...w, rect: { ...w.rect, ...rect } } : w)) }));
+  const win = state.windows.find((w) => w.id === id);
+  if (win && !win.rect.max) saveGeom(win.type, win.rect);
+};
 export const setWindowTitle = (id, title) =>
   setState((s) => ({ windows: s.windows.map((w) => (w.id === id ? { ...w, title } : w)) }));
 

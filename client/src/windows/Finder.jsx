@@ -9,9 +9,9 @@ import { addUpload } from '../transfers.js';
 import { FileIcon, IconSearch, IconChevron, IconGrid, IconList, IconRefresh, IconNewFolder, IconUpload } from '../icons.jsx';
 
 export default function Finder({ win }) {
-  const isTrash = !!win.props.trash;
-  const [cwd, setCwd] = useState(isTrash ? '__trash__' : (win.props.cwd || ''));
-  const [history, setHistory] = useState([isTrash ? '__trash__' : (win.props.cwd || '')]);
+  const winIsTrash = !!win.props.trash;
+  const [cwd, setCwd] = useState(winIsTrash ? '__trash__' : (win.props.cwd || ''));
+  const [history, setHistory] = useState([winIsTrash ? '__trash__' : (win.props.cwd || '')]);
   const [hIdx, setHIdx] = useState(0);
   const [entries, setEntries] = useState(null);
   const [sel, setSel] = useState(new Set());
@@ -33,10 +33,13 @@ export default function Finder({ win }) {
   const bodyRef = useRef(null);
   const selRef = useRef(sel);
   selRef.current = sel;
+  // 「是否处于废纸篓视图」：仅跟随当前目录。废纸篓窗口初始 cwd 即 __trash__，
+  // 导航离开（主目录/最近等）后自动退出；「最近」是虚拟视图，不算废纸篓
+  const isTrash = !recentMode && cwd === '__trash__';
 
-  // 窗口标题与菜单状态
+  // 窗口标题与菜单状态：位置信息已由工具栏面包屑展示，标题栏不再重复显示目录名（「最近」无面包屑指示，保留）
   useEffect(() => {
-    setWindowTitle(win.id, isTrash ? '废纸篓' : (recentMode ? '最近' : (searchMode ? `搜索“${query}”` : basename(cwd) || '根目录')));
+    setWindowTitle(win.id, recentMode ? '最近' : '');
     updateWindowProps(win.id, { view, showHidden, cwd });
   }, [cwd, isTrash, searchMode, query, view, showHidden, recentMode]);
 
@@ -540,8 +543,9 @@ export default function Finder({ win }) {
         <div className="finder-sidebar">
           <div className="sb-group">个人收藏</div>
           <SideItem label="主目录" onClick={() => navigate(getState().homeRel || '')} dropdir={getState().homeRel || ''} active={cwd === getState().homeRel && !isTrash && !recentMode} />
-          <SideItem label="根目录" onClick={() => navigate('')} dropdir="" active={cwd === '' && !isTrash && !recentMode} />
-          <SideItem label="最近" onClick={() => { setRecentMode(true); setSel(new Set()); }} active={recentMode} />
+          {/* 主目录与根目录重合（homeRel 为空）时不重复显示根目录 */}
+          {getState().homeRel && <SideItem label="根目录" onClick={() => navigate('')} dropdir="" active={cwd === '' && !isTrash && !recentMode} />}
+          <SideItem label="最近" onClick={() => { setRecentMode(true); setCwd(''); setSel(new Set()); }} active={recentMode} />
           <SideItem label="废纸篓" onClick={() => navigate('__trash__')} active={isTrash} />
           {mounted.filter((m) => m.mountRel != null).length > 0 && (
             <>
@@ -556,21 +560,23 @@ export default function Finder({ win }) {
         <div className="finder-content" ref={bodyRef} onMouseDown={startMarquee}
           onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }}
           onDrop={(e) => {
-            if (e.dataTransfer.files.length && !isTrash) {
+            if (e.dataTransfer.files.length && !isTrash && !recentMode) {
               e.preventDefault();
               for (const f of e.dataTransfer.files) addUpload(f, cwd);
             }
           }}
         >
-          <div className="finder-crumbs">
-            {crumbs.map((c, i) => (
-              <React.Fragment key={c.dir}>
-                {i > 0 && <IconChevron size={9} />}
-                <button className="crumb" onClick={() => !isTrash && navigate(c.dir)}>{c.label}</button>
-              </React.Fragment>
-            ))}
-            {searchMode && <span className="crumb-note">搜索“{query}”的结果</span>}
-          </div>
+          {(!recentMode || searchMode) && (
+            <div className="finder-crumbs">
+              {crumbs.map((c, i) => (
+                <React.Fragment key={c.dir}>
+                  {i > 0 && <IconChevron size={9} />}
+                  <button className="crumb" onClick={() => !isTrash && navigate(c.dir)}>{c.label}</button>
+                </React.Fragment>
+              ))}
+              {searchMode && <span className="crumb-note">搜索“{query}”的结果</span>}
+            </div>
+          )}
 
           {loading ? (
             <div className="finder-loading"><div className="boot-spinner" /></div>

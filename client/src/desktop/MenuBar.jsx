@@ -24,7 +24,10 @@ function appMenus(type, w) {
       A('toggleHidden', '显示隐藏文件', { checked: !!w?.props?.showHidden }), '-', A('refresh', '刷新'), A('focus-search', '搜索'),
     ] });
     menus.push({ label: '前往', items: [
-      A('goHome', '主目录'), A('goRoot', '根目录'), A('goTrash', '废纸篓'), A('goParent', '上级目录'), '-', A('goFolder', '前往文件夹…'),
+      A('goHome', '主目录'),
+      // 主目录与根目录重合（homeRel 为空）时不重复显示根目录
+      ...(getState().homeRel ? [A('goRoot', '根目录')] : []),
+      A('goTrash', '废纸篓'), A('goParent', '上级目录'), '-', A('goFolder', '前往文件夹…'),
     ] });
   } else if (type === 'terminal') {
     menus.push({ label: 'Shell', items: [A('newTab', '新建标签页'), A('closeTab', '关闭当前标签'), '-', A('closeWin', '关闭窗口')] });
@@ -121,6 +124,7 @@ function DiskIndicator() {
   const level = worst.usePct > 95 ? 'danger' : worst.usePct > 85 ? 'warn' : worst.usePct > 70 ? 'notice' : 'ok';
   return (
     <Popover
+      wide
       button={<span className={`disk-indicator di-${level}`}>💽 {worst.usePct}%</span>}
     >
       {(close) => (
@@ -160,7 +164,7 @@ function NotifBell() {
 function AccountMenu() {
   const s = useStore();
   return (
-    <Popover button={<span className="avatar-btn">{(s.user || '?').slice(0, 1).toUpperCase()}</span>}>
+    <Popover wide button={<span className="avatar-btn">{(s.user || '?').slice(0, 1).toUpperCase()}</span>}>
       {(close) => (
         <div className="account-popover">
           <div className="popover-header">{s.user}</div>
@@ -202,7 +206,7 @@ export async function changePasswordFlow() {
   }
 }
 
-export function Popover({ button, children, align = 'right' }) {
+export function Popover({ button, children, align = 'right', wide = false }) {
   const [open, setOpen] = useState(false);
   useEffect(() => {
     if (!open) return;
@@ -213,7 +217,7 @@ export function Popover({ button, children, align = 'right' }) {
   return (
     <div className="popover-wrap">
       <button className="popover-btn" onClick={(e) => { e.stopPropagation(); setOpen(!open); }}>{button}</button>
-      {open && <div className={`popover ${align}`} onClick={(e) => e.stopPropagation()}>{children(() => setOpen(false))}</div>}
+      {open && <div className={`popover ${align}${wide ? ' wide' : ''}`} onClick={(e) => e.stopPropagation()}>{children(() => setOpen(false))}</div>}
     </div>
   );
 }
