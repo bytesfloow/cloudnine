@@ -5,9 +5,9 @@ let state = {
   booted: false,
   initialized: true,
   user: null,
-  siteName: '文件管理系统',
+  siteName: 'SkyDesk',
   version: '',
-  theme: localStorage.getItem('wfm-theme') || 'auto',
+  theme: localStorage.getItem('skydesk-theme') || 'auto',
 
   windows: [],
   zTop: 10,
@@ -120,12 +120,12 @@ export function applyTheme(theme) {
   document.documentElement.style.colorScheme = resolved;
 }
 export function setTheme(theme) {
-  localStorage.setItem('wfm-theme', theme);
+  localStorage.setItem('skydesk-theme', theme);
   setState({ theme });
   applyTheme(theme);
 }
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => {
-  if ((localStorage.getItem('wfm-theme') || 'auto') === 'auto') applyTheme('auto');
+  if ((localStorage.getItem('skydesk-theme') || 'auto') === 'auto') applyTheme('auto');
 });
 
 // ---------- 通知 ----------
@@ -180,7 +180,7 @@ export function quickLookNav(delta) {
 
 // ---------- 窗口管理 ----------
 // 手动调整过的窗口几何按类型持久化到 localStorage，下次打开同类型窗口时恢复
-const GEOM_KEY = 'wfm-win-geom';
+const GEOM_KEY = 'skydesk-win-geom';
 
 function loadGeom() {
   try {

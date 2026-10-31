@@ -10,7 +10,7 @@ try { pty = (await import('node-pty')).default; } catch { /* fallback below */ }
 
 function sessionFromRequest(req) {
   const cookies = cookie.parse(req.headers.cookie || '');
-  const token = cookies.wfm_sid;
+  const token = cookies.skydesk_sid;
   const s = token && getDB().sessions[token];
   if (!s || s.expiresAt < Date.now()) return null;
   return s;

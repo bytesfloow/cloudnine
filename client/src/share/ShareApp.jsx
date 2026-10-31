@@ -182,7 +182,7 @@ export default function ShareApp() {
           </div>
         )}
       </div>
-      <p className="share-footer">该页面由自托管文件管理系统提供 · 不代表任何商业服务</p>
+      <p className="share-footer">该页面由自托管云桌面 SkyDesk 提供 · 不代表任何商业服务</p>
     </div>
   );
 }
@@ -198,7 +198,7 @@ function joinRel(a, b) {
 
 // 分享页独立于桌面应用：自行应用主题
 (() => {
-  const saved = localStorage.getItem('wfm-theme') || 'auto';
+  const saved = localStorage.getItem('skydesk-theme') || 'auto';
   const resolved = saved === 'auto'
     ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
     : saved;

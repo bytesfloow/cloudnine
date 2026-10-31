@@ -21,7 +21,7 @@ export const config = {
   // 文件系统浏览根目录：Linux 默认 /，Windows 开发环境默认用户主目录
   fileRoot: path.resolve(env('FILE_ROOT') ?? fileConfig.fileRoot ?? (isWin ? os.homedir() : '/')),
   dataDir: path.resolve(env('DATA_DIR') ?? fileConfig.dataDir ?? path.join(process.cwd(), 'data')),
-  siteName: String(env('SITE_NAME') ?? fileConfig.siteName ?? '文件管理系统').slice(0, 50),
+  siteName: String(env('SITE_NAME') ?? fileConfig.siteName ?? 'SkyDesk').slice(0, 50),
   sessionDays: num(env('SESSION_DAYS') ?? fileConfig.sessionDays, 7),
   rememberDays: num(env('REMEMBER_DAYS') ?? fileConfig.rememberDays, 30),
   maxUploadMB: num(env('MAX_UPLOAD_MB') ?? fileConfig.maxUploadMB, 4096),

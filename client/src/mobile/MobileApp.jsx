@@ -363,7 +363,7 @@ function MobileTermKeys() {
   return (
     <div className="m-termkeys">
       {Object.keys(KEY_MAP).map((k) => (
-        <button key={k} onClick={() => window.dispatchEvent(new CustomEvent('wfm-term-input', { detail: { filter: 'mobile-term', data: KEY_MAP[k] } }))}>{k}</button>
+        <button key={k} onClick={() => window.dispatchEvent(new CustomEvent('skydesk-term-input', { detail: { filter: 'mobile-term', data: KEY_MAP[k] } }))}>{k}</button>
       ))}
     </div>
   );

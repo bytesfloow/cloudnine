@@ -9,7 +9,7 @@ import { IconHome, IconGlobe, IconTrash, IconTerminal } from '../icons.jsx';
 const CELL_W = 92;
 const CELL_H = 96;
 const ICON_W = 84;
-const POS_KEY = 'wfm-icon-pos';
+const POS_KEY = 'skydesk-icon-pos';
 const DRAG_THRESHOLD = 4;
 
 function loadSavedPositions() {

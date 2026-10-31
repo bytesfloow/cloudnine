@@ -1,8 +1,8 @@
 {
-  "name": "web-file-manager",
+  "name": "skydesk",
   "version": "0.1.0",
   "private": true,
-  "description": "macOS 风格 Web 文件管理系统（自托管单用户）",
+  "description": "SkyDesk — macOS 风格云服务器桌面（自托管单用户）",
   "scripts": {
     "install:all": "npm --prefix server install && npm --prefix client install",
     "dev:server": "npm --prefix server run dev",

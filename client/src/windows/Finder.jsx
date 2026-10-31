@@ -469,12 +469,12 @@ export default function Finder({ win }) {
   // ---------- 拖拽 ----------
   function onItemDragStart(e, entry) {
     const paths = sel.has(entry.name) ? [...sel].map((n) => joinPath(cwd, n)) : [joinPath(cwd, entry.name)];
-    e.dataTransfer.setData('application/x-wfm', JSON.stringify({ paths, cwd, mode: e.altKey ? 'copy' : 'move' }));
+    e.dataTransfer.setData('application/x-skydesk', JSON.stringify({ paths, cwd, mode: e.altKey ? 'copy' : 'move' }));
     e.dataTransfer.effectAllowed = 'copyMove';
   }
   async function onDropToDir(e, targetDir) {
     e.preventDefault(); e.stopPropagation();
-    const raw = e.dataTransfer.getData('application/x-wfm');
+    const raw = e.dataTransfer.getData('application/x-skydesk');
     if (raw) {
       try {
         const { paths, mode } = JSON.parse(raw);
@@ -676,7 +676,7 @@ function SideItem({ label, onClick, active, dropdir, small }) {
       onDragOver={(e) => { if (dropdir != null) e.preventDefault(); }}
       onDrop={(e) => {
         if (dropdir == null) return;
-        const raw = e.dataTransfer.getData('application/x-wfm');
+        const raw = e.dataTransfer.getData('application/x-skydesk');
         if (!raw) return;
         const { paths } = JSON.parse(raw);
         api.move(paths, dropdir).then(() => bus.emit('fs:changed', dropdir)).catch((e2) => notify({ type: 'error', title: '移动失败', body: e2.message }));

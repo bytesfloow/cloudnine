@@ -93,7 +93,7 @@ export function TerminalView({ cwd, actionFilter, className = '', terminalRef })
       if (wsRef.current?.readyState === 1) wsRef.current.send(JSON.stringify({ type: 'in', data: utf8ToB64(e.detail.data) }));
       term.focus();
     };
-    window.addEventListener('wfm-term-input', onExtInput);
+    window.addEventListener('skydesk-term-input', onExtInput);
 
     // 主题切换跟随
     const unsubTheme = bus.on('theme-changed', () => { term.options.theme = termTheme(); });
@@ -102,7 +102,7 @@ export function TerminalView({ cwd, actionFilter, className = '', terminalRef })
       alive = false;
       closedByUser = true;
       unsubAction(); unsubTheme();
-      window.removeEventListener('wfm-term-input', onExtInput);
+      window.removeEventListener('skydesk-term-input', onExtInput);
       ro.disconnect();
       try { wsRef.current?.close(); } catch { /* 忽略 */ }
       term.dispose();

@@ -1,6 +1,6 @@
-# Web File Manager — macOS 风格服务器文件管理系统
+# SkyDesk — macOS 风格云服务器桌面
 
-自托管的单用户 Web 文件管理器：部署在云服务器上，浏览器打开即进入一个 **macOS 风格的桌面环境**——菜单栏、桌面图标、可自由拖动的窗口、底部 Dock。文件在"访达"窗口里管理，命令在"终端"窗口里执行，手机浏览器自动切换为 iOS 风格单屏形态。
+自托管的单用户云桌面：部署在云服务器上，浏览器打开即进入一个 **macOS 风格的桌面环境**——菜单栏、桌面图标、可自由拖动的窗口、底部 Dock。文件在"访达"窗口里管理，命令在"终端"窗口里执行，手机浏览器自动切换为 iOS 风格单屏形态。
 
 功能范围与交互细节见 [需求文档.md](./需求文档.md)（v2.1，含全部决策记录）。
 
@@ -22,7 +22,7 @@
 ## 目录结构
 
 ```
-web-file-manager/
+skydesk/
 ├── 需求文档.md          # PRD（v2.1）
 ├── server/              # Node.js + Express + ws 服务端
 │   └── src/
@@ -78,7 +78,7 @@ npm run dev:client   # 终端 2：Vite :5173（/api 与 /ws 已代理到 8480）
 | 监听地址 | `HOST` | 0.0.0.0 | 建议配合反向代理 |
 | **文件根目录** | `FILE_ROOT` | Linux `/`（Windows 开发默认用户主目录） | 可浏览的起始目录，建议限制到数据盘 |
 | 数据目录 | `DATA_DIR` | `server/data` | 账号、分享、废纸篓、上传临时文件 |
-| 站点名称 | `SITE_NAME` | 文件管理系统 | 菜单栏与标题显示 |
+| 站点名称 | `SITE_NAME` | SkyDesk | 菜单栏与标题显示 |
 | 会话有效期 | `SESSION_DAYS` | 7 | "记住我" 30 天 |
 | 上传上限 | `MAX_UPLOAD_MB` | 4096 | 单文件大小上限 |
 | 废纸篓保留 | `TRASH_RETENTION_DAYS` | 30 | 到期自动清理 |
@@ -97,23 +97,23 @@ npm run dev:client   # 终端 2：Vite :5173（/api 与 /ws 已代理到 8480）
 npm run install:all && npm run build
 
 # 以 systemd 常驻（示例）
-sudo tee /etc/systemd/system/wfm.service <<'EOF'
+sudo tee /etc/systemd/system/skydesk.service <<'EOF'
 [Unit]
-Description=Web File Manager
+Description=SkyDesk
 After=network.target
 
 [Service]
-WorkingDirectory=/opt/web-file-manager/server
+WorkingDirectory=/opt/skydesk/server
 Environment=FILE_ROOT=/data
 Environment=PORT=8480
 ExecStart=/usr/bin/node src/index.js
 Restart=always
-User=wfm
+User=skydesk
 
 [Install]
 WantedBy=multi-user.target
 EOF
-sudo systemctl enable --now wfm
+sudo systemctl enable --now skydesk
 ```
 
 建议配合 Nginx/Caddy 反向代理 + HTTPS：

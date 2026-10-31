@@ -111,7 +111,7 @@ mediaRouter.post('/archive/create', async (req, res, next) => {
         const archive = fmt === 'zip'
           ? archiver('zip', { zlib: { level: Number(level) ?? 6 } })
           : fmt === 'tar.gz' ? archiver('tar', { gzip: { level: 6 } }) : archiver('tar');
-        const tmpOut = outAbs + '.wfm-tmp';
+        const tmpOut = outAbs + '.skydesk-tmp';
         const ws = fs.createWriteStream(tmpOut);
         archive.on('entry', () => { done++; job.progress = total ? Math.round((done / total) * 100) : 0; });
         archive.on('error', (e) => { throw e; });
@@ -128,7 +128,7 @@ mediaRouter.post('/archive/create', async (req, res, next) => {
         job.status = 'done'; job.progress = 100; job.resultRel = toRel(outAbs);
       } catch (e) {
         job.status = 'error'; job.error = e.message;
-        await fsp.rm(outAbs + '.wfm-tmp', { force: true }).catch(() => {});
+        await fsp.rm(outAbs + '.skydesk-tmp', { force: true }).catch(() => {});
       }
     })();
   } catch (e) { next(e); }

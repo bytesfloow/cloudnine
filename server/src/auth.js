@@ -6,7 +6,7 @@ import { getDB, saveDB } from './db.js';
 import { config } from './config.js';
 import { err } from './util.js';
 
-const COOKIE = 'wfm_sid';
+const COOKIE = 'skydesk_sid';
 const day = (n) => n * 24 * 3600 * 1000;
 
 // 登录限流：10 分钟窗口内失败 10 次 → 锁定 15 分钟
