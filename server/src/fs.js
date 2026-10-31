@@ -333,7 +333,7 @@ fsRouter.post('/fs/write', async (req, res, next) => {
     if (st && !force && baseMtimeMs != null && Math.abs(st.mtimeMs - Number(baseMtimeMs)) > 100) {
       return res.status(409).json({ error: '文件已在外部变更', code: 'conflict', mtimeMs: st.mtimeMs });
     }
-    const tmp = path.join(path.dirname(full), `.${path.basename(full)}.skydesk-tmp-${uid()}`);
+    const tmp = path.join(path.dirname(full), `.${path.basename(full)}.cloudnine-tmp-${uid()}`);
     await fsp.writeFile(tmp, content, 'utf-8');
     await fsp.rename(tmp, full);
     const nst = await fsp.stat(full);

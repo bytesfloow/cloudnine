@@ -44,7 +44,7 @@ export default function InitWizard() {
             <p className="auth-sub">首次使用前，请完成系统初始化。这将创建唯一的账号。</p>
             <label className="field">
               <span>站点名称（可选）</span>
-              <input value={siteName} onChange={(e) => setSiteName(e.target.value)} placeholder="我的 SkyDesk" />
+              <input value={siteName} onChange={(e) => setSiteName(e.target.value)} placeholder="我的 CloudNine" />
             </label>
             <button className="btn-primary" onClick={() => setStep(1)}>继续</button>
           </>
