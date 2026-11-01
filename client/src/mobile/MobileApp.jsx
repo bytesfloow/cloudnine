@@ -48,8 +48,7 @@ export default function MobileApp() {
     setQuickLookPath(path);
   }
 
-  const finderTitle = dir === '__trash__' ? '废纸篓' : (basename(dir) || '根目录');
-  const title = app === 'finder' ? finderTitle : APP_TITLES[app] || '';
+  const title = APP_TITLES[app] || '';
   const badges = {
     trash: s.trashCount,
     transfers: s.transfers.filter((x) => ['uploading', 'pending'].includes(x.status)).length,
@@ -283,7 +282,7 @@ function FinderMobile({ dir, setDir, openFile }) {
     <div className="m-finder" onContextMenu={(e) => { e.preventDefault(); if (!e.target.closest('.m-row, .m-cell, input, button')) setSheet({ entry: null }); }}>
       <div className="m-toolbar">
         <button className="tb-btn" disabled={!dir} onClick={() => setDir(isTrash ? (getState().homeRel || '') : dirname(dir))}><IconChevron dir="left" /></button>
-        <span className="m-path ellipsis">{isTrash ? '废纸篓' : `/${dir}`}</span>
+        <span className="m-path ellipsis">{isTrash ? '废纸篓' : (dir ? `/${dir}` : '根目录')}</span>
         <button className="tb-btn" onClick={() => setView(view === 'list' ? 'grid' : 'list')}><IconGrid size={14} /></button>
         <button className="tb-btn" onClick={load}><IconRefresh /></button>
       </div>
@@ -414,7 +413,7 @@ function UploadMobile({ dir }) {
         <button className="m-upload-card" onClick={() => pickMobileUpload(false, dir)}>📄 选择文件</button>
         <button className="m-upload-card" onClick={() => pickMobileUpload(true, dir)}>📁 选择文件夹</button>
       </div>
-      <p className="info-hint">上传目标：/{dir || '（根目录）'}</p>
+      <p className="info-hint">上传目标：{dir ? `/${dir}` : '根目录'}</p>
       <div className="transfer-list">
         {s.transfers.slice(0, 10).map((it) => (
           <div key={it.id} className={`transfer-item t-${it.status}`}>
