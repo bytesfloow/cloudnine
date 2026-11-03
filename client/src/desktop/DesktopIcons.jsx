@@ -145,7 +145,7 @@ export default function DesktopIcons() {
   async function newInHome(kind) {
     const v = await promptDialog({
       title: kind === 'dir' ? '新建文件夹' : '新建空白文件',
-      fields: [{ key: 'name', label: '名称', required: true, autofocus: true, placeholder: kind === 'dir' ? '文件夹名称' : '文件名称.txt' }],
+      fields: [{ key: 'name', label: '名称', required: true, autofocus: true, placeholder: kind === 'dir' ? '文件夹名称' : '文件名称.md' }],
     });
     if (!v?.name) return;
     try {

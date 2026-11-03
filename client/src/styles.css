@@ -250,6 +250,13 @@ a { color: var(--accent); text-decoration: none; }
   background: var(--bar-bg);
 }
 .win-controls { display: flex; margin-left: auto; align-self: stretch; }
+/* 编辑器保存成功：标题栏左端绿色「已保存」，短暂显示 */
+.win-saved {
+  flex: none; margin-right: auto; padding: 0 4px;
+  font-size: 12.5px; font-weight: 700; color: #1fa04a;
+  animation: pop .15s ease-out;
+}
+:root[data-theme='dark'] .win-saved { color: #3ddc6e; }
 /* Windows 风格标题栏按钮：矩形平铺于右上角，细线符号常显；符号用 SVG（mask）绘制，
    画布 14 单位按 1:1 渲染（无缩放模糊），坐标对称于中心 (7,7) */
 .tc {

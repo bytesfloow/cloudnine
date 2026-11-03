@@ -72,10 +72,9 @@ export default function EditorWindow({ win }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [cursor, setCursor] = useState({ line: 1, col: 1 });
-  const [fmt, setFmtState] = useState(() => fmtOf(win.props.name || ''));
+  const [fmt, setFmtState] = useState(() => (win.props.name ? fmtOf(win.props.name) : 'md')); // 新建文档默认 Markdown
   const [fmtMenu, setFmtMenu] = useState(false);
-  // 保存成功的标题栏提示：短暂显示「已保存」代替系统级通知
-  const [savedFlash, setSavedFlash] = useState(false);
+  // 保存成功提示：窗口标题栏左侧绿色「已保存」，2 秒后消失（不用系统级通知）
   const flashTimer = useRef(null);
   const savingRef = useRef(false);
   const docRef = useRef(doc);
@@ -88,18 +87,18 @@ export default function EditorWindow({ win }) {
   function setFmt(f) { setFmtState(f); setFmtMenu(false); }
 
   function flashSaved() {
-    setSavedFlash(true);
+    updateWindowProps(win.id, { savedFlash: true });
     clearTimeout(flashTimer.current);
-    flashTimer.current = setTimeout(() => setSavedFlash(false), 2000);
+    flashTimer.current = setTimeout(() => updateWindowProps(win.id, { savedFlash: false }), 2000);
   }
   useEffect(() => () => clearTimeout(flashTimer.current), []);
 
-  useEffect(() => { setWindowTitle(win.id, `${dirty ? '● ' : ''}${name || '未命名'}${!dirty && savedFlash ? ' · 已保存' : ''}`); markDirty(win.id, dirty); }, [dirty, name, win.id, savedFlash]);
+  useEffect(() => { setWindowTitle(win.id, `${dirty ? '● ' : ''}${name || '未命名'}`); markDirty(win.id, dirty); }, [dirty, name, win.id]);
   useEffect(() => () => markDirty(win.id, false), [win.id]);
   useEffect(() => { updateWindowProps(win.id, { path }); }, [path]);
   useEffect(() => { updateWindowProps(win.id, { fmt }); }, [fmt]);
-  // 文件名变化（格式保存/另存为）后，重置当前格式与菜单状态
-  useEffect(() => { setFmtState(fmtOf(name || '')); setFmtMenu(false); }, [name]);
+  // 文件名变化（格式保存/另存为）后，重置当前格式与菜单状态；未命名（新建）保持默认 md
+  useEffect(() => { if (!name) return; setFmtState(fmtOf(name)); setFmtMenu(false); }, [name]);
   // 点击其他区域关闭格式菜单
   useEffect(() => {
     if (!fmtMenu) return;

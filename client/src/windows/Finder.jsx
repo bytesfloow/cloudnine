@@ -218,7 +218,7 @@ export default function Finder({ win }) {
     if (isTrash) return;
     const v = await promptDialog({
       title: kind === 'dir' ? '新建文件夹' : '新建空白文件',
-      fields: [{ key: 'name', label: '名称', required: true, autofocus: true, placeholder: kind === 'dir' ? '文件夹名称' : '未命名.txt' }],
+      fields: [{ key: 'name', label: '名称', required: true, autofocus: true, placeholder: kind === 'dir' ? '文件夹名称' : '未命名.md' }],
     });
     if (!v?.name) return;
     try {
