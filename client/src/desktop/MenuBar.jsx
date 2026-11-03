@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useStore, bus, getState, setState, setTheme, showDialog, confirmDialog, notify, openWindow } from '../store.js';
+import { useStore, bus, getState, setState, setTheme, showDialog, confirmDialog, notify, openWindow, extname } from '../store.js';
 import { api } from '../api.js';
 import { uploadStats } from '../transfers.js';
 import { refreshDisk } from '../App.jsx';
@@ -33,8 +33,13 @@ function appMenus(type, w) {
     menus.push({ label: 'Shell', items: [A('newTab', '新建标签页'), A('closeTab', '关闭当前标签'), '-', A('closeWin', '关闭窗口')] });
     menus.push({ label: '显示', items: [A('clear', '清屏'), A('clear', '重置终端', { arg: 'reset' })] });
   } else if (type === 'editor') {
-    menus.push({ label: '文件', items: [A('save', '保存'), A('saveAs', '另存为…'), '-', A('closeWin', '关闭窗口')] });
-    menus.push({ label: '编辑', items: [A('find', '查找…')] });
+    const isMac = /Mac/i.test(navigator.platform || '');
+    const eFmt = w?.props?.fmt || (() => { const e = extname(w?.props?.name || ''); return (e === 'htm' || e === 'xhtml') ? 'html' : e; })();
+    menus.push({ label: '文件', items: [A('save', '保存', { hint: isMac ? '⌘S' : 'Ctrl+S' }), A('saveAs', '另存为…'), '-', A('closeWin', '关闭窗口')] });
+    menus.push({ label: '编辑', items: [
+      ...(['json', 'html'].includes(eFmt) ? [A('format', '格式化'), '-'] : []),
+      A('find', '查找…'),
+    ] });
   } else if (type === 'preview') {
     menus.push({ label: '文件', items: [A('download', '下载'), A('edit', '用编辑器打开'), '-', A('closeWin', '关闭窗口')] });
   }
@@ -94,6 +99,7 @@ export default function MenuBar() {
                   <button key={j} className={`dropdown-item${item.danger ? ' danger' : ''}`} disabled={item.disabled} onClick={() => runItem(item)}>
                     <span className="di-check">{item.checked ? '✓' : ''}</span>
                     {item.label}
+                    {item.hint && <span className="di-hint">{item.hint}</span>}
                   </button>
                 ))}
             </div>
