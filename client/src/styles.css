@@ -520,6 +520,10 @@ a { color: var(--accent); text-decoration: none; }
 .editor-statusbar .btn { margin-left: 0; }
 .editor-statusbar > span:first-child { flex: 1; }
 .editor-dirty { color: #f0883a; font-weight: 700; }
+/* 状态栏左端保存状态（原文件路径位置） */
+.editor-statusbar .es-state { font-weight: 600; }
+.editor-statusbar .es-state.saved { color: #1fa04a; }
+:root[data-theme='dark'] .editor-statusbar .es-state.saved { color: #3ddc6e; }
 /* 格式切换器（状态栏） */
 .editor-fmt { position: relative; flex: none; }
 .editor-fmt-chip {

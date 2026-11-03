@@ -270,7 +270,7 @@ export default function EditorWindow({ win }) {
         />
       </div>
       <div className="editor-statusbar">
-        <span className="mono ellipsis">{path ? `/${path}` : '未命名'}</span>
+        <span className={`es-state${dirty ? ' editor-dirty' : ' saved'}`}>{dirty ? '未保存' : '已保存'}</span>
         <span>{cursor.line}:{cursor.col}</span>
         <div className="editor-fmt">
           <button
@@ -292,7 +292,6 @@ export default function EditorWindow({ win }) {
         </div>
         <span className="es-enc">{meta.encoding || 'utf-8'}</span>
         <span className="es-size">{fmtSize(meta.size)}</span>
-        <span className={dirty ? 'editor-dirty' : ''}>{dirty ? '未保存' : '已保存'}</span>
         {(fmt === 'json' || fmt === 'html') && !meta.truncated && <button className="btn btn-small" onClick={formatDoc}>格式化</button>}
         <button className="btn btn-small" onClick={() => save()}>保存</button>
         <button className="btn btn-small" onClick={saveAs}>另存为</button>
