@@ -74,8 +74,6 @@ export default function EditorWindow({ win }) {
   const [cursor, setCursor] = useState({ line: 1, col: 1 });
   const [fmt, setFmtState] = useState(() => (win.props.name ? fmtOf(win.props.name) : 'md')); // 新建文档默认 Markdown
   const [fmtMenu, setFmtMenu] = useState(false);
-  // 保存成功提示：窗口标题栏左侧绿色「已保存」，2 秒后消失（不用系统级通知）
-  const flashTimer = useRef(null);
   const savingRef = useRef(false);
   const docRef = useRef(doc);
   docRef.current = doc;
@@ -85,13 +83,6 @@ export default function EditorWindow({ win }) {
   const fmtPending = !!path && fmt !== fmtOf(name);
 
   function setFmt(f) { setFmtState(f); setFmtMenu(false); }
-
-  function flashSaved() {
-    updateWindowProps(win.id, { savedFlash: true });
-    clearTimeout(flashTimer.current);
-    flashTimer.current = setTimeout(() => updateWindowProps(win.id, { savedFlash: false }), 2000);
-  }
-  useEffect(() => () => clearTimeout(flashTimer.current), []);
 
   useEffect(() => { setWindowTitle(win.id, `${dirty ? '● ' : ''}${name || '未命名'}`); markDirty(win.id, dirty); }, [dirty, name, win.id]);
   useEffect(() => () => markDirty(win.id, false), [win.id]);
@@ -151,7 +142,6 @@ export default function EditorWindow({ win }) {
         if (target !== path) followTarget(target, targetName);
         setSavedDoc(docRef.current);
         setMeta((m) => ({ ...m, mtimeMs: r.mtimeMs, size: r.size }));
-        flashSaved();
         return true;
       } catch (e) {
         // 已重命名但写入失败：编辑器跟随新文件，避免指向已不存在的旧路径
@@ -236,7 +226,6 @@ export default function EditorWindow({ win }) {
       await api.write({ path: target, content: docRef.current });
       followTarget(target, basename(target));
       setSavedDoc(docRef.current);
-      flashSaved();
       return true;
     } catch (e) { notify({ type: 'error', title: '另存为失败', body: e.message }); return false; }
   }

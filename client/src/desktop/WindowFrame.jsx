@@ -74,7 +74,6 @@ export default function WindowFrame({ win, focused, children }) {
       onPointerDown={() => focusWindow(win.id)}
     >
       <div className="window-titlebar" onPointerDown={startDrag} onDoubleClick={() => toggleMaxWindow(win.id)}>
-        {win.props?.savedFlash && <span className="win-saved">已保存</span>}
         <div className="win-controls">
           <button className="tc tc-min" title="最小化" aria-label="最小化" onClick={(e) => { e.stopPropagation(); minimizeWindow(win.id); }} />
           <button className="tc tc-max" title="最大化" aria-label="最大化" onClick={(e) => { e.stopPropagation(); toggleMaxWindow(win.id); }} />
