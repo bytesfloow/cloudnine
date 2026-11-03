@@ -10,7 +10,8 @@ import { TerminalView } from '../windows/Terminal.jsx';
 import { PreviewContent } from '../windows/Preview.jsx';
 import EditorWindow from '../windows/Editor.jsx';
 import {
-  FileIcon, IconChevron, IconSearch, IconRefresh, IconGrid,
+  FileIcon, IconChevron, IconSearch, IconRefresh, IconGrid, IconList,
+  IconCamera, IconPhoto, IconDoc, IconFolderBig,
 } from '../icons.jsx';
 import { HomeScreen, StatusBar, HomeIndicator, Glyph } from './HomeScreen.jsx';
 
@@ -34,7 +35,8 @@ export default function MobileApp() {
       const r = e.currentTarget.getBoundingClientRect();
       setOrigin(`${(((r.left + r.width / 2) / window.innerWidth) * 100).toFixed(1)}% ${(((r.top + r.height / 2) / window.innerHeight) * 100).toFixed(1)}%`);
     }
-    if (key === 'trash') { setDir('__trash__'); setApp('finder'); } else setApp(key);
+    if (key === 'trash') { setDir('__trash__'); setApp('finder'); }
+    else { if (key === 'finder' && dir === '__trash__') setDir(getState().homeRel || ''); setApp(key); }
     setPhase('open');
   }
   function goHome() {
@@ -146,15 +148,33 @@ function FinderMobile({ dir, setDir, openFile }) {
   }), [dir, isTrash]);
 
   // 触摸长按 → 操作菜单（桌面浏览器走 contextmenu）
+  // fired 记录长按目标名：长按后浏览器合成的 click 只属于那一行，不应吞掉对其他行的第一次点击
   const lpStart = (entry) => (e) => {
     longPress.current.fired = false;
+    longPress.current.name = entry.name;
     clearTimeout(longPress.current.timer);
     longPress.current.timer = setTimeout(() => { longPress.current.fired = true; setSheet({ entry }); }, 480);
   };
   const lpCancel = () => clearTimeout(longPress.current.timer);
-  const lpClick = (fn) => () => {
-    if (longPress.current.fired) { longPress.current.fired = false; return; }
+  const lpClick = (fn, entry) => () => {
+    if (longPress.current.fired && longPress.current.name === entry?.name) { longPress.current.fired = false; return; }
     fn();
+  };
+
+  // 空白处触摸长按 → 空白菜单（新建文件夹/粘贴/上传，此前触屏上无法呼出）
+  const blankLp = useRef({ timer: null, x: 0, y: 0 });
+  const blankStart = (e) => {
+    const t = e.touches[0];
+    if (e.target.closest('.m-row, .m-cell, input, button, .m-selectbar, .m-toolbar, .m-search, .m-appbar')) return;
+    blankLp.current.x = t.clientX; blankLp.current.y = t.clientY;
+    clearTimeout(blankLp.current.timer);
+    blankLp.current.timer = setTimeout(() => { navigator.vibrate?.(10); setSheet({ entry: null }); }, 480);
+  };
+  const blankCancel = () => clearTimeout(blankLp.current.timer);
+  const blankMove = (e) => {
+    if (!blankLp.current.timer) return;
+    const t = e.touches[0];
+    if (Math.hypot(t.clientX - blankLp.current.x, t.clientY - blankLp.current.y) > 10) clearTimeout(blankLp.current.timer);
   };
 
   function openEntry(entry) {
@@ -271,7 +291,7 @@ function FinderMobile({ dir, setDir, openFile }) {
   const shown = (entries || []).filter((e) => !e.hidden && (!searchMode || e.name.toLowerCase().includes(search.toLowerCase())));
 
   const rowHandlers = (entry) => ({
-    onClick: lpClick(() => openEntry(entry)),
+    onClick: lpClick(() => openEntry(entry), entry),
     onContextMenu: (e) => { e.preventDefault(); setSheet({ entry }); },
     onTouchStart: lpStart(entry),
     onTouchMove: lpCancel,
@@ -279,12 +299,22 @@ function FinderMobile({ dir, setDir, openFile }) {
   });
 
   return (
-    <div className="m-finder" onContextMenu={(e) => { e.preventDefault(); if (!e.target.closest('.m-row, .m-cell, input, button')) setSheet({ entry: null }); }}>
+    <div
+      className="m-finder"
+      onContextMenu={(e) => { e.preventDefault(); if (!e.target.closest('.m-row, .m-cell, input, button')) setSheet({ entry: null }); }}
+      onTouchStart={blankStart}
+      onTouchMove={blankMove}
+      onTouchEnd={blankCancel}
+      onTouchCancel={blankCancel}
+    >
       <div className="m-toolbar">
-        <button className="tb-btn" disabled={!dir} onClick={() => setDir(isTrash ? (getState().homeRel || '') : dirname(dir))}><IconChevron dir="left" /></button>
-        <span className="m-path ellipsis">{isTrash ? '废纸篓' : (dir ? `/${dir}` : '根目录')}</span>
-        <button className="tb-btn" onClick={() => setView(view === 'list' ? 'grid' : 'list')}><IconGrid size={14} /></button>
-        <button className="tb-btn" onClick={load}><IconRefresh /></button>
+        <span className="m-path ellipsis">{isTrash ? '废纸篓' : (dir ? `根目录/${dir}` : '根目录')}</span>
+        <button className="tb-btn" onClick={() => setView(view === 'list' ? 'grid' : 'list')} title={view === 'list' ? '切换到卡片视图' : '切换到列表视图'}>
+          {view === 'list' ? <IconGrid size={14} /> : <IconList size={14} />}
+        </button>
+        <button className="tb-btn" onClick={load} title="刷新"><IconRefresh /></button>
+        {/* 返回上级放最右侧：与左上角"退出窗口"按钮拉开距离，避免误触 */}
+        <button className="tb-btn m-up-btn" disabled={!dir} onClick={() => setDir(isTrash ? (getState().homeRel || '') : dirname(dir))} title="返回上一级"><IconChevron dir="left" /></button>
       </div>
       <div className="m-search">
         <div className="finder-search">
@@ -294,7 +324,7 @@ function FinderMobile({ dir, setDir, openFile }) {
       </div>
 
       {loading ? <div className="finder-loading"><div className="boot-spinner" /></div>
-        : error ? <div className="finder-empty"><p>⚠️ {error}</p></div>
+        : error ? <div className="finder-empty"><p>{error}</p></div>
         : shown.length === 0 ? <div className="finder-empty"><p>{isTrash ? '废纸篓是空的' : searchMode ? '没有匹配项' : '此文件夹是空的'}</p></div>
         : view === 'list' ? (
           <div className="m-list">
@@ -395,25 +425,39 @@ function MobileTermKeys() {
 // ---------- 上传页 ----------
 function UploadMobile({ dir }) {
   const s = useStore();
+  const [target, setTarget] = useState(dir);
+  const [picker, setPicker] = useState(false);
+
+  function pickTarget(cwd) {
+    setPicker(false);
+    setTarget(cwd);
+    notify({ type: 'success', title: '上传目标已更新', body: cwd ? `根目录/${cwd}` : '根目录' });
+  }
+
   return (
     <div className="m-upload">
       <div className="m-upload-cards">
         <button className="m-upload-card" onClick={() => {
           const input = document.createElement('input');
           input.type = 'file'; input.accept = 'image/*'; input.capture = 'environment';
-          input.onchange = () => { for (const f of input.files) addUpload(f, dir); };
+          input.onchange = () => { for (const f of input.files) addUpload(f, target); };
           input.click();
-        }}>📷 拍照上传</button>
+        }}><IconCamera size={30} />拍照上传</button>
         <button className="m-upload-card" onClick={() => {
           const input = document.createElement('input');
           input.type = 'file'; input.accept = 'image/*,video/*'; input.multiple = true;
-          input.onchange = () => { for (const f of input.files) addUpload(f, dir); };
+          input.onchange = () => { for (const f of input.files) addUpload(f, target); };
           input.click();
-        }}>🖼 照片与视频</button>
-        <button className="m-upload-card" onClick={() => pickMobileUpload(false, dir)}>📄 选择文件</button>
-        <button className="m-upload-card" onClick={() => pickMobileUpload(true, dir)}>📁 选择文件夹</button>
+        }}><IconPhoto size={30} />照片与视频</button>
+        <button className="m-upload-card" onClick={() => pickMobileUpload(false, target)}><IconDoc size={30} />选择文件</button>
+        <button className="m-upload-card" onClick={() => pickMobileUpload(true, target)}><IconFolderBig size={30} />选择文件夹</button>
       </div>
-      <p className="info-hint">上传目标：{dir ? `/${dir}` : '根目录'}</p>
+      <button className="m-upload-target" onClick={() => setPicker(true)}>
+        <span className="ut-label">上传目标</span>
+        <span className="ut-value ellipsis">{target ? `根目录/${target}` : '根目录'}</span>
+        <span className="ut-change">更改</span>
+      </button>
+      {picker && <DirPicker start={target} close={() => setPicker(false)} onPick={pickTarget} />}
       <div className="transfer-list">
         {s.transfers.slice(0, 10).map((it) => (
           <div key={it.id} className={`transfer-item t-${it.status}`}>
@@ -428,6 +472,52 @@ function UploadMobile({ dir }) {
             </div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------- 目录选择器（浏览现有目录，无键盘输入） ----------
+function DirPicker({ start, close, onPick }) {
+  const [cwd, setCwd] = useState(start || '');
+  const [dirs, setDirs] = useState(null);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    setDirs(null); setErr('');
+    api.list(cwd).then((r) => {
+      if (!alive) return;
+      setDirs(r.entries.filter((e) => e.type === 'dir').sort((a, b) => a.name.localeCompare(b.name, 'zh')));
+    }).catch((e) => { if (alive) { setErr(e.message); setDirs([]); } });
+    return () => { alive = false; };
+  }, [cwd]);
+
+  return (
+    <div className="sheet-overlay" onClick={close}>
+      <div className="dir-picker" onClick={(e) => e.stopPropagation()}>
+        <div className="dp-head">
+          <button className="tb-btn" disabled={!cwd} onClick={() => setCwd(dirname(cwd))} title="返回上一级"><IconChevron dir="left" /></button>
+          <span className="dp-path ellipsis">{cwd ? `根目录/${cwd}` : '根目录'}</span>
+          <button className="tb-btn" onClick={close} title="关闭">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M5 5l14 14M19 5L5 19" /></svg>
+          </button>
+        </div>
+        <div className="dp-list">
+          {dirs === null ? <div className="dp-empty"><div className="boot-spinner" /></div>
+            : err ? <div className="dp-empty">{err}</div>
+            : dirs.length === 0 ? <div className="dp-empty">此文件夹没有子文件夹</div>
+            : dirs.map((d) => (
+              <button key={d.name} className="dp-row" onClick={() => setCwd(cwd ? `${cwd}/${d.name}` : d.name)}>
+                <span className="dp-ic"><IconFolderBig size={22} /></span>
+                <span className="dp-name ellipsis">{d.name}</span>
+                <IconChevron size={14} />
+              </button>
+            ))}
+        </div>
+        <button className="dp-confirm" onClick={() => onPick(cwd)}>
+          选择此目录{cwd ? `（根目录/${cwd}）` : '（根目录）'}
+        </button>
       </div>
     </div>
   );
@@ -448,15 +538,15 @@ function TransfersMobile() {
               <div className="tr-bar"><i style={{ width: `${fmtProgress(it)}%` }} /></div>
             </div>
             <div className="tr-actions">
-              {it.status === 'uploading' && <button className="btn btn-small" onClick={() => pauseUpload(it.id)}>⏸</button>}
-              {it.status === 'paused' && <button className="btn btn-small" onClick={() => resumeUpload(it.id)}>▶</button>}
-              {['pending', 'uploading', 'paused', 'error'].includes(it.status) && <button className="btn btn-small" onClick={() => cancelUpload(it.id)}>✕</button>}
-              {it.status === 'done' && <span className="tr-done">✓</span>}
+              {it.status === 'uploading' && <button className="btn btn-small" onClick={() => pauseUpload(it.id)}>暂停</button>}
+              {it.status === 'paused' && <button className="btn btn-small" onClick={() => resumeUpload(it.id)}>继续</button>}
+              {['pending', 'uploading', 'paused', 'error'].includes(it.status) && <button className="btn btn-small" onClick={() => cancelUpload(it.id)}>取消</button>}
+              {it.status === 'done' && <span className="tr-done">完成</span>}
             </div>
           </div>
         ))}
       </div>
-      {s.transfers.length > 0 && <button className="btn" onClick={clearFinishedUploads}>清除已完成</button>}
+      {s.transfers.length > 0 && <button className="btn m-clear-finished" onClick={clearFinishedUploads}>清除已完成</button>}
     </div>
   );
 }

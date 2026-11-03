@@ -140,7 +140,14 @@ async function transferEntries(paths, destRel, policy, doMove) {
     const name = path.basename(src);
     const dst = path.join(destDir, name);
     try {
-      if (src === dst || path.dirname(src) === destDir && doMove) { results.push({ name, action: 'same' }); continue; }
+      if (path.dirname(src) === destDir && doMove) { results.push({ name, action: 'same' }); continue; }
+      // 复制到自身所在目录：生成"xxx(1)"式副本名，而非静默跳过（移动到自己仍跳过）
+      if (src === dst && !doMove) {
+        const nn = uniqueName(destDir, name);
+        await fsp.cp(src, path.join(destDir, nn), { recursive: true });
+        results.push({ name, action: 'renamed', to: toRel(path.join(destDir, nn)) });
+        continue;
+      }
       const exists = existsSync(dst);
       if (exists) {
         if (policy === 'skip') { results.push({ name, action: 'skipped' }); continue; }

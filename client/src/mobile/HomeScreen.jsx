@@ -91,7 +91,7 @@ export function HomeScreen({ onOpen, badges }) {
   );
 }
 
-// 状态栏：左侧实时时钟，右侧信号/Wi-Fi/电池（装饰）
+// 状态栏：仅保留实时时钟（信号/Wi-Fi/电池为系统级信息，不模仿）
 function fmtClock() {
   const d = new Date();
   return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -105,21 +105,6 @@ export function StatusBar() {
   return (
     <div className="m-statusbar">
       <span className="m-sb-time">{now}</span>
-      <span className="m-sb-icons">
-        <svg width="17" height="11" viewBox="0 0 17 11" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-          <rect x="0" y="7" width="3" height="4" rx="1" /><rect x="4.6" y="5" width="3" height="6" rx="1" />
-          <rect x="9.2" y="2.6" width="3" height="8.4" rx="1" /><rect x="13.8" y="0" width="3" height="11" rx="1" opacity=".35" />
-        </svg>
-        <svg width="16" height="11" viewBox="0 0 16 11" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M8 9.6 5.6 7.2a3.6 3.6 0 0 1 4.8 0L8 9.6Z" fill="currentColor" />
-          <path d="M2.9 4.6a7.4 7.4 0 0 1 10.2 0M.7 2.3a10.6 10.6 0 0 1 14.6 0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
-        <svg width="25" height="12" viewBox="0 0 25 12" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect x=".5" y=".5" width="21" height="11" rx="3" stroke="currentColor" opacity=".4" />
-          <rect x="2" y="2" width="15" height="8" rx="1.6" fill="currentColor" />
-          <path d="M23 4v4a2.2 2.2 0 0 0 0-4Z" fill="currentColor" opacity=".4" />
-        </svg>
-      </span>
     </div>
   );
 }

@@ -1,11 +1,10 @@
 import React, { useEffect } from 'react';
-import { useStore, bus, openWindow, closeWindow, focusWindow, closeContextMenu, openQuickLook, getState, minimizeWindow, showDialog, dismissNotification } from '../store.js';
+import { useStore, bus, openWindow, closeWindow, focusWindow, closeContextMenu, openQuickLook, getState, minimizeWindow, showDialog } from '../store.js';
 import { addUpload } from '../transfers.js';
 import WindowFrame from './WindowFrame.jsx';
 import MenuBar from './MenuBar.jsx';
 import Dock from './Dock.jsx';
 import ContextMenu from './ContextMenu.jsx';
-import Dialogs from './Dialogs.jsx';
 import QuickLook from './QuickLook.jsx';
 import DesktopIcons from './DesktopIcons.jsx';
 import { renderWindow } from '../windows/registry.jsx';
@@ -81,24 +80,7 @@ export default function Desktop() {
       ))}
       <Dock />
       {s.contextMenu && <ContextMenu />}
-      <Dialogs />
       {s.quickLook && <QuickLook />}
-      <NotificationStack />
-    </div>
-  );
-}
-
-function NotificationStack() {
-  const s = useStore();
-  if (!s.notifications.length) return null;
-  return (
-    <div className="notification-stack">
-      {s.notifications.slice(-4).map((n) => (
-        <div key={n.id} className={`notification n-${n.type}`} onClick={() => dismissNotification(n.id)}>
-          <div className="n-title">{n.title}</div>
-          {n.body && <div className="n-body">{n.body}</div>}
-        </div>
-      ))}
     </div>
   );
 }

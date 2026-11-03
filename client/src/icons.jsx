@@ -191,3 +191,28 @@ export const IconInfo = ({ size = 15 }) => (
     <circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 7.5v.5" strokeLinecap="round" />
   </svg>
 );
+export const IconCamera = ({ size = 26 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round">
+    <path d="M3 8.5A2.5 2.5 0 0 1 5.5 6h1.6l1.1-1.6A1.6 1.6 0 0 1 9.6 3.6h4.8a1.6 1.6 0 0 1 1.4.8L16.9 6h1.6A2.5 2.5 0 0 1 21 8.5v9a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5v-9Z" />
+    <circle cx="12" cy="13" r="3.6" />
+  </svg>
+);
+export const IconPhoto = ({ size = 26 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" strokeLinecap="round">
+    <rect x="3" y="4" width="18" height="16" rx="2.5" />
+    <path d="M3 16.5l4.5-4.2a1.6 1.6 0 0 1 2.2 0l4.3 4.2M13.5 14.2l2-1.9a1.6 1.6 0 0 1 2.2 0L21 15.4" />
+    <circle cx="15.8" cy="8.6" r="1.5" />
+  </svg>
+);
+export const IconDoc = ({ size = 26 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" strokeLinecap="round">
+    <path d="M6.5 3h7L18 7.5V20a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 5 20V4.5A1.5 1.5 0 0 1 6.5 3Z" />
+    <path d="M13.5 3v5H18M8.5 12.5h7M8.5 16h7" />
+  </svg>
+);
+export const IconFolderBig = ({ size = 26 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round">
+    <path d="M3 6a2 2 0 0 1 2-2h4.6l2.2 2.5H19a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6Z" />
+    <path d="M3 10.5h18" />
+  </svg>
+);

@@ -1,6 +1,22 @@
 import React, { useEffect, useState } from 'react';
-import { useStore, resolveDialog, getState } from '../store.js';
+import { useStore, resolveDialog, getState, dismissNotification } from '../store.js';
 import { api } from '../api.js';
+
+// 通知堆栈（桌面/移动共用）：登录页等早期阶段也需要展示 notify()
+export function Notifications() {
+  const s = useStore();
+  if (!s.notifications.length) return null;
+  return (
+    <div className="notification-stack">
+      {s.notifications.slice(-4).map((n) => (
+        <div key={n.id} className={`notification n-${n.type}`} onClick={() => dismissNotification(n.id)}>
+          <div className="n-title">{n.title}</div>
+          {n.body && <div className="n-body">{n.body}</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function Dialogs() {
   const s = useStore();

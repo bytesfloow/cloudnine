@@ -4,6 +4,7 @@ import { useStore, getState, setState, applyTheme, notify } from './store.js';
 import InitWizard from './auth/InitWizard.jsx';
 import Login from './auth/Login.jsx';
 import Desktop from './desktop/Desktop.jsx';
+import Dialogs, { Notifications } from './desktop/Dialogs.jsx';
 
 const MobileApp = lazy(() => import('./mobile/MobileApp.jsx'));
 
@@ -22,13 +23,19 @@ export default function App() {
 
   if (!s.booted) return <div className="boot-screen"><div className="boot-spinner" /></div>;
 
-  if (!s.initialized) return <InitWizard />;
-  if (!s.user) return <Login />;
-
-  return (
+  // 对话框与通知挂最外层：登录页/初始化向导/桌面/移动共用（移动端此前缺失导致弹窗类功能全部失效）
+  const body = !s.initialized ? <InitWizard /> : !s.user ? <Login /> : (
     <Suspense fallback={<div className="boot-screen"><div className="boot-spinner" /></div>}>
       {isMobile ? <MobileApp /> : <Desktop />}
     </Suspense>
+  );
+
+  return (
+    <>
+      {body}
+      <Notifications />
+      <Dialogs />
+    </>
   );
 }
 

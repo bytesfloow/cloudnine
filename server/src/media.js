@@ -86,6 +86,25 @@ mediaRouter.get('/jobs', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// ---------- 启动自愈：清理进程中断遗留的压缩临时文件（*.cloudnine-tmp，无点前缀；上传 tmp 带点前缀+uid 不受影响） ----------
+export async function cleanOrphanTmp() {
+  const root = config.fileRoot;
+  const walk = async (dir, depth) => {
+    if (depth > 8) return;
+    let items;
+    try { items = await fsp.readdir(dir, { withFileTypes: true }); } catch { return; }
+    for (const it of items) {
+      const full = path.join(dir, it.name);
+      if (it.isDirectory()) { await walk(full, depth + 1); continue; }
+      if (it.name.endsWith('.cloudnine-tmp')) {
+        await fsp.rm(full, { force: true }).catch(() => {});
+        console.log(`[media] 清理遗留临时文件: ${toRel(full)}`);
+      }
+    }
+  };
+  await walk(root, 0);
+}
+
 // ---------- 压缩 ----------
 mediaRouter.post('/archive/create', async (req, res, next) => {
   try {
@@ -114,7 +133,8 @@ mediaRouter.post('/archive/create', async (req, res, next) => {
         const tmpOut = outAbs + '.cloudnine-tmp';
         const ws = fs.createWriteStream(tmpOut);
         archive.on('entry', () => { done++; job.progress = total ? Math.round((done / total) * 100) : 0; });
-        archive.on('error', (e) => { throw e; });
+        // 错误路由到 ws 使 await 链 reject 并进入 catch 清理 tmp（回调内 throw 会脱离 catch，导致 tmp 残留）
+        archive.on('error', (e) => ws.destroy(e));
         archive.pipe(ws);
         for (const rel of paths) {
           const abs = safeJoin(config.fileRoot, rel);

@@ -5,12 +5,13 @@ import { config, ensureDirs } from './config.js';
 import { authRouter } from './auth.js';
 import { fsRouter, cleanTrash } from './fs.js';
 import { transferRouter } from './transfer.js';
-import { mediaRouter } from './media.js';
+import { mediaRouter, cleanOrphanTmp } from './media.js';
 import { shareAdminRouter, sharePublicRouter } from './share.js';
 import { setupTerminal } from './terminal.js';
 import { serveStatic } from './static.js';
 
 ensureDirs();
+cleanOrphanTmp().catch(() => {});
 
 const app = express();
 if (config.trustProxy) app.set('trust proxy', true);
