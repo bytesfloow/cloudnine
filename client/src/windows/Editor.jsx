@@ -74,6 +74,9 @@ export default function EditorWindow({ win }) {
   const [cursor, setCursor] = useState({ line: 1, col: 1 });
   const [fmt, setFmtState] = useState(() => fmtOf(win.props.name || ''));
   const [fmtMenu, setFmtMenu] = useState(false);
+  // 保存成功的标题栏提示：短暂显示「已保存」代替系统级通知
+  const [savedFlash, setSavedFlash] = useState(false);
+  const flashTimer = useRef(null);
   const savingRef = useRef(false);
   const docRef = useRef(doc);
   docRef.current = doc;
@@ -84,7 +87,14 @@ export default function EditorWindow({ win }) {
 
   function setFmt(f) { setFmtState(f); setFmtMenu(false); }
 
-  useEffect(() => { setWindowTitle(win.id, `${dirty ? '● ' : ''}${name || '未命名'}`); markDirty(win.id, dirty); }, [dirty, name, win.id]);
+  function flashSaved() {
+    setSavedFlash(true);
+    clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setSavedFlash(false), 2000);
+  }
+  useEffect(() => () => clearTimeout(flashTimer.current), []);
+
+  useEffect(() => { setWindowTitle(win.id, `${dirty ? '● ' : ''}${name || '未命名'}${!dirty && savedFlash ? ' · 已保存' : ''}`); markDirty(win.id, dirty); }, [dirty, name, win.id, savedFlash]);
   useEffect(() => () => markDirty(win.id, false), [win.id]);
   useEffect(() => { updateWindowProps(win.id, { path }); }, [path]);
   useEffect(() => { updateWindowProps(win.id, { fmt }); }, [fmt]);
@@ -119,9 +129,10 @@ export default function EditorWindow({ win }) {
   }
 
   // 保存（菜单 / Ctrl+S / 关闭前）。格式已切换时先重命名扩展名，再写入内容
+  // 返回 true=已保存 / false=失败或取消（关闭窗口流程据此决定是否关闭）
   async function save(force = false, skipRename = false) {
-    if (savingRef.current) return;
-    if (!path) return saveAs();
+    if (savingRef.current) return false;
+    if (!path) return await saveAs();
     savingRef.current = true;
     try {
       let target = path;
@@ -133,7 +144,7 @@ export default function EditorWindow({ win }) {
           await api.rename(path, targetName); // 目标已存在时服务端报 409
         } catch (e) {
           notify({ type: 'error', title: '格式切换失败', body: e.message });
-          return;
+          return false;
         }
       }
       try {
@@ -141,7 +152,8 @@ export default function EditorWindow({ win }) {
         if (target !== path) followTarget(target, targetName);
         setSavedDoc(docRef.current);
         setMeta((m) => ({ ...m, mtimeMs: r.mtimeMs, size: r.size }));
-        notify({ type: 'success', title: '已保存', body: targetName });
+        flashSaved();
+        return true;
       } catch (e) {
         // 已重命名但写入失败：编辑器跟随新文件，避免指向已不存在的旧路径
         if (target !== path) followTarget(target, targetName);
@@ -151,9 +163,11 @@ export default function EditorWindow({ win }) {
             message: '该文件可能已被终端或其他设备修改。直接保存将覆盖外部更改。',
             danger: true, okText: '覆盖保存', cancelText: '取消',
           });
-          if (ok) return save(true, true);
+          if (ok) return await save(true, true);
+          return false;
         } else {
           notify({ type: 'error', title: '保存失败', body: e.message });
+          return false;
         }
       }
     } finally {
@@ -196,7 +210,11 @@ export default function EditorWindow({ win }) {
     }
   }
 
-  useEffect(() => bus.on('editor-save', ({ windowId }) => { if (windowId === win.id) save(); }), [win.id, meta.mtimeMs, path, name, fmt]);
+  useEffect(() => bus.on('editor-save', async ({ windowId, done }) => {
+    if (windowId !== win.id) return;
+    const ok = await save();
+    done?.(ok);
+  }), [win.id, meta.mtimeMs, path, name, fmt]);
   useEffect(() => bus.on('win-action', ({ windowId, action }) => {
     if (windowId !== win.id) return;
     if (action === 'save') save();
@@ -205,6 +223,7 @@ export default function EditorWindow({ win }) {
     else if (action === 'find') notify({ type: 'info', title: '使用 Ctrl/Cmd + F 打开查找替换' });
   }), [win.id, meta.mtimeMs, path, name, fmt]);
 
+  // 另存为。返回 true=已保存 / false=取消或失败
   async function saveAs() {
     const defName = name ? withExt(name, fmt) : `未命名.${fmt}`;
     const v = await promptDialog({
@@ -212,14 +231,15 @@ export default function EditorWindow({ win }) {
       fields: [{ key: 'p', label: '目标路径', value: path || joinPath(getState().homeRel || '', defName), autofocus: true }],
       okText: '保存',
     });
-    if (!v?.p) return;
+    if (!v?.p) return false;
     const target = String(v.p).replace(/^\/+|\/+$/g, '');
     try {
       await api.write({ path: target, content: docRef.current });
       followTarget(target, basename(target));
       setSavedDoc(docRef.current);
-      notify({ type: 'success', title: '已另存为', body: target });
-    } catch (e) { notify({ type: 'error', title: '另存为失败', body: e.message }); }
+      flashSaved();
+      return true;
+    } catch (e) { notify({ type: 'error', title: '另存为失败', body: e.message }); return false; }
   }
 
   if (loading) return <div className="editor-window loading"><div className="boot-spinner" /></div>;

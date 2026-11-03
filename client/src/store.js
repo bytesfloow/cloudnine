@@ -260,6 +260,13 @@ export function focusWindow(id) {
 export async function closeWindow(id) {
   const win = state.windows.find((w) => w.id === id);
   if (!win) return;
+  const doClose = () => {
+    bus.emit('window-close', { windowId: id });
+    setState((s) => ({
+      windows: s.windows.filter((w) => w.id !== id),
+      focusId: s.focusId === id ? (s.windows.filter((w) => w.id !== id).sort((a, b) => b.z - a.z)[0]?.id || null) : s.focusId,
+    }));
+  };
   if (state.editorDirty?.[id]) {
     const choice = await showDialog({
       kind: 'confirm3',
@@ -268,13 +275,10 @@ export async function closeWindow(id) {
       saveText: '保存', dangerText: '不保存',
     });
     if (choice === 'cancel') return;
-    if (choice === 'save') { bus.emit('editor-save', { windowId: id }); return; }
+    // 保存由编辑器异步完成，成功后才关闭（失败/取消则保留窗口继续编辑）
+    if (choice === 'save') { bus.emit('editor-save', { windowId: id, done: (ok) => { if (ok !== false) doClose(); } }); return; }
   }
-  bus.emit('window-close', { windowId: id });
-  setState((s) => ({
-    windows: s.windows.filter((w) => w.id !== id),
-    focusId: s.focusId === id ? (s.windows.filter((w) => w.id !== id).sort((a, b) => b.z - a.z)[0]?.id || null) : s.focusId,
-  }));
+  doClose();
 }
 
 export const minimizeWindow = (id) =>
