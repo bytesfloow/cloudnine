@@ -74,6 +74,9 @@ export default function EditorWindow({ win }) {
   const [cursor, setCursor] = useState({ line: 1, col: 1 });
   const [fmt, setFmtState] = useState(() => (win.props.name ? fmtOf(win.props.name) : 'md')); // 新建文档默认 Markdown
   const [fmtMenu, setFmtMenu] = useState(false);
+  // 左下角状态：平时空白；有改动常驻「未保存」；保存成功才闪「已保存」2 秒
+  const [savedFlash, setSavedFlash] = useState(false);
+  const flashTimer = useRef(null);
   const savingRef = useRef(false);
   const docRef = useRef(doc);
   docRef.current = doc;
@@ -83,6 +86,17 @@ export default function EditorWindow({ win }) {
   const fmtPending = !!path && fmt !== fmtOf(name);
 
   function setFmt(f) { setFmtState(f); setFmtMenu(false); }
+
+  useEffect(() => () => clearTimeout(flashTimer.current), []);
+  useEffect(() => {
+    if (dirty) {
+      clearTimeout(flashTimer.current);
+      if (savedFlash) setSavedFlash(false);
+    } else if (savedFlash) {
+      clearTimeout(flashTimer.current);
+      flashTimer.current = setTimeout(() => setSavedFlash(false), 2000);
+    }
+  }, [dirty, savedFlash]);
 
   useEffect(() => { setWindowTitle(win.id, `${dirty ? '● ' : ''}${name || '未命名'}`); markDirty(win.id, dirty); }, [dirty, name, win.id]);
   useEffect(() => () => markDirty(win.id, false), [win.id]);
@@ -142,6 +156,7 @@ export default function EditorWindow({ win }) {
         if (target !== path) followTarget(target, targetName);
         setSavedDoc(docRef.current);
         setMeta((m) => ({ ...m, mtimeMs: r.mtimeMs, size: r.size }));
+        setSavedFlash(true);
         return true;
       } catch (e) {
         // 已重命名但写入失败：编辑器跟随新文件，避免指向已不存在的旧路径
@@ -226,6 +241,7 @@ export default function EditorWindow({ win }) {
       await api.write({ path: target, content: docRef.current });
       followTarget(target, basename(target));
       setSavedDoc(docRef.current);
+      setSavedFlash(true);
       return true;
     } catch (e) { notify({ type: 'error', title: '另存为失败', body: e.message }); return false; }
   }
@@ -259,7 +275,7 @@ export default function EditorWindow({ win }) {
         />
       </div>
       <div className="editor-statusbar">
-        <span className={`es-state${dirty ? ' editor-dirty' : ' saved'}`}>{dirty ? '未保存' : '已保存'}</span>
+        <span className={`es-state${dirty ? ' editor-dirty' : savedFlash ? ' saved' : ''}`}>{dirty ? '未保存' : savedFlash ? '已保存' : ''}</span>
         <span>{cursor.line}:{cursor.col}</span>
         <div className="editor-fmt">
           <button
