@@ -9,3 +9,7 @@ data/
 
 # UI 自测截图与报告（scripts/uitest.mjs 产出）
 shots/
+
+# Python 编译缓存
+__pycache__/
+*.pyc
