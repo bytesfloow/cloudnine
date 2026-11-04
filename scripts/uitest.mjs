@@ -58,6 +58,7 @@ const flag = (name) => argv.includes(`--${name}`);
 const URL_BASE = (arg('url', 'http://127.0.0.1:8480/') || '').replace(/\/$/, '');
 const USERNAME = arg('user', 'uitest');
 const PASSWORD = arg('password', 'Uitest12345');
+const SESSION = arg('session', null);   // 已有会话 token（测试已部署实例时免密码）
 const MOBILE = flag('mobile');
 const OUT_DIR = join(__dirname, '..', 'shots', `uitest-${new Date().toISOString().replace(/[:.]/g, '-')}`);
 const CHROME = arg('chrome', '/usr/bin/google-chrome');
@@ -98,6 +99,7 @@ async function apiFetch(method, path, body, cookie) {
 }
 
 async function loginViaApi() {
+  if (SESSION) return SESSION;
   const r = await apiFetch('POST', '/api/login', { username: USERNAME, password: PASSWORD });
   const raw = r.setCookie || '';
   const m = raw.match(/cloudnine_sid=([^;]+)/);
@@ -115,6 +117,14 @@ const page = await browser.newPage();
 await page.setViewport(MOBILE
   ? { width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 }
   : { width: 1440, height: 900, deviceScaleFactor: 1 });
+
+// 已有会话：直接注入 Cookie，跳过登录页（用于测试已部署实例）
+if (SESSION) {
+  const host = new URL(URL_BASE).hostname;
+  await browser.setCookie({
+    name: 'cloudnine_sid', value: SESSION, domain: host, path: '/', httpOnly: true,
+  });
+}
 
 const consoleErrors = [];
 page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
@@ -173,7 +183,7 @@ try {
     await page.click('.auth-card .btn-primary');
     await sleep(2500);
   } else {
-    check('未出现认证页（已有会话）', true);
+    check(SESSION ? '注入会话后直接进入（无认证页）' : '未出现认证页（已有会话）', true);
   }
 
   // ---------- 2. 桌面 / 移动主屏渲染 ----------
@@ -237,6 +247,9 @@ try {
   }
 
   // ---------- 3~5. 桌面专属流程（移动形态下不适用）----------
+  // 声明提到块外：清理阶段也要用到这两个文件名
+  const proofName = `uitest-terminal-${Date.now()}.txt`;
+  const editName = `uitest-editor-${Date.now()}.md`;
   if (!MOBILE) {
   section('访达（Finder）');
   const dockItems = await page.$$('.dock-item');
@@ -259,8 +272,8 @@ try {
   const sid = await loginViaApi();
   check('API 侧登录成功（用于反查）', !!sid, '未取到会话 Cookie');
 
-  const proofName = `uitest-terminal-${Date.now()}.txt`;
   const termBtn = await page.$('.dock-item[title="终端"]');
+
   if (termBtn && sid) {
     await termBtn.click();
     await sleep(1800);
@@ -292,7 +305,6 @@ try {
 
   // ---------- 5. 文本编辑：新建 → 输入 → Ctrl+S → 磁盘核对 ----------
   section('文本编辑（Ctrl+S 保存）');
-  const editName = `uitest-editor-${Date.now()}.md`;
   const editorBtn = await page.$('.dock-item[title="文本编辑"]');
   if (editorBtn && sid) {
     await editorBtn.click();
@@ -371,6 +383,21 @@ try {
   check('浏览器控制台无 JS 错误', realErrors.length === 0, realErrors.slice(0, 3).join(' | '));
 
   await shot('最终状态');
+
+  // ---------- 7. 清理测试产物 ----------
+  // 避免在生产环境的 FILE_ROOT 里留下垃圾
+  if (!flag('keep')) {
+    section('清理测试产物');
+    const sid2 = await loginViaApi();
+    const names = [proofName, editName].filter(Boolean);
+    for (const n of names) {
+      const r = await apiFetch('GET', `/api/fs/search?path=/&q=${encodeURIComponent(n)}`, undefined, `cloudnine_sid=${sid2}`);
+      const hit = (r.json?.results || []).find((x) => x.name === n);
+      if (!hit) continue;
+      await apiFetch('POST', '/api/fs/delete', { paths: [hit.rel] }, `cloudnine_sid=${sid2}`);
+      console.log(`${DIM}    已删除 ${hit.rel}${RESET}`);
+    }
+  }
 } catch (e) {
   failed.push(['执行异常', e.message]);
   console.log(`${RED}  ✗ 执行异常: ${e.message}${RESET}`);

@@ -82,6 +82,18 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def _cookie(name: str, value: str) -> http.cookiejar.Cookie:
+    """构造一个可直接塞进 CookieJar 的 Cookie 对象。"""
+    return http.cookiejar.Cookie(
+        version=0, name=name, value=value,
+        port=None, port_specified=False,
+        domain="", domain_specified=False, domain_initial_dot=False,
+        path="/", path_specified=True,
+        secure=False, expires=None, discard=True,
+        comment=None, comment_url=None, rest={"HttpOnly": None}, rfc2109=False,
+    )
+
+
 def check(name: str, cond: bool, detail: str = "") -> bool:
     if cond:
         PASSED.append(name)
@@ -107,6 +119,7 @@ def main() -> int:
     ap.add_argument("--password", default=None, help="已有账号密码")
     ap.add_argument("--keep", action="store_true", help="保留测试产生的文件")
     ap.add_argument("--save-creds", help="把新建的测试账号写入该文件")
+    ap.add_argument("--session", help="直接使用已有会话 token（跳过登录，用于测试已部署实例）")
     args = ap.parse_args()
 
     c = Client(args.url)
@@ -132,7 +145,13 @@ def main() -> int:
     user = args.user
     password = args.password
 
-    if not user:
+    if args.session:
+        # 直接注入已有会话（测试已部署实例时无需账号密码）
+        c.jar.set_cookie(_cookie("cloudnine_sid", args.session))
+        st, rbody, _ = c.get("/api/state")
+        check("注入会话有效", st == 200 and bool(rbody.get("user")), f"status={st} {rbody}")
+        user = user or (rbody.get("user") if isinstance(rbody.get("user"), str) else "session")
+    elif not user:
         if not body.get("initialized"):
             user = f"smoke_{stamp}"
             password = f"Smoke{stamp}Pass!"
@@ -169,18 +188,19 @@ def main() -> int:
     else:
         check("跳过初始化（使用已有账号）", True)
 
-    st, rbody, _ = c.post("/api/login", {"username": user, "password": password})
-    check("POST /api/login 登录成功", st == 200 and rbody.get("ok"), f"status={st} {rbody}")
+    if not args.session:
+        st, rbody, _ = c.post("/api/login", {"username": user, "password": password})
+        check("POST /api/login 登录成功", st == 200 and rbody.get("ok"), f"status={st} {rbody}")
 
-    st, body, _ = c.get("/api/state")
-    check("会话有效（state 返回用户）", st == 200 and body.get("user"), f"status={st} {body}")
+        st, body, _ = c.get("/api/state")
+        check("会话有效（state 返回用户）", st == 200 and body.get("user"), f"status={st} {body}")
 
-    # 错误密码应被拒绝
-    st, rbody, _ = c.post("/api/login", {"username": user, "password": "wrong-password-xyz"})
-    check("错误密码被拒绝", st in (401, 403, 400), f"status={st} {rbody}")
+        # 错误密码应被拒绝
+        st, rbody, _ = c.post("/api/login", {"username": user, "password": "wrong-password-xyz"})
+        check("错误密码被拒绝", st in (401, 403, 400), f"status={st} {rbody}")
 
-    # 重新登录（错误密码可能清了会话）
-    c.post("/api/login", {"username": user, "password": password})
+        # 重新登录（错误密码可能清了会话）
+        c.post("/api/login", {"username": user, "password": password})
 
     # ---------- 3. 文件系统 ----------
     section("文件系统")
@@ -256,6 +276,7 @@ def main() -> int:
 
     # ---------- 5. 分享 ----------
     section("文件分享")
+    created_shares: list[str] = []   # 结束时删除，避免在生产环境留下垃圾
     # 注意：前面已把 hello.txt 重命名并移走，这里分享仍然存在的上传产物
     share_target = f"{test_dir}/upload.bin"
     st, body, _ = c.post("/api/shares", {"path": share_target, "expiresIn": 3600, "allowDownload": True})
@@ -264,6 +285,7 @@ def main() -> int:
 
     if share_ok:
         token = body["share"]["token"]
+        created_shares.append(body["share"]["id"])
         st, body, _ = c.get(f"/api/share/{token}/meta")
         check("GET /api/share/<token>/meta 公开元信息", st == 200 and body.get("name"), f"status={st} {body}")
 
@@ -289,6 +311,7 @@ def main() -> int:
             st4, body4, _ = c.get(f"/api/share/{ptoken}/meta",
                                   headers={"x-share-password": "wrong"})
             check("带密码分享：错误密码被拒 401", st4 == 401, f"status={st4} {body4}")
+            created_shares.append(body["share"]["id"])
 
     # ---------- 6. 废纸篓 ----------
     section("废纸篓")
@@ -312,8 +335,20 @@ def main() -> int:
     # ---------- 8. 清理 ----------
     if not args.keep:
         section("清理")
+        # 删除测试期间创建的分享，避免在生产环境留下公开可访问的链接
+        for sid in created_shares:
+            st, body, _ = c.request("DELETE", f"/api/shares/{sid}")
+            check(f"删除测试分享 {sid[:8]}", st == 200, f"status={st} {body}")
+
         st, body, _ = c.post("/api/fs/trash", {"paths": [test_dir]})
         check("清理测试目录", st == 200, f"status={st} {body}")
+
+        # 把测试产生的废纸篓条目彻底删除（默认保留 30 天，会一直留在废纸篓里）
+        st, body, _ = c.get("/api/fs/trash/list")
+        for e in body.get("entries", []) if st == 200 else []:
+            if e.get("origRel", "").startswith(".smoketest_"):
+                c.post("/api/fs/trash/delete", {"ids": [e["id"]]})
+
         st, body, _ = c.get("/api/fs/trash/count")
         print(f"{DIM}    废纸篓当前条目: {body.get('count')}{RESET}")
 
