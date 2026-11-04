@@ -20,6 +20,7 @@ PORT="${PORT:-8480}"
 REPO_URL="${REPO_URL:-https://github.com/bytesfloow/cloudnine.git}"
 BRANCH="${BRANCH:-main}"
 NODE_MAJOR="${NODE_MAJOR:-20}"
+SERVICE_HOME="${SERVICE_HOME:-/home/$SERVICE_USER}"
 
 log() { echo "[bootstrap] $*"; }
 
@@ -75,12 +76,13 @@ log "Node.js: $(node -v)  npm: $(npm -v)"
 
 # ---------- 3. 服务账号与目录 ----------
 log "创建服务账号与目录"
-id -u "$SERVICE_USER" >/dev/null 2>&1 || useradd --system --home-dir "$DEPLOY_DIR" --shell /usr/sbin/nologin "$SERVICE_USER"
-mkdir -p "$DEPLOY_DIR" "$DATA_DIR" "$FILE_ROOT" /etc/cloudnine
+id -u "$SERVICE_USER" >/dev/null 2>&1 || useradd --system --home-dir "$SERVICE_HOME" --shell /usr/sbin/nologin "$SERVICE_USER"
+mkdir -p "$DEPLOY_DIR" "$DATA_DIR" "$FILE_ROOT" "$SERVICE_HOME" /etc/cloudnine
 chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR"
 # FILE_ROOT 需要服务账号可读写，否则上传/新建会失败
 chown "$SERVICE_USER:$SERVICE_USER" "$FILE_ROOT"
 chmod 755 "$FILE_ROOT"
+chown "$SERVICE_USER:$SERVICE_USER" "$SERVICE_HOME"
 
 # ---------- 4. 代码 ----------
 if [ ! -d "$DEPLOY_DIR/.git" ]; then
@@ -95,8 +97,15 @@ git checkout --quiet "$BRANCH"
 
 # ---------- 5. 配置文件 ----------
 log "安装 systemd unit"
-sed "s#/opt/cloudnine#$DEPLOY_DIR#g" scripts/systemd/cloudnine.service \
-  > "/etc/systemd/system/${SERVICE_NAME}.service"
+# 注入真实路径：ReadWritePaths 必须覆盖 DATA_DIR / FILE_ROOT / 服务账号家目录，
+# 否则 ProtectSystem=strict 会让文件写操作全部失败
+sed \
+  -e "s#@SERVICE_USER@#$SERVICE_USER#g" \
+  -e "s#@DEPLOY_DIR@#$DEPLOY_DIR#g" \
+  -e "s#@DATA_DIR@#$DATA_DIR#g" \
+  -e "s#@FILE_ROOT@#$FILE_ROOT#g" \
+  -e "s#@SERVICE_HOME@#$SERVICE_HOME#g" \
+  scripts/systemd/cloudnine.service > "/etc/systemd/system/${SERVICE_NAME}.service"
 systemctl daemon-reload
 systemctl enable "$SERVICE_NAME"
 

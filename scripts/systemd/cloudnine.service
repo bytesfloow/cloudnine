@@ -6,21 +6,20 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=cloudnine
-Group=cloudnine
-WorkingDirectory=/opt/cloudnine/server
+User=@SERVICE_USER@
+Group=@SERVICE_USER@
+WorkingDirectory=@DEPLOY_DIR@/server
 ExecStart=/usr/bin/node src/index.js
 EnvironmentFile=-/etc/cloudnine/cloudnine.env
 Restart=always
 RestartSec=3
 
-# 数据目录与部署目录分离，部署时不会被覆盖
-# FILE_ROOT 由 /etc/cloudnine/cloudnine.env 指定，默认 /data
-
-# 安全加固：除数据目录外全部只读
+# 安全加固：除下列目录外全部只读
+# 注意：ReadWritePaths 必须覆盖 FILE_ROOT 与 DATA_DIR，
+# 否则 ProtectSystem=strict 会让文件管理器的所有写操作失败（ENOENT/EROFS）。
+# 这几个占位符由 scripts/bootstrap.sh 注入真实路径。
 ProtectSystem=strict
-ProtectHome=read-only
-ReadWritePaths=/var/lib/cloudnine /opt/cloudnine/client/dist
+ReadWritePaths=@DATA_DIR@ @FILE_ROOT@ @SERVICE_HOME@ @DEPLOY_DIR@/client/dist
 PrivateTmp=true
 NoNewPrivileges=true
 ProtectKernelTunables=true

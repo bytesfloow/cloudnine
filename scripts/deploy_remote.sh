@@ -11,6 +11,7 @@ set -euo pipefail
 
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/cloudnine}"
 SERVICE_NAME="${SERVICE_NAME:-cloudnine}"
+SERVICE_USER="${SERVICE_USER:-cloudnine}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8480/api/state}"
 HEALTH_RETRIES="${HEALTH_RETRIES:-15}"
 HEALTH_INTERVAL="${HEALTH_INTERVAL:-2}"
@@ -80,6 +81,14 @@ if [ "$SKIP_BUILD" -eq 0 ]; then
     || fail "前端构建失败"
 else
   log "跳过前端构建（--no-build）"
+fi
+
+# ---------- 3.5 修正属主 ----------
+# node_modules / dist 由部署用户（通常是 root）写入，服务账号需可读；
+# 同时保证服务账号对 FILE_ROOT / DATA_DIR 可写
+if [ "$(id -u)" -eq 0 ]; then
+  chown -R "$SERVICE_USER:$SERVICE_USER" "$DEPLOY_DIR" 2>/dev/null || true
+  log "已修正 $DEPLOY_DIR 属主为 $SERVICE_USER"
 fi
 
 # ---------- 4. 重启服务 ----------
