@@ -6,3 +6,6 @@ testroot/
 .DS_Store
 .workbuddy/
 data/
+
+# UI 自测截图与报告（scripts/uitest.mjs 产出）
+shots/
