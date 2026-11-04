@@ -83,6 +83,15 @@ else
 fi
 
 # ---------- 4. 重启服务 ----------
+# 端口预检：若端口被其他进程占用，重启后服务会进入崩溃循环且日志难查
+APP_PORT="$(grep -E '^PORT=' /etc/cloudnine/cloudnine.env 2>/dev/null | cut -d= -f2 | tr -d '\r')"
+APP_PORT="${APP_PORT:-8480}"
+if command -v ss >/dev/null 2>&1 && ss -tln "sport = :$APP_PORT" 2>/dev/null | grep -q LISTEN; then
+  echo "占用者信息：" >&2
+  ss -tlnp 2>/dev/null | grep ":$APP_PORT " >&2 || true
+  fail "端口 $APP_PORT 已被占用，拒绝重启服务"
+fi
+
 log "重启服务 $SERVICE_NAME"
 if ! systemctl restart "$SERVICE_NAME"; then
   log "重启失败，触发回滚"

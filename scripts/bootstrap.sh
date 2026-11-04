@@ -23,6 +23,32 @@ NODE_MAJOR="${NODE_MAJOR:-20}"
 
 log() { echo "[bootstrap] $*"; }
 
+# 端口预检：避免服务因端口占用进入崩溃循环（Restart=always 会无限重试，日志难查）
+port_in_use() {
+  if command -v ss >/dev/null 2>&1; then
+    ss -tln "sport = :$1" 2>/dev/null | grep -q LISTEN
+  elif command -v lsof >/dev/null 2>&1; then
+    lsof -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
+  else
+    return 1
+  fi
+}
+
+check_ports() {
+  if port_in_use "$PORT"; then
+    echo "[bootstrap] ✗ 端口 $PORT 已被占用："
+    ss -tlnp 2>/dev/null | grep ":$PORT " || true
+    echo "[bootstrap]   请先停止占用进程，或修改 /etc/cloudnine/cloudnine.env 里的 PORT"
+    exit 1
+  fi
+  if port_in_use 80; then
+    echo "[bootstrap] ✗ 端口 80 已被占用（nginx 需要该端口）："
+    ss -tlnp 2>/dev/null | grep ":80 " || true
+    exit 1
+  fi
+  log "端口预检通过（$PORT / 80 空闲）"
+}
+
 # ---------- 1. 系统包 ----------
 log "安装系统依赖"
 export DEBIAN_FRONTEND=noninteractive
@@ -92,6 +118,7 @@ EOF
 fi
 
 # ---------- 6. 依赖与构建 ----------
+check_ports
 log "安装依赖"
 npm --prefix server ci --no-audit --no-fund --foreground-scripts
 npm --prefix client ci --no-audit --no-fund
