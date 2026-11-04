@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# CloudNine 首次部署引导脚本（在目标服务器上以 root 执行）
+#
+# 职责：
+#   1. 安装运行时依赖（Node.js、nginx）
+#   2. 创建低权限服务账号与数据目录
+#   3. 克隆仓库到 /opt/cloudnine
+#   4. 安装 systemd unit 与 nginx 反代配置
+#   5. 生成 /etc/cloudnine/cloudnine.env
+#
+# 用法：sudo bash scripts/bootstrap.sh
+set -euo pipefail
+
+DEPLOY_DIR="${DEPLOY_DIR:-/opt/cloudnine}"
+DATA_DIR="${DATA_DIR:-/var/lib/cloudnine}"
+FILE_ROOT="${FILE_ROOT:-/data}"
+SERVICE_USER="${SERVICE_USER:-cloudnine}"
+SERVICE_NAME="${SERVICE_NAME:-cloudnine}"
+PORT="${PORT:-8480}"
+REPO_URL="${REPO_URL:-https://github.com/bytesfloow/cloudnine.git}"
+BRANCH="${BRANCH:-main}"
+NODE_MAJOR="${NODE_MAJOR:-20}"
+
+log() { echo "[bootstrap] $*"; }
+
+# ---------- 1. 系统包 ----------
+log "安装系统依赖"
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq curl git rsync nginx ca-certificates build-essential python3 >/dev/null
+
+# ---------- 2. Node.js ----------
+if ! command -v node >/dev/null || [ "$(node -v | sed 's/v\([0-9]*\).*/\1/')" -lt "$NODE_MAJOR" ]; then
+  log "安装 Node.js ${NODE_MAJOR}.x"
+  curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash - >/dev/null
+  apt-get install -y -qq nodejs >/dev/null
+fi
+log "Node.js: $(node -v)  npm: $(npm -v)"
+
+# ---------- 3. 服务账号与目录 ----------
+log "创建服务账号与目录"
+id -u "$SERVICE_USER" >/dev/null 2>&1 || useradd --system --home-dir "$DEPLOY_DIR" --shell /usr/sbin/nologin "$SERVICE_USER"
+mkdir -p "$DEPLOY_DIR" "$DATA_DIR" "$FILE_ROOT" /etc/cloudnine
+chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR"
+# FILE_ROOT 需要服务账号可读写，否则上传/新建会失败
+chown "$SERVICE_USER:$SERVICE_USER" "$FILE_ROOT"
+chmod 755 "$FILE_ROOT"
+
+# ---------- 4. 代码 ----------
+if [ ! -d "$DEPLOY_DIR/.git" ]; then
+  log "克隆仓库到 $DEPLOY_DIR"
+  rm -rf "${DEPLOY_DIR:?}"/* 2>/dev/null || true
+  git clone --branch "$BRANCH" "$REPO_URL" "$DEPLOY_DIR"
+else
+  log "仓库已存在，跳过克隆"
+fi
+cd "$DEPLOY_DIR"
+git checkout --quiet "$BRANCH"
+
+# ---------- 5. 配置文件 ----------
+log "安装 systemd unit"
+sed "s#/opt/cloudnine#$DEPLOY_DIR#g" scripts/systemd/cloudnine.service \
+  > "/etc/systemd/system/${SERVICE_NAME}.service"
+systemctl daemon-reload
+systemctl enable "$SERVICE_NAME"
+
+log "安装 nginx 配置"
+cp scripts/nginx/cloudnine.conf /etc/nginx/sites-available/cloudnine
+ln -sf /etc/nginx/sites-available/cloudnine /etc/nginx/sites-enabled/cloudnine
+# 移除可能冲突的默认站点（占用 80 端口）
+rm -f /etc/nginx/sites-enabled/default
+nginx -t
+
+log "生成环境变量文件"
+if [ ! -f /etc/cloudnine/cloudnine.env ]; then
+  cat > /etc/cloudnine/cloudnine.env <<EOF
+# CloudNine 运行参数（环境变量优先级最高）
+PORT=$PORT
+HOST=127.0.0.1
+FILE_ROOT=$FILE_ROOT
+DATA_DIR=$DATA_DIR
+SITE_NAME=CloudNine
+SESSION_DAYS=7
+REMEMBER_DAYS=30
+MAX_UPLOAD_MB=4096
+TRASH_RETENTION_DAYS=30
+MAX_EXTRACT_MB=8192
+TRUST_PROXY=true
+EOF
+  chmod 640 /etc/cloudnine/cloudnine.env
+  chown root:"$SERVICE_USER" /etc/cloudnine/cloudnine.env
+fi
+
+# ---------- 6. 依赖与构建 ----------
+log "安装依赖"
+npm --prefix server ci --no-audit --no-fund --foreground-scripts
+npm --prefix client ci --no-audit --no-fund
+log "构建前端"
+npm --prefix client run build
+
+chown -R "$SERVICE_USER:$SERVICE_USER" "$DEPLOY_DIR/client/dist"
+
+log "启动服务"
+systemctl restart "$SERVICE_NAME"
+systemctl reload nginx
+
+sleep 3
+systemctl --no-pager --lines=10 status "$SERVICE_NAME" || true
+
+log "引导完成。访问：http://<服务器IP>/（首次访问将进入初始化向导）"

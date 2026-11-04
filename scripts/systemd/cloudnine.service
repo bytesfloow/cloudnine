@@ -1,0 +1,38 @@
+[Unit]
+Description=CloudNine — macOS 风格云服务器桌面
+Documentation=https://github.com/bytesfloow/cloudnine
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cloudnine
+Group=cloudnine
+WorkingDirectory=/opt/cloudnine/server
+ExecStart=/usr/bin/node src/index.js
+EnvironmentFile=-/etc/cloudnine/cloudnine.env
+Restart=always
+RestartSec=3
+
+# 数据目录与部署目录分离，部署时不会被覆盖
+# FILE_ROOT 由 /etc/cloudnine/cloudnine.env 指定，默认 /data
+
+# 安全加固：除数据目录外全部只读
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/cloudnine /opt/cloudnine/client/dist
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+# 日志走 journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cloudnine
+
+[Install]
+WantedBy=multi-user.target

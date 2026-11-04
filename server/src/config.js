@@ -30,7 +30,31 @@ export const config = {
   auditCommands: Boolean(env('AUDIT_COMMANDS') ?? fileConfig.auditCommands ?? false),
   trustProxy: Boolean(env('TRUST_PROXY') ?? fileConfig.trustProxy ?? true),
   defaultShell: env('SHELL') ?? fileConfig.shell ?? (isWin ? process.env.ComSpec || 'cmd.exe' : 'bash'),
+  // 终端默认工作目录：留空表示按 defaultCwd() 自动推导（见下）
+  terminalCwd: String(env('TERMINAL_CWD') ?? fileConfig.terminalCwd ?? ''),
 };
+
+/**
+ * 终端默认工作目录。
+ * 需求文档 F-02：「终端初始工作目录：由访达窗口/右键携带的目录，或用户主目录（可配置默认行为）」。
+ *
+ * 注意：这里绝不能留空——cwd 为空时 node-pty 会继承服务端进程的工作目录
+ * （生产环境即 /opt/cloudnine 安装目录），与 PRD 不符。
+ *
+ * 推导顺序：TERMINAL_CWD 配置 → 用户主目录（若在文件根目录内）→ 文件根目录本身。
+ * 最后一条与应用内「主目录」语义一致（fs.js 的 /api/fs/home 同样在主目录越界时退回根目录）。
+ */
+export function defaultCwd() {
+  const root = path.resolve(config.fileRoot);
+  if (config.terminalCwd) {
+    const abs = path.resolve(root, config.terminalCwd.replace(/^\/+/, ''));
+    return fs.existsSync(abs) ? abs : root;
+  }
+  const home = os.homedir();
+  const rel = path.relative(root, home);
+  if (rel && !rel.startsWith('..') && !path.isAbsolute(rel) && fs.existsSync(home)) return home;
+  return root;
+}
 
 export const dirs = {
   trash: path.join(config.dataDir, 'trash'),

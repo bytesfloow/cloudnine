@@ -1,8 +1,9 @@
 import { WebSocketServer } from 'ws';
 import cookie from 'cookie';
 import { spawn as cpSpawn } from 'node:child_process';
+import fs from 'node:fs';
 import { getDB } from './db.js';
-import { config, toAbs } from './config.js';
+import { config, toAbs, defaultCwd } from './config.js';
 
 // 优先使用 node-pty（完整 TTY 语义）；未安装时退化为管道 shell
 let pty = null;
@@ -54,7 +55,12 @@ export function setupTerminal(server) {
 
       if (msg.type === 'start' && !proc) {
         const shell = config.defaultShell;
-        const cwdAbs = msg.cwd ? toAbs(msg.cwd) : undefined;
+        // 访达/右键携带的目录优先；否则用默认工作目录（用户主目录或文件根目录）
+        // 不可传 undefined —— 那会让 PTY 继承服务端进程目录（安装目录）
+        let cwdAbs = msg.cwd ? toAbs(msg.cwd) : defaultCwd();
+        try {
+          if (!fs.existsSync(cwdAbs) || !fs.statSync(cwdAbs).isDirectory()) cwdAbs = defaultCwd();
+        } catch { cwdAbs = defaultCwd(); }
         const env = { ...process.env, TERM: 'xterm-256color', LANG: 'C.UTF-8', COLORTERM: 'truecolor' };
         const cols = Math.max(2, Number(msg.cols) || 80);
         const rows = Math.max(2, Number(msg.rows) || 24);
