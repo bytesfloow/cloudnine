@@ -93,6 +93,8 @@ else
   log "仓库已存在，跳过克隆"
 fi
 cd "$DEPLOY_DIR"
+# 部署目录属主是服务账号，root 运行 git 会触发 "dubious ownership" 拦截
+git config --global --add safe.directory "$DEPLOY_DIR" 2>/dev/null || true
 git checkout --quiet "$BRANCH"
 
 # ---------- 5. 配置文件 ----------

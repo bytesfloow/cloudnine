@@ -29,8 +29,16 @@ fail() { echo "[deploy ERROR] $*" >&2; exit 1; }
 
 cd "$DEPLOY_DIR" || fail "部署目录不存在: $DEPLOY_DIR"
 
+# 部署目录属主是服务账号（cloudnine），而部署脚本以 root 运行，
+# git 会因 "dubious ownership" 拒绝操作 —— 必须在任何 git 命令之前放行，
+# 否则连 git rev-parse HEAD 都会失败，回滚目标会变成空。
+git config --global --add safe.directory "$DEPLOY_DIR" 2>/dev/null || true
+
 # ---------- 1. 记录当前版本用于回滚 ----------
 PREV_COMMIT="$(git rev-parse HEAD 2>/dev/null || echo '')"
+if [ -z "$PREV_COMMIT" ]; then
+  fail "无法读取当前版本（git rev-parse 失败），拒绝部署以免失去回滚能力"
+fi
 PREV_TARBALL="/tmp/cloudnine-rollback-$(date +%s).tar.gz"
 log "当前版本: ${PREV_COMMIT:-<无>}"
 
