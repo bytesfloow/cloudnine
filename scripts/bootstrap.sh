@@ -35,18 +35,28 @@ port_in_use() {
 }
 
 check_ports() {
-  if port_in_use "$PORT"; then
-    echo "[bootstrap] ✗ 端口 $PORT 已被占用："
+  # 服务已在运行时，$PORT 由自己占用属正常（后续会 restart），不算冲突
+  if systemctl is-active --quiet "$SERVICE_NAME"; then
+    log "服务当前已在运行，$PORT 由自身占用属正常"
+  elif port_in_use "$PORT"; then
+    echo "[bootstrap] ✗ 端口 $PORT 已被其他进程占用："
     ss -tlnp 2>/dev/null | grep ":$PORT " || true
     echo "[bootstrap]   请先停止占用进程，或修改 /etc/cloudnine/cloudnine.env 里的 PORT"
     exit 1
+  else
+    log "端口 $PORT 空闲"
   fi
-  if port_in_use 80; then
+
+  # 80 端口由 nginx 占用属正常
+  if systemctl is-active --quiet nginx && port_in_use 80; then
+    log "nginx 已运行并占用 80，正常"
+  elif port_in_use 80; then
     echo "[bootstrap] ✗ 端口 80 已被占用（nginx 需要该端口）："
     ss -tlnp 2>/dev/null | grep ":80 " || true
     exit 1
+  else
+    log "端口 80 空闲"
   fi
-  log "端口预检通过（$PORT / 80 空闲）"
 }
 
 # ---------- 1. 系统包 ----------
