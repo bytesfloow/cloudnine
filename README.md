@@ -84,6 +84,7 @@ npm run dev:client   # 终端 2：Vite :5173（/api 与 /ws 已代理到 8480）
 | 废纸篓保留 | `TRASH_RETENTION_DAYS` | 30 | 到期自动清理 |
 | 解压上限 | `MAX_EXTRACT_MB` | 8192 | 压缩炸弹防护 |
 | Shell | `SHELL` | Linux `bash` / Windows `%ComSpec%` | 终端默认 Shell |
+| 终端默认目录 | `TERMINAL_CWD` | 空（自动） | 从 Dock 打开终端时的初始工作目录。留空则用用户主目录（若在文件根目录内），否则用文件根目录 |
 | 信任代理 | `TRUST_PROXY` | true | 反向代理下识别 X-Forwarded-Proto |
 
 账号、会话、分享、最近打开记录存放在 `DATA_DIR/db.json`，废纸篓清单在 `DATA_DIR/trash.json`。
@@ -91,6 +92,8 @@ npm run dev:client   # 终端 2：Vite :5173（/api 与 /ws 已代理到 8480）
 忘记密码：停止服务 → 删除 `db.json` 中 `account` 字段（或整个文件）→ 重启后重新初始化。
 
 ## 生产部署（Linux）
+
+仓库内置 `scripts/` 下的部署工具链，推荐直接使用（见下方「部署工具链」）。
 
 ```bash
 # 构建
@@ -115,6 +118,9 @@ WantedBy=multi-user.target
 EOF
 sudo systemctl enable --now cloudnine
 ```
+
+> ⚠️ 若使用 `ProtectSystem=strict` 做沙箱加固，`ReadWritePaths` **必须包含 `FILE_ROOT` 与 `DATA_DIR`**，
+> 否则文件管理器的所有写操作都会失败（ENOENT/EROFS）。`scripts/systemd/cloudnine.service` 已按此配置。
 
 建议配合 Nginx/Caddy 反向代理 + HTTPS：
 
@@ -151,6 +157,39 @@ location /ws/ {   # 终端 WebSocket
 - 终端审计为会话级（建立/来源/关闭），逐命令审计为后续增强（决策 Q5）
 - 分享上传为单请求投递（上限 100 MB），不走分片
 - PWA（manifest/添加到主屏幕）为 P1 增量，本版本未包含
+
+## 部署工具链（`scripts/`）
+
+| 文件 | 作用 |
+| --- | --- |
+| `scripts/bootstrap.sh` | 首次部署引导（目标服务器上以 root 执行）：装 Node/nginx、建低权限账号与目录、克隆仓库、装 systemd unit 与 nginx 配置、生成环境变量文件 |
+| `scripts/deploy_remote.sh` | 在目标服务器上执行：拉取代码 → 安装依赖 → 构建前端 → 重启服务 → 健康检查；**任一步失败自动回滚到上一版本** |
+| `scripts/deploy_cloudnine.py` | 开发机侧的编排器：SSH 到目标服务器完成上述流程，部署后自动跑一遍 API 冒烟测试 |
+| `scripts/systemd/cloudnine.service` | systemd unit 模板（`@DEPLOY_DIR@` / `@DATA_DIR@` / `@FILE_ROOT@` 等占位符由 bootstrap 注入） |
+| `scripts/nginx/cloudnine.conf` | nginx 反向代理配置（含 `/ws/` WebSocket 升级与长连接超时） |
+| `scripts/smoke_test.py` | API 回归测试（仅标准库）：账号、文件读写、搜索、上传下载、Range、分享、废纸篓、磁盘，共 35 项断言 |
+| `scripts/uitest.mjs` | 浏览器 UI 自动化自测（Chrome + puppeteer-core）：真实点击并通过 API 反查磁盘结果，含桌面与移动两种视口 |
+
+典型用法：
+
+```bash
+# 首次部署（开发机执行）
+python3 scripts/deploy_cloudnine.py --host <IP> --user ubuntu --bootstrap --push
+
+# 后续常规部署
+python3 scripts/deploy_cloudnine.py --host <IP> --user ubuntu --push
+
+# 单独跑测试
+python3 scripts/smoke_test.py --url http://<IP>/
+node scripts/uitest.mjs --url http://<IP>/ --user <账号> --password <密码>
+```
+
+`uitest.mjs` 依赖 `puppeteer-core`（不含 Chromium，复用系统 Chrome）：
+
+```bash
+mkdir -p /home/ubuntu/workspace/.uitest && cd /home/ubuntu/workspace/.uitest \
+  && npm init -y && npm install puppeteer-core
+```
 
 ## 开发测试说明
 
