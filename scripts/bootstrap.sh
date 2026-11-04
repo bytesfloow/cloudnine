@@ -23,6 +23,7 @@ NODE_MAJOR="${NODE_MAJOR:-20}"
 SERVICE_HOME="${SERVICE_HOME:-/home/$SERVICE_USER}"
 
 log() { echo "[bootstrap] $*"; }
+fail() { echo "[bootstrap] ✗ $*" >&2; exit 1; }
 
 # 端口预检：避免服务因端口占用进入崩溃循环（Restart=always 会无限重试，日志难查）
 port_in_use() {
@@ -85,28 +86,36 @@ chmod 755 "$FILE_ROOT"
 chown "$SERVICE_USER:$SERVICE_USER" "$SERVICE_HOME"
 
 # ---------- 4. 代码 ----------
+# 非破坏性：目标目录若已有部署（data/、node_modules/），必须保留。
+# 绝不能 rm -rf $DEPLOY_DIR/* —— 里面通常存着账号库 db.json。
 if [ ! -d "$DEPLOY_DIR/.git" ]; then
-  log "克隆仓库到 $DEPLOY_DIR"
-  rm -rf "${DEPLOY_DIR:?}"/* 2>/dev/null || true
-  git clone --branch "$BRANCH" "$REPO_URL" "$DEPLOY_DIR"
-else
-  log "仓库已存在，跳过克隆"
+  log "在 $DEPLOY_DIR 初始化 git 仓库（保留既有数据目录与 node_modules）"
+  git -C "$DEPLOY_DIR" init -q
+  git -C "$DEPLOY_DIR" remote remove origin 2>/dev/null || true
+  git -C "$DEPLOY_DIR" remote add origin "$REPO_URL"
 fi
-cd "$DEPLOY_DIR"
 # 部署目录属主是服务账号，root 运行 git 会触发 "dubious ownership" 拦截
 git config --global --add safe.directory "$DEPLOY_DIR" 2>/dev/null || true
-git checkout --quiet "$BRANCH"
+cd "$DEPLOY_DIR"
+git fetch --all --prune --quiet || fail "git fetch 失败（服务器能否访问 GitHub？）"
+git checkout -B "$BRANCH" "origin/$BRANCH" --quiet || fail "git checkout 失败"
+git reset --hard "origin/$BRANCH" --quiet
+log "代码版本: $(git rev-parse --short HEAD)"
 
 # ---------- 5. 配置文件 ----------
 log "安装 systemd unit"
 # 注入真实路径：ReadWritePaths 必须覆盖 DATA_DIR / FILE_ROOT / 服务账号家目录，
 # 否则 ProtectSystem=strict 会让文件写操作全部失败
+# @NODE_BIN@ 必须用服务器上 node 的真实路径（可能是 /usr/local/bin/node）
+NODE_BIN="$(command -v node)"
+[ -x "$NODE_BIN" ] || { echo "[bootstrap] ✗ 找不到 node 可执行文件"; exit 1; }
 sed \
   -e "s#@SERVICE_USER@#$SERVICE_USER#g" \
   -e "s#@DEPLOY_DIR@#$DEPLOY_DIR#g" \
   -e "s#@DATA_DIR@#$DATA_DIR#g" \
   -e "s#@FILE_ROOT@#$FILE_ROOT#g" \
   -e "s#@SERVICE_HOME@#$SERVICE_HOME#g" \
+  -e "s#@NODE_BIN@#$NODE_BIN#g" \
   scripts/systemd/cloudnine.service > "/etc/systemd/system/${SERVICE_NAME}.service"
 systemctl daemon-reload
 systemctl enable "$SERVICE_NAME"
