@@ -164,4 +164,15 @@ systemctl reload nginx
 sleep 3
 systemctl --no-pager --lines=10 status "$SERVICE_NAME" || true
 
-log "引导完成。访问：http://<服务器IP>/（首次访问将进入初始化向导）"
+# 已存在账号库时不要再提示"初始化向导"，否则会误导运维
+if [ -f "$DATA_DIR/db.json" ] && python3 -c "
+import json,sys
+try:
+    sys.exit(0 if json.load(open('$DATA_DIR/db.json')).get('account') else 1)
+except Exception:
+    sys.exit(1)
+" 2>/dev/null; then
+  log "引导完成。访问：http://<服务器IP>/（账号已存在，将进入登录页）"
+else
+  log "引导完成。访问：http://<服务器IP>/（首次访问将进入初始化向导，创建唯一账号）"
+fi
