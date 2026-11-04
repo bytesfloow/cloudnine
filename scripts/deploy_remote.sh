@@ -47,9 +47,10 @@ rollback() {
   if [ -n "$PREV_COMMIT" ]; then
     git checkout --quiet "$PREV_COMMIT" 2>/dev/null || true
     git reset --hard --quiet "$PREV_COMMIT" 2>/dev/null || true
-    npm --prefix client ci --silent >/dev/null 2>&1 || true
+    npm --prefix client ci --silent --foreground-scripts >/dev/null 2>&1 || true
     npm --prefix client run build >/dev/null 2>&1 || true
-    npm --prefix server ci --silent >/dev/null 2>&1 || true
+    # 必须带 --foreground-scripts：否则 node-pty 的原生编译脚本不执行，终端会静默降级
+    npm --prefix server ci --silent --foreground-scripts >/dev/null 2>&1 || true
   elif [ -f "$PREV_TARBALL" ]; then
     tar -xzf "$PREV_TARBALL" -C "$DEPLOY_DIR" || true
   fi

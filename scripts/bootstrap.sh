@@ -151,7 +151,7 @@ fi
 check_ports
 log "安装依赖"
 npm --prefix server ci --no-audit --no-fund --foreground-scripts
-npm --prefix client ci --no-audit --no-fund
+npm --prefix client ci --no-audit --no-fund --foreground-scripts
 log "构建前端"
 npm --prefix client run build
 
