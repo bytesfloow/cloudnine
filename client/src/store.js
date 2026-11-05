@@ -299,7 +299,9 @@ export function updateWindowProps(id, patch) {
 }
 
 // ---------- 剪贴板 ----------
-export const setClipboard = (mode, paths, cwd) => setState({ clipboard: { mode, paths, cwd } });
+// setClipboard(null) 表示清空：必须真的写成 null，否则会留下 {paths: undefined} 的坏状态
+export const setClipboard = (mode, paths, cwd) =>
+  setState({ clipboard: mode == null ? null : { mode, paths, cwd } });
 
 // ---------- 访达选择上报（供快速预览等全局功能使用） ----------
 export const setFinderSel = (windowId, paths) =>

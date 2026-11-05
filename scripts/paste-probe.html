@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CloudNine · 粘贴上传能力验证页</title>
+<style>
+  :root { color-scheme: light dark; font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
+  body { max-width: 860px; margin: 32px auto; padding: 0 20px 60px; line-height: 1.7; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .sub { color: #888; font-size: 14px; margin-top: 0; }
+  ol { padding-left: 22px; }
+  kbd { background: #8882; border: 1px solid #8885; border-radius: 4px; padding: 1px 6px; font-family: inherit; }
+  .card { border: 1px solid #8884; border-radius: 10px; padding: 14px 18px; margin: 18px 0; }
+  #verdict { font-size: 18px; font-weight: 700; padding: 14px 18px; border-radius: 10px; background: #8882; }
+  #verdict.ok { background: #16a34a22; color: #16a34a; }
+  #verdict.bad { background: #dc262622; color: #dc2626; }
+  #verdict.wait { background: #8882; color: #888; }
+  pre { background: #8881; border-radius: 8px; padding: 12px 14px; overflow: auto; font-size: 13px; white-space: pre-wrap; word-break: break-all; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { border-bottom: 1px solid #8883; padding: 6px 8px; text-align: left; }
+  th { color: #888; font-weight: 500; }
+  button { font: inherit; padding: 6px 14px; border-radius: 6px; border: 1px solid #8886; background: transparent; cursor: pointer; }
+  .meta { font-size: 13px; color: #888; }
+  ul { margin: 6px 0; padding-left: 22px; }
+</style>
+</head>
+<body>
+<h1>粘贴上传能力验证页</h1>
+<p class="sub">CloudNine F-09a · 用于确认「在 Windows 资源管理器复制文件 → 浏览器 Ctrl+V」能否被网页读到。本页不联网、不上传任何内容。</p>
+
+<ol>
+  <li>在 Windows 资源管理器 / 桌面上选中一个文件，按 <kbd>Ctrl</kbd> + <kbd>C</kbd>（可多选）。</li>
+  <li>回到本页，点一下页面空白处，按 <kbd>Ctrl</kbd> + <kbd>V</kbd>。</li>
+  <li>看下方结论：出现文件名与大小 = 纯前端方案可用；<code>files: []</code> = 该浏览器/版本不可用。</li>
+  <li>建议再用 <b>Chrome</b> 与 <b>Edge</b> 各测一次，并用截图（<kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd>）测一次。</li>
+</ol>
+
+<div id="verdict" class="wait">等待粘贴…</div>
+
+<div class="card">
+  <div><b>本次粘贴结果</b> <button id="copy" style="float:right">复制结果</button></div>
+  <pre id="out">（尚无数据）</pre>
+  <div id="files"></div>
+</div>
+
+<div class="card">
+  <b>环境信息</b>
+  <pre id="env"></pre>
+</div>
+
+<div class="card">
+  <b>结果怎么解读</b>
+  <ul>
+    <li><b>支持</b>：<code>types</code> 含 <code>Files</code>，且 <code>files</code> 里有文件名、字节数、MIME → CloudNine 可直接用 <code>clipboardData.files</code> 上传。</li>
+    <li><b>不支持</b>：<code>files: []</code> 且 <code>types</code> 为空（Firefox 常见）→ 浏览器不向网页暴露系统剪贴板文件，CloudNine 会降级为「提示 + 打开上传选择器」。</li>
+    <li><b>部分支持</b>：<code>types: ['Files']</code> 但 <code>files: []</code> → 浏览器识别到文件却未交出内容（版本差异 / 企业 DLP 策略），同样走降级。</li>
+    <li>截图粘贴若出现在 <code>files</code> 里且名字是 <code>image.png</code>，属于剪贴板位图，会被命名为「粘贴图片-时间戳.png」上传。</li>
+  </ul>
+  <p class="meta">注：网页只能拿到文件名和内容，拿不到本地绝对路径；也不会因为「剪切」而删除本地文件。文件夹粘贴不在支持范围内。</p>
+</div>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const out = $('out'), verdict = $('verdict'), filesBox = $('files'), env = $('env');
+  let last = null;
+
+  env.textContent = [
+    'UA: ' + navigator.userAgent,
+    'userAgentData.brands: ' + (navigator.userAgentData?.brands?.map(b => b.brand + '/' + b.version).join(', ') || '(不可用)'),
+    'platform: ' + (navigator.userAgentData?.platform || navigator.platform || ''),
+    'secureContext: ' + window.isSecureContext + '（paste 事件不依赖安全上下文）',
+  ].join('\n');
+
+  function render(data) {
+    last = data;
+    out.textContent = [
+      'types: ' + JSON.stringify(data.types),
+      'files: ' + JSON.stringify(data.files.map(f => `${f.name} | ${f.size}B | ${f.type || '(无 MIME)'}`)),
+      'items: ' + JSON.stringify(data.items),
+    ].join('\n');
+
+    if (data.files.length) {
+      verdict.className = 'ok';
+      verdict.textContent = '✅ 支持：拿到 ' + data.files.length + ' 个文件，纯前端粘贴上传可用';
+      filesBox.innerHTML = '<table><tr><th>文件名</th><th>大小</th><th>MIME</th></tr>' +
+        data.files.map(f => `<tr><td>${esc(f.name)}</td><td>${fmt(f.size)}</td><td>${esc(f.type || '—')}</td></tr>`).join('') +
+        '</table>';
+    } else if (data.types.some(t => /^(Files|text\/uri-list)$/i.test(t))) {
+      verdict.className = 'bad';
+      verdict.textContent = '⚠️ 部分支持：识别到剪贴板文件但未交出内容，将走降级（打开上传选择器）';
+      filesBox.innerHTML = '';
+    } else {
+      verdict.className = 'bad';
+      verdict.textContent = '❌ 不支持：paste 事件未带出任何文件，将走降级（打开上传选择器）';
+      filesBox.innerHTML = '';
+    }
+  }
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+  function fmt(n) { return n < 1024 ? n + ' B' : (n / 1024).toFixed(1) + ' KB'; }
+
+  document.addEventListener('paste', (e) => {
+    const d = e.clipboardData;
+    if (!d) return;
+    render({
+      types: Array.from(d.types || []),
+      files: Array.from(d.files || []).map(f => ({ name: f.name, size: f.size, type: f.type })),
+      items: Array.from(d.items || []).map(i => `${i.kind}:${i.type}`),
+    });
+  });
+
+  $('copy').addEventListener('click', () => {
+    if (!last) return;
+    navigator.clipboard?.writeText(JSON.stringify({ env: env.textContent, ...last }, null, 2));
+    $('copy').textContent = '已复制';
+    setTimeout(() => { $('copy').textContent = '复制结果'; }, 1500);
+  });
+})();
+</script>
+</body>
+</html>

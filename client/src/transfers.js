@@ -27,6 +27,18 @@ export function addUpload(file, destDir, relativePath = '') {
   return item.id;
 }
 
+// 打开系统文件选择器并把选中文件加入上传队列（供访达工具栏/右键菜单与粘贴上传降级复用）
+export function pickFiles(destDir, folder = false) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.multiple = true;
+  if (folder) input.webkitdirectory = true;
+  input.onchange = () => {
+    for (const f of input.files) addUpload(f, destDir, folder ? (f.webkitRelativePath || f.name) : '');
+  };
+  input.click();
+}
+
 export function pauseUpload(id) {
   const it = getState().transfers.find((x) => x.id === id);
   if (it && it.status === 'uploading') {

@@ -128,7 +128,7 @@ if (SESSION) {
 
 const consoleErrors = [];
 page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
-page.on('pageerror', (e) => consoleErrors.push(`pageerror: ${e.message}`));
+page.on('pageerror', (e) => consoleErrors.push(`pageerror: ${e.message} @ ${e.stack || '(无堆栈)'}`));
 
 mkdirSync(OUT_DIR, { recursive: true });
 let shotIdx = 0;
@@ -250,6 +250,7 @@ try {
   // 声明提到块外：清理阶段也要用到这两个文件名
   const proofName = `uitest-terminal-${Date.now()}.txt`;
   const editName = `uitest-editor-${Date.now()}.md`;
+  const pasteName = `uitest-paste-${Date.now()}.md`;
   if (!MOBILE) {
   section('访达（Finder）');
   const dockItems = await page.$$('.dock-item');
@@ -375,6 +376,94 @@ try {
   } else {
     check('Dock 中存在「文本编辑」入口', false, '未找到 .dock-item[title=文本编辑]');
   }
+
+  // ---------- 5.5 粘贴上传（合成 ClipboardEvent，不依赖真实系统剪贴板）----------
+  // 真机能力验证另见 scripts/paste-probe.html；此处只验证前端分支逻辑与上传链路。
+  section('粘贴上传（Ctrl+V）');
+  if (sid) {
+    // 打开并激活一个访达窗口：此前焦点在编辑器窗口，非访达窗口按设计不接管粘贴
+    const fb = await page.$('.dock-item[title="访达"]');
+    if (fb) await fb.click();
+    await sleep(1500);
+
+    const dispatched = await page.evaluate((name) => {
+      const dt = new DataTransfer();
+      dt.items.add(new File(['# 粘贴上传自测\n'], name, { type: 'text/markdown' }));
+      const ev = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true });
+      document.body.dispatchEvent(ev);
+      return { prevented: ev.defaultPrevented, types: [...dt.types], count: dt.files.length };
+    }, pasteName);
+    check('合成 paste 事件被接管', dispatched.prevented === true && dispatched.count === 1, JSON.stringify(dispatched));
+    await sleep(3000);
+
+    const q = await apiFetch('GET', `/api/fs/search?path=/&q=${encodeURIComponent(pasteName)}`, undefined, `cloudnine_sid=${sid}`);
+    const hit = (q.json?.results || []).find((x) => x.name === pasteName);
+    check('粘贴的文件确实上传到当前目录', q.status === 200 && !!hit, `status=${q.status} ${q.text?.slice(0, 120)}`);
+    if (hit) {
+      const rr = await apiFetch('GET', `/api/fs/read?path=${encodeURIComponent(hit.rel)}`, undefined, `cloudnine_sid=${sid}`);
+      check('粘贴上传内容一致', (rr.json?.content || '').includes('粘贴上传自测'), `status=${rr.status}`);
+    }
+    await shot('粘贴上传');
+
+    // 内部剪贴板优先：两者并存时给二选一；「编辑」菜单显示并可清空内部剪贴板
+    const openedEdit = await page.evaluate(() => {
+      const items = document.querySelectorAll('.finder-item');
+      if (items.length) items[items.length - 1].click();
+      const btn = [...document.querySelectorAll('.mb-menu-btn')].find((b) => b.innerText.trim() === '编辑');
+      if (!btn) return false;
+      btn.click();
+      return true;
+    });
+    await sleep(300);
+    const copied = await page.evaluate(() => {
+      const it = [...document.querySelectorAll('.dropdown-item')].find((b) => b.innerText.trim() === '复制');
+      if (!it) return false;
+      it.click();
+      return true;
+    });
+    await sleep(300);
+    check('「编辑」菜单可写出内部剪贴板', openedEdit && copied, `openedEdit=${openedEdit} copied=${copied}`);
+
+    await page.evaluate(() => {
+      const dt = new DataTransfer();
+      dt.items.add(new File(['conflict'], 'uitest-conflict.txt', { type: 'text/plain' }));
+      document.body.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    });
+    await sleep(500);
+    const dlgText = await page.$eval('.dialog', (el) => el.innerText).catch(() => '');
+    check('内部剪贴板与系统文件并存时弹出二选一', /粘贴到当前文件夹/.test(dlgText), dlgText.slice(0, 100));
+    // 点「取消」：不应上传，也不应执行内部粘贴
+    const cancelBtn = await page.$('.dialog-actions .btn');
+    if (cancelBtn) await cancelBtn.click();
+    await sleep(300);
+    const conflictQ = await apiFetch('GET', `/api/fs/search?path=/&q=uitest-conflict.txt`, undefined, `cloudnine_sid=${sid}`);
+    check('二选一取消后不产生上传', !(conflictQ.json?.results || []).length, JSON.stringify(conflictQ.json?.results || []).slice(0, 100));
+
+    const readClipLabel = async () => {
+      await page.evaluate(() => {
+        const btn = [...document.querySelectorAll('.mb-menu-btn')].find((b) => b.innerText.trim() === '编辑');
+        btn?.click();
+      });
+      await sleep(250);
+      return page.evaluate(() => {
+        const it = [...document.querySelectorAll('.dropdown-item')].find((b) => b.innerText.includes('剪贴板：'));
+        return it ? it.innerText.trim() : '(未找到)';
+      });
+    };
+    const clipLabel = await readClipLabel();
+    check('「编辑」菜单显示内部剪贴板状态', /剪贴板：复制 1 项/.test(clipLabel), clipLabel);
+    await page.evaluate(() => {
+      const it = [...document.querySelectorAll('.dropdown-item')].find((b) => b.innerText.trim() === '清空剪贴板');
+      it?.click();
+    });
+    await sleep(250);
+    const emptyLabel = await readClipLabel();
+    check('清空剪贴板后状态回到「空」', /剪贴板：空/.test(emptyLabel), emptyLabel);
+    await page.evaluate(() => {
+      const btn = [...document.querySelectorAll('.mb-menu-btn')].find((b) => b.innerText.trim() === '编辑');
+      btn?.click();
+    });
+  }
   } // end !MOBILE
 
   // ---------- 6. 控制台错误 ----------
@@ -389,7 +478,7 @@ try {
   if (!flag('keep')) {
     section('清理测试产物');
     const sid2 = await loginViaApi();
-    const names = [proofName, editName].filter(Boolean);
+    const names = [proofName, editName, pasteName].filter(Boolean);
     for (const n of names) {
       const r = await apiFetch('GET', `/api/fs/search?path=/&q=${encodeURIComponent(n)}`, undefined, `cloudnine_sid=${sid2}`);
       const hit = (r.json?.results || []).find((x) => x.name === n);

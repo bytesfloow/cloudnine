@@ -5,7 +5,7 @@ import {
   setState, setFinderSel, basename, dirname, joinPath, fmtSize, fmtTime, fileCat, TEXT_EDITABLE,
 } from '../store.js';
 import { api } from '../api.js';
-import { addUpload } from '../transfers.js';
+import { addUpload, pickFiles } from '../transfers.js';
 import { FileIcon, IconSearch, IconChevron, IconGrid, IconList, IconRefresh, IconNewFolder, IconUpload } from '../icons.jsx';
 
 export default function Finder({ win }) {
@@ -40,7 +40,9 @@ export default function Finder({ win }) {
   // 窗口标题与菜单状态：位置信息已由工具栏面包屑展示，标题栏不再重复显示目录名（「最近」无面包屑指示，保留）
   useEffect(() => {
     setWindowTitle(win.id, recentMode ? '最近' : '');
-    updateWindowProps(win.id, { view, showHidden, cwd });
+    // pasteBlocked 供全局粘贴上传判断目标目录：虚拟视图/废纸篓不允许写入
+    const pasteBlocked = recentMode ? '最近使用' : searchMode ? '搜索结果' : isTrash ? '废纸篓' : null;
+    updateWindowProps(win.id, { view, showHidden, cwd, pasteBlocked });
   }, [cwd, isTrash, searchMode, query, view, showHidden, recentMode]);
 
   const load = useCallback(async () => {
@@ -232,14 +234,7 @@ export default function Finder({ win }) {
 
   function pickUpload(folder) {
     if (isTrash) return;
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.multiple = true;
-    if (folder) input.webkitdirectory = true;
-    input.onchange = () => {
-      for (const f of input.files) addUpload(f, cwd, folder ? (f.webkitRelativePath || f.name) : '');
-    };
-    input.click();
+    pickFiles(cwd, folder);
   }
 
   async function submitRename(oldName, newName) {

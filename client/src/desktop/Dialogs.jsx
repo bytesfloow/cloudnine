@@ -40,6 +40,13 @@ export default function Dialogs() {
             <button className="btn btn-primary" onClick={() => resolveDialog('save')}>保存</button>
           </div>
         )}
+        {dlg.kind === 'paste-choice' && (
+          <div className="dialog-actions three">
+            <button className="btn" onClick={() => resolveDialog(null)} autoFocus>取消</button>
+            <button className="btn" onClick={() => resolveDialog('upload')}>{dlg.uploadText || '上传系统文件'}</button>
+            <button className="btn btn-primary" onClick={() => resolveDialog('internal')}>{dlg.internalText || '粘贴内部文件'}</button>
+          </div>
+        )}
         {dlg.kind === 'form' && <FormBody dlg={dlg} />}
         {dlg.kind === 'about' && <AboutBody />}
       </div>

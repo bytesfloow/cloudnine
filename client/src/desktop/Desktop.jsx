@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { useStore, bus, openWindow, closeWindow, focusWindow, closeContextMenu, openQuickLook, getState, minimizeWindow, showDialog } from '../store.js';
 import { addUpload } from '../transfers.js';
+import { installPasteUpload } from '../pasteUpload.js';
 import WindowFrame from './WindowFrame.jsx';
 import MenuBar from './MenuBar.jsx';
 import Dock from './Dock.jsx';
@@ -40,6 +41,9 @@ export default function Desktop() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  // Ctrl+V 粘贴系统剪贴板文件到当前文件夹（仅桌面端；移动端/分享页不安装）
+  useEffect(() => installPasteUpload(), []);
 
   // 窗口通用动作（各窗口组件自行处理专属动作）
   useEffect(() => bus.on('win-action', ({ windowId, action }) => {

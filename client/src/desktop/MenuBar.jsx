@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useStore, bus, getState, setState, setTheme, showDialog, confirmDialog, notify, openWindow, extname } from '../store.js';
+import { useStore, bus, getState, setState, setTheme, setClipboard, showDialog, confirmDialog, notify, openWindow, extname } from '../store.js';
 import { api } from '../api.js';
 import { uploadStats } from '../transfers.js';
 import { refreshDisk } from '../App.jsx';
@@ -18,7 +18,14 @@ function appMenus(type, w) {
       A('newFolder', '新建文件夹'), A('newFile', '新建空白文件'), A('uploadFile', '上传文件…'), A('uploadFolder', '上传文件夹…'), '-',
       A('openTerminal', '在终端中打开'), '-', A('closeWin', '关闭窗口'),
     ] });
-    menus.push({ label: '编辑', items: [A('copy', '复制'), A('cut', '剪切'), A('paste', '粘贴'), '-', A('selectAll', '全选'), A('rename', '重命名'), '-', A('trash', '移入废纸篓')] });
+    // 让内部剪贴板状态可见：用户能据此理解 Ctrl+V 为什么走内部粘贴而非上传
+    const cb = getState().clipboard;
+    menus.push({ label: '编辑', items: [
+      A('copy', '复制'), A('cut', '剪切'), A('paste', '粘贴'), '-',
+      { label: cb ? `剪贴板：${cb.mode === 'cut' ? '剪切' : '复制'} ${cb.paths?.length ?? 0} 项` : '剪贴板：空', disabled: true },
+      { label: '清空剪贴板', action: '__clearClipboard', disabled: !cb },
+      '-', A('selectAll', '全选'), A('rename', '重命名'), '-', A('trash', '移入废纸篓'),
+    ] });
     menus.push({ label: '显示', items: [
       A('viewIcon', '图标视图', { checked: w?.props?.view !== 'list' }), A('viewList', '列表视图', { checked: w?.props?.view === 'list' }), '-',
       A('toggleHidden', '显示隐藏文件', { checked: !!w?.props?.showHidden }), '-', A('refresh', '刷新'), A('focus-search', '搜索'),
@@ -76,6 +83,7 @@ export default function MenuBar() {
       if (item.action === '__about') showDialog({ kind: 'about' });
       else if (item.action === '__newFinder') openWindow('finder');
       else if (item.action === '__minAll') bus.emit('global-action', { action: 'minimizeAll' });
+      else if (item.action === '__clearClipboard') setClipboard(null);
       return;
     }
     bus.emit('win-action', { windowId: getState().focusId, action: item.action, arg: item.arg });
