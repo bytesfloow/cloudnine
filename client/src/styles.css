@@ -305,6 +305,32 @@ a { color: var(--accent); text-decoration: none; }
 .rh-sw { bottom: -4px; left: -4px; width: 14px; height: 14px; cursor: nesw-resize; }
 .win-missing { padding: 30px; color: var(--text-2); }
 
+/* ============ 错误兜底（窗口级 / 整页级） ============ */
+.win-error {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  height: 100%; padding: 24px; color: var(--text-2); text-align: center;
+}
+.win-error-icon { font-size: 26px; }
+.win-error-title { margin: 0; font-size: 14px; color: var(--text); }
+.win-error-msg {
+  max-width: 100%; max-height: 140px; overflow: auto; margin: 0; padding: 8px 10px;
+  background: var(--hover); border-radius: 8px; font-size: 12px; color: var(--text-2);
+  white-space: pre-wrap; word-break: break-word;
+}
+.app-error { display: flex; align-items: center; justify-content: center; height: 100vh; padding: 24px; }
+.app-error-box {
+  display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 520px; padding: 28px 32px;
+  background: var(--win-bg); border: 1px solid var(--win-border); border-radius: 14px;
+  box-shadow: var(--shadow-soft); text-align: center;
+}
+.app-error-icon { font-size: 32px; }
+.app-error-title { margin: 0; font-size: 16px; color: var(--text); }
+.app-error-msg {
+  max-width: 100%; max-height: 200px; overflow: auto; margin: 0; padding: 8px 10px;
+  background: var(--hover); border-radius: 8px; font-size: 12px; color: var(--text-2);
+  white-space: pre-wrap; word-break: break-word;
+}
+
 /* ============ Dock ============ */
 .dock {
   position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);

@@ -185,7 +185,7 @@ export default function PreviewWindow({ win }) {
 
   return (
     <div className="preview-window">
-      {!compact && siblings?.length > 1 && (
+      {siblings?.length > 1 && (
         <div className="preview-nav">
           <button className="tb-btn" onClick={() => nav(-1)} title="上一个"><IconChevron dir="left" /></button>
           <span>{(index ?? 0) + 1} / {siblings.length}</span>

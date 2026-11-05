@@ -5,6 +5,7 @@ import InitWizard from './auth/InitWizard.jsx';
 import Login from './auth/Login.jsx';
 import Desktop from './desktop/Desktop.jsx';
 import Dialogs, { Notifications } from './desktop/Dialogs.jsx';
+import ErrorBoundary from './ErrorBoundary.jsx';
 
 const MobileApp = lazy(() => import('./mobile/MobileApp.jsx'));
 
@@ -31,11 +32,12 @@ export default function App() {
   );
 
   return (
-    <>
+    // 整页级错误边界：任何未捕获的渲染异常都不会再变成纯白屏
+    <ErrorBoundary label="app" full>
       {body}
       <Notifications />
       <Dialogs />
-    </>
+    </ErrorBoundary>
   );
 }
 
