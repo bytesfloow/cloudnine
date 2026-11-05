@@ -13,3 +13,7 @@ shots/
 # Python 编译缓存
 __pycache__/
 *.pyc
+
+# 部署凭据（SSH_PASSWORD 等，只在本机留一份，chmod 600）
+.secrets/
+*.env
