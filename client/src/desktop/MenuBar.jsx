@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useStore, bus, getState, setState, setTheme, setClipboard, showDialog, confirmDialog, notify, openWindow, extname } from '../store.js';
+import { useStore, bus, getState, setState, setTheme, setClipboard, showDialog, confirmDialog, notify, openWindow, activateNotification, extname } from '../store.js';
 import { api } from '../api.js';
 import { uploadStats } from '../transfers.js';
 import { refreshDisk } from '../App.jsx';
@@ -164,9 +164,14 @@ function NotifBell() {
         <div className="notif-popover">
           {s.notifications.length === 0 && <div className="popover-empty">暂无通知</div>}
           {s.notifications.slice().reverse().map((n) => (
-            <div key={n.id} className={`notif-row n-${n.type}`}>
+            <div
+              key={n.id}
+              className={`notif-row n-${n.type}${n.onClick ? ' n-actionable' : ''}`}
+              onClick={n.onClick ? () => { close(); activateNotification(n.id); } : undefined}
+            >
               <b>{n.title}</b>
               {n.body && <span>{n.body}</span>}
+              {n.actionLabel && <em className="notif-action">{n.actionLabel} ›</em>}
             </div>
           ))}
         </div>

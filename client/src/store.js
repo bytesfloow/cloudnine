@@ -129,14 +129,22 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', (
 });
 
 // ---------- 通知 ----------
-export function notify({ type = 'info', title, body = '', ms = 5000 }) {
+// onClick（可选）：点击通知时执行的动作，例如打开「传输」窗口；
+// actionLabel（可选）：给可点击通知一个轻量提示文案，便于发现其可交互。
+export function notify({ type = 'info', title, body = '', ms = 5000, onClick = null, actionLabel = '' }) {
   const id = nextId();
-  setState((s) => ({ notifications: [...s.notifications, { id, type, title, body, ts: Date.now() }].slice(-20) }));
+  setState((s) => ({ notifications: [...s.notifications, { id, type, title, body, ts: Date.now(), onClick, actionLabel }].slice(-20) }));
   if (ms > 0) setTimeout(() => dismissNotification(id), ms);
   return id;
 }
 export function dismissNotification(id) {
   setState((s) => ({ notifications: s.notifications.filter((n) => n.id !== id) }));
+}
+// 点击通知：先移除该条，再执行其动作；未带动作的通知退化为「点击即消失」
+export function activateNotification(id) {
+  const n = state.notifications.find((x) => x.id === id);
+  dismissNotification(id);
+  if (typeof n?.onClick === 'function') n.onClick();
 }
 
 // ---------- 模态对话框（Promise 风格） ----------

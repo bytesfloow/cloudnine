@@ -1,5 +1,5 @@
 import { getState, bus, notify, setClipboard, confirmDialog, showDialog } from './store.js';
-import { addUpload, pickFiles } from './transfers.js';
+import { addUpload, pickFiles, notifyTransfer } from './transfers.js';
 
 // F-09a 粘贴上传：把系统剪贴板里复制的文件，通过 Ctrl+V 上传到「当前文件夹」。
 //
@@ -98,13 +98,14 @@ async function uploadFiles(files, target) {
     if (!ok) return;
   }
   if (files.length > NOTICE_COUNT) {
-    notify({ type: 'info', title: '已加入上传队列', body: `${files.length} 个文件，按现有队列并发上传`, ms: 6000 });
+    notifyTransfer({ type: 'info', title: '已加入上传队列', body: `${files.length} 个文件，按现有队列并发上传`, ms: 6000 });
   }
   const ready = files.map((f, i) => normalizeFile(f, i, files.length));
   for (const f of ready) addUpload(f, dir);
   // 一次成功的粘贴上传后清空内部剪贴板，避免后续 Ctrl+V 反复撞车
   setClipboard(null);
-  notify({ type: 'info', title: '开始上传', body: `${ready.length} 个文件 → /${dir || ''}`, ms: 3000 });
+  // 点击「开始上传」通知可直接打开传输窗口查看进度（对齐文件选择器上传入口）
+  notifyTransfer({ type: 'info', title: '开始上传', body: `${ready.length} 个文件 → /${dir || ''}`, ms: 3000 });
 }
 
 export function installPasteUpload() {

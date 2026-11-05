@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useStore, resolveDialog, getState, dismissNotification } from '../store.js';
+import { useStore, resolveDialog, activateNotification } from '../store.js';
 import { api } from '../api.js';
 
 // 通知堆栈（桌面/移动共用）：登录页等早期阶段也需要展示 notify()
@@ -9,9 +9,10 @@ export function Notifications() {
   return (
     <div className="notification-stack">
       {s.notifications.slice(-4).map((n) => (
-        <div key={n.id} className={`notification n-${n.type}`} onClick={() => dismissNotification(n.id)}>
+        <div key={n.id} className={`notification n-${n.type}${n.onClick ? ' n-actionable' : ''}`} onClick={() => activateNotification(n.id)}>
           <div className="n-title">{n.title}</div>
           {n.body && <div className="n-body">{n.body}</div>}
+          {n.actionLabel && <div className="n-action">{n.actionLabel} ›</div>}
         </div>
       ))}
     </div>

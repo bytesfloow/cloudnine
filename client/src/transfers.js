@@ -1,10 +1,19 @@
 import { api } from './api.js';
-import { getState, setState, nextId, notify, fmtSize, basename } from './store.js';
+import { getState, setState, nextId, notify, openWindow, fmtSize, basename } from './store.js';
 
 // 分片上传引擎：队列 + 并发 2 + 断点续传 + 重试
 const CHUNK = 4 * 1024 * 1024;
 const CONCURRENCY = 2;
 const RETRIES = 3;
+
+// 传输类通知：点击后打开「传输」窗口查看进度/结果。
+// 文件选择器上传、粘贴上传及上传完成/失败提示统一复用，保证传输类通知可点、行为一致。
+export function notifyTransfer({ type = 'info', title, body = '', ms = 5000, actionLabel = '查看传输' }) {
+  return notify({
+    type, title, body, ms, actionLabel,
+    onClick: () => openWindow('transfers'),
+  });
+}
 
 export function addUpload(file, destDir, relativePath = '') {
   const item = {
@@ -34,7 +43,12 @@ export function pickFiles(destDir, folder = false) {
   input.multiple = true;
   if (folder) input.webkitdirectory = true;
   input.onchange = () => {
-    for (const f of input.files) addUpload(f, destDir, folder ? (f.webkitRelativePath || f.name) : '');
+    const files = Array.from(input.files || []);
+    for (const f of files) addUpload(f, destDir, folder ? (f.webkitRelativePath || f.name) : '');
+    // 与 Ctrl+V 粘贴上传对齐：选择文件后给出「开始上传」通知，点击可打开传输窗口
+    if (files.length) {
+      notifyTransfer({ title: '开始上传', body: `${files.length} 个文件 → /${destDir || ''}`, ms: 3000 });
+    }
   };
   input.click();
 }
@@ -123,7 +137,7 @@ async function runItem(it0) {
 
     const fin = await api.uploadFinish(it.uploadId);
     patch(it.id, { status: 'done', uploaded: it.size, finalPath: fin.path, speed: 0 });
-    notify({ type: 'success', title: '上传完成', body: it.displayName });
+    notifyTransfer({ type: 'success', title: '上传完成', body: it.displayName });
     const { bus } = await import('./store.js');
     bus.emit('fs:changed', it.destDir);
   } catch (e) {
@@ -136,7 +150,7 @@ async function runItem(it0) {
       return runItem(get(it.id) || it);
     }
     patch(it.id, { status: 'error', error: e.message, speed: 0 });
-    notify({ type: 'error', title: '上传失败', body: `${it.displayName}：${e.message}` });
+    notifyTransfer({ type: 'error', title: '上传失败', body: `${it.displayName}：${e.message}` });
   } finally {
     pump();
   }

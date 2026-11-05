@@ -222,8 +222,10 @@ a { color: var(--accent); text-decoration: none; }
 .popover-empty { color: var(--text-2); text-align: center; padding: 18px 0; }
 .notif-row { padding: 7px 10px; border-radius: 7px; font-size: 12.5px; display: flex; flex-direction: column; gap: 2px; }
 .notif-row:hover { background: var(--hover); }
+.notif-row.n-actionable { cursor: pointer; }
 .notif-row.n-error b { color: var(--danger); }
 .notif-row span { color: var(--text-2); font-size: 12px; }
+.notif-action { font-style: normal; font-size: 11.5px; font-weight: 600; color: var(--accent); margin-top: 2px; }
 .popover.wide { width: 300px; }
 .disk-popover, .account-popover { width: auto; }
 .disk-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px; border-radius: 7px; font-size: 12px; }
@@ -390,6 +392,9 @@ a { color: var(--accent); text-decoration: none; }
 .n-body { color: var(--text-2); font-size: 12px; margin-top: 3px; word-break: break-all; }
 .notification.n-success .n-title { color: #28a745; }
 .notification.n-error .n-title { color: var(--danger); }
+/* 可点击通知（如「开始上传」）的轻量提示，暗示点击可打开传输窗口 */
+.notification.n-actionable:hover { border-color: var(--accent); }
+.n-action { margin-top: 7px; font-size: 11.5px; font-weight: 600; color: var(--accent); }
 
 /* ============ 访达 ============ */
 .finder { display: flex; flex-direction: column; height: 100%; }

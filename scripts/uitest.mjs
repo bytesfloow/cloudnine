@@ -251,6 +251,8 @@ try {
   const proofName = `uitest-terminal-${Date.now()}.txt`;
   const editName = `uitest-editor-${Date.now()}.md`;
   const pasteName = `uitest-paste-${Date.now()}.md`;
+  const notifyName = `uitest-notify-${Date.now()}.md`;
+  const btnUploadName = `uitest-btnupload-${Date.now()}.txt`;
   if (!MOBILE) {
   section('访达（Finder）');
   const dockItems = await page.$$('.dock-item');
@@ -464,6 +466,83 @@ try {
       btn?.click();
     });
   }
+
+  // ---------- 5.6 上传通知：点击「开始上传」自动打开传输窗口 ----------
+  // 两个上传入口都要覆盖：Ctrl+V 粘贴上传、访达工具栏「上传文件」按钮。
+  // 重新载入页面以拿到干净的窗口/通知状态（会话 cookie 保留），避免前面流程的残留干扰。
+  section('上传通知（点击打开传输窗口）');
+  if (sid) {
+    await page.reload({ waitUntil: 'networkidle2', timeout: 45000 });
+    await page.waitForSelector('.menubar', { timeout: 15000 });
+    await sleep(1000);
+    const fb = await page.$('.dock-item[title="访达"]');
+    if (fb) await fb.click();
+    await page.waitForSelector('.finder', { timeout: 15000 });
+    await sleep(500);
+
+    const closeTransfers = () => page.evaluate(() => {
+      const w = [...document.querySelectorAll('.window')].find((x) => x.querySelector('.transfers-window'));
+      w?.querySelector('.tc-close')?.click();
+    });
+    const countStart = () => page.evaluate(() =>
+      [...document.querySelectorAll('.notification')].filter((n) => n.querySelector('.n-title')?.textContent.includes('开始上传')).length);
+    const lastStartInfo = () => page.evaluate(() => {
+      const n = [...document.querySelectorAll('.notification')]
+        .filter((x) => x.querySelector('.n-title')?.textContent.includes('开始上传')).pop();
+      return n ? { actionable: n.classList.contains('n-actionable'), hasHint: !!n.querySelector('.n-action'), text: n.innerText } : null;
+    });
+    const clickLastStart = () => page.evaluate(() => {
+      const list = [...document.querySelectorAll('.notification')]
+        .filter((x) => x.querySelector('.n-title')?.textContent.includes('开始上传'));
+      list[list.length - 1]?.click();
+    });
+    const hasTransfers = () => page.$('.transfers-window').then((h) => !!h);
+
+    // 需求 1：Ctrl+V 粘贴上传的「开始上传」通知可点击打开传输窗口
+    const beforeA = await countStart();
+    const dispatchedA = await page.evaluate((name) => {
+      const dt = new DataTransfer();
+      dt.items.add(new File(['# 通知点击自测\n'], name, { type: 'text/markdown' }));
+      const ev = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true });
+      document.body.dispatchEvent(ev);
+      return { prevented: ev.defaultPrevented, count: dt.files.length };
+    }, notifyName);
+    check('通知自测：合成 paste 被接管', dispatchedA.prevented === true && dispatchedA.count === 1, JSON.stringify(dispatchedA));
+    await page.waitForFunction((b) =>
+      [...document.querySelectorAll('.notification')].filter((n) => n.querySelector('.n-title')?.textContent.includes('开始上传')).length > b,
+      { timeout: 8000 }, beforeA);
+    const infoA = await lastStartInfo();
+    check('粘贴上传「开始上传」通知带可点击提示', !!infoA?.actionable && !!infoA?.hasHint, JSON.stringify(infoA));
+    check('需求1：点击前传输窗口未打开', !(await hasTransfers()));
+    await clickLastStart();
+    await page.waitForSelector('.transfers-window', { timeout: 8000 });
+    check('需求1：点击「开始上传」通知自动打开传输窗口', !!(await hasTransfers()));
+    await closeTransfers();
+    await sleep(300);
+
+    // 需求 2：访达「上传文件」按钮上传时也要弹出通知，且点击同样可打开传输窗口
+    const beforeB = await countStart();
+    const uploadPath = join(OUT_DIR, btnUploadName);
+    writeFileSync(uploadPath, 'button upload notify test\n');
+    const btns = await page.$$('.tb-btn[title="上传文件"]');
+    check('访达工具栏存在「上传文件」按钮', btns.length >= 1, `count=${btns.length}`);
+    const [chooser] = await Promise.all([
+      page.waitForFileChooser({ timeout: 8000 }),
+      btns[btns.length - 1].click(),
+    ]);
+    await chooser.accept([uploadPath]);
+    await page.waitForFunction((b) =>
+      [...document.querySelectorAll('.notification')].filter((n) => n.querySelector('.n-title')?.textContent.includes('开始上传')).length > b,
+      { timeout: 8000 }, beforeB);
+    const infoB = await lastStartInfo();
+    check('需求2：「上传文件」按钮上传弹出「开始上传」通知', !!infoB, JSON.stringify(infoB));
+    check('需求2：该通知同样可点击（带提示）', !!infoB?.actionable && !!infoB?.hasHint, JSON.stringify(infoB));
+    check('需求2：点击前传输窗口未打开', !(await hasTransfers()));
+    await clickLastStart();
+    await page.waitForSelector('.transfers-window', { timeout: 8000 });
+    check('需求2：点击该通知后打开传输窗口', !!(await hasTransfers()));
+    await closeTransfers();
+  }
   } // end !MOBILE
 
   // ---------- 6. 控制台错误 ----------
@@ -478,7 +557,7 @@ try {
   if (!flag('keep')) {
     section('清理测试产物');
     const sid2 = await loginViaApi();
-    const names = [proofName, editName, pasteName].filter(Boolean);
+    const names = [proofName, editName, pasteName, notifyName, btnUploadName].filter(Boolean);
     for (const n of names) {
       const r = await apiFetch('GET', `/api/fs/search?path=/&q=${encodeURIComponent(n)}`, undefined, `cloudnine_sid=${sid2}`);
       const hit = (r.json?.results || []).find((x) => x.name === n);
