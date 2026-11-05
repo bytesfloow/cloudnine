@@ -21,6 +21,9 @@
   --key <path>   SSH 私钥路径（推荐；默认 ~/.ssh/id_ed25519）
   --password     密码登录（需要系统已安装 sshpass）
   环境变量 SSH_PASSWORD 可替代 --password
+
+ 安全：密码经 SSHPASS 环境变量由 `sshpass -e` 读取，只注入本次 ssh 子进程，
+       不进入命令行参数（ps 可见）、不回显到日志（run() 会打印完整命令）。
 """
 
 from __future__ import annotations
@@ -56,9 +59,10 @@ def err(msg: str) -> None:
     print(f"{RED}  ✗{RESET} {msg}", flush=True)
 
 
-def run(cmd: list[str], *, cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess:
+def run(cmd: list[str], *, cwd: Path | None = None, check: bool = True,
+        env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
     info(" $ " + " ".join(shlex.quote(c) for c in cmd))
-    proc = subprocess.run(cmd, cwd=cwd, text=True, capture_output=True)
+    proc = subprocess.run(cmd, cwd=cwd, env=env, text=True, capture_output=True)
     if proc.stdout.strip():
         print(proc.stdout.rstrip())
     if proc.stderr.strip():
@@ -69,8 +73,13 @@ def run(cmd: list[str], *, cwd: Path | None = None, check: bool = True) -> subpr
     return proc
 
 
-def ssh_cmd(args: argparse.Namespace, remote_cmd: str) -> list[str]:
-    """构造 ssh 命令；密码模式下自动套 sshpass。"""
+def ssh_cmd(args: argparse.Namespace, remote_cmd: str) -> tuple[list[str], dict[str, str]]:
+    """构造 ssh 命令，以及只注入给该 ssh 子进程的额外环境变量。
+
+    密码模式用 `sshpass -e` 从 SSHPASS 读取密码：密码既不出现在命令行参数
+    （会被 ps 看到、被 run() 回显到日志），也不写进全局 os.environ
+    （会被 git push / 冒烟测试等所有子进程继承）。
+    """
     base = ["ssh", "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=15"]
     if args.port:
         base += ["-p", str(args.port)]
@@ -83,8 +92,8 @@ def ssh_cmd(args: argparse.Namespace, remote_cmd: str) -> list[str]:
         if not shutil_which("sshpass"):
             err("需要密码登录但系统未安装 sshpass（apt-get install -y sshpass）")
             raise SystemExit(1)
-        return ["sshpass", "-p", password] + base + [target, remote_cmd]
-    return base + [target, remote_cmd]
+        return ["sshpass", "-e"] + base + [target, remote_cmd], {"SSHPASS": password}
+    return base + [target, remote_cmd], {}
 
 
 def shutil_which(name: str) -> str | None:
@@ -96,10 +105,11 @@ def shutil_which(name: str) -> str | None:
 def remote_run(args: argparse.Namespace, remote_cmd: str, *, as_root: bool = False) -> subprocess.CompletedProcess:
     if as_root:
         remote_cmd = f"sudo bash -lc {shlex.quote(remote_cmd)}"
-    cmd = ssh_cmd(args, remote_cmd)
+    cmd, ssh_env = ssh_cmd(args, remote_cmd)
     info(f"SSH → {args.user}@{args.host}")
     print(f"{DIM}   {remote_cmd[:160]}{'…' if len(remote_cmd) > 160 else ''}{RESET}")
-    return run(cmd)
+    env = {**os.environ, **ssh_env} if ssh_env else None
+    return run(cmd, env=env)
 
 
 def health_check(url: str, retries: int = 12, interval: float = 2.0) -> dict | None:
