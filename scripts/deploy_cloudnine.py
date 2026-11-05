@@ -17,10 +17,17 @@
   # 本地有未推送提交时，先推再部署
   python3 scripts/deploy_cloudnine.py --host 1.2.3.4 --user ubuntu --push
 
+  # 凭据与目标都已写进 .secrets/*.env 时，可以零参数直接部署
+  python3 scripts/deploy_cloudnine.py --push
+
 连接方式：
   --key <path>   SSH 私钥路径（推荐；默认 ~/.ssh/id_ed25519）
   --password     密码登录（需要系统已安装 sshpass）
   环境变量 SSH_PASSWORD 可替代 --password
+
+  凭据文件：.secrets/*.env（已被 .gitignore 忽略，仅本机保留）自动载入，
+  支持 SSH_PASSWORD / CN_SSH_PASS / CN_DEPLOY_HOST / CN_DEPLOY_USER，
+  例如 .secrets/aliyun.env 里写 export SSH_PASSWORD='...'
 
  安全：密码经 SSHPASS 环境变量由 `sshpass -e` 读取，只注入本次 ssh 子进程，
        不进入命令行参数（ps 可见）、不回显到日志（run() 会打印完整命令）。
@@ -39,8 +46,38 @@ import urllib.request
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+SECRETS_DIR = REPO_ROOT / ".secrets"
 
 GREEN, RED, YELLOW, CYAN, DIM, RESET = "\033[32m", "\033[31m", "\033[33m", "\033[36m", "\033[2m", "\033[0m"
+
+
+def load_secrets() -> list[str]:
+    """从 .secrets/*.env 载入部署凭据（SSH_PASSWORD / CN_DEPLOY_HOST 等）。
+
+    .secrets/ 已被 .gitignore 忽略，只在本机留一份；已存在的环境变量优先，
+    不覆盖命令行显式传入的值。文件缺失时静默跳过 —— 此时仍可用密钥或交互输入。
+    """
+    loaded: list[str] = []
+    if not SECRETS_DIR.is_dir():
+        return loaded
+    for path in sorted(SECRETS_DIR.glob("*.env")):
+        try:
+            content = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for raw in content.splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            if key.startswith("export "):   # 兼容 `export KEY=value` 写法
+                key = key[len("export "):].strip()
+            value = value.strip().strip("'\"")
+            if key and value and key not in os.environ:
+                os.environ[key] = value
+                loaded.append(key)
+    return loaded
 
 
 def info(msg: str) -> None:
@@ -134,9 +171,16 @@ def health_check(url: str, retries: int = 12, interval: float = 2.0) -> dict | N
 
 
 def main() -> None:
+    # 先载入 .secrets/*.env（SSH_PASSWORD / CN_DEPLOY_HOST / CN_DEPLOY_USER），
+    # 这样「直接跑部署脚本」即可完成部署，无需每次再提供密码。
+    loaded = load_secrets()
+    if loaded:
+        info(f"已载入部署凭据: {', '.join(loaded)}（来源 .secrets/*.env）")
+
     ap = argparse.ArgumentParser(description="CloudNine 部署编排器")
-    ap.add_argument("--host", required=True, help="目标服务器 IP/域名")
-    ap.add_argument("--user", default="ubuntu", help="SSH 用户名")
+    ap.add_argument("--host", default=os.environ.get("CN_DEPLOY_HOST"),
+                    help="目标服务器 IP/域名（默认取环境变量 CN_DEPLOY_HOST）")
+    ap.add_argument("--user", default=os.environ.get("CN_DEPLOY_USER", "ubuntu"), help="SSH 用户名")
     ap.add_argument("--port", type=int, default=22, help="SSH 端口")
     ap.add_argument("--key", help="SSH 私钥路径")
     ap.add_argument("--password", action="store_true", help="使用密码登录")
@@ -147,6 +191,10 @@ def main() -> None:
     ap.add_argument("--no-build", action="store_true", help="跳过前端构建")
     ap.add_argument("--skip-smoke", action="store_true", help="跳过部署后的冒烟测试")
     args = ap.parse_args()
+
+    if not args.host:
+        err("缺少目标服务器：用 --host 指定，或在 .secrets/*.env 里设置 CN_DEPLOY_HOST")
+        raise SystemExit(1)
 
     if args.password:
         args.password = os.environ.get("SSH_PASSWORD", "")
