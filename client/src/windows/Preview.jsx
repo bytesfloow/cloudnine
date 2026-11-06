@@ -2,31 +2,26 @@ import React, { useEffect, useState } from 'react';
 import { useStore, setWindowTitle, updateWindowProps, openWindow, notify, basename, fmtSize, fmtTime, fileCat, extname } from '../store.js';
 import { api } from '../api.js';
 import { FileIcon, IconChevron } from '../icons.jsx';
+import ImageViewer, { useImageView, MIN_ZOOM, MAX_ZOOM } from './ImageViewer.jsx';
 
 // 图片缩放/旋转工具组：预览窗口底部统一操作条与快速预览共用
 function ZoomTools({ view }) {
   return (
     <div className="preview-zoom">
-      <button className="btn btn-small" onClick={() => view.setZoom((z) => Math.max(0.1, z - 0.25))} title="缩小">−</button>
+      <button className="btn btn-small" onClick={() => view.setZoom((z) => Math.max(MIN_ZOOM, z - 0.25))} title="缩小">−</button>
       <span className="preview-zoom-val">{Math.round(view.zoom * 100)}%</span>
-      <button className="btn btn-small" onClick={() => view.setZoom((z) => Math.min(8, z + 0.25))} title="放大">＋</button>
-      <button className="btn btn-small" onClick={() => view.setZoom(1)}>适应</button>
+      <button className="btn btn-small" onClick={() => view.setZoom((z) => Math.min(MAX_ZOOM, z + 0.25))} title="放大">＋</button>
+      <button className="btn btn-small" onClick={() => view.reset()} title="适应窗口（双击图片可复位）">适应</button>
       <button className="btn btn-small" onClick={() => view.setRotate((r) => (r + 90) % 360)}>旋转</button>
     </div>
   );
 }
 
-// 缩放/旋转状态：预览窗口把缩放工具并入底部统一操作条，故由窗口持有并下传；
+// 缩放/旋转/平移状态：预览窗口把缩放工具并入底部统一操作条，故由窗口持有并下传；
 // 快速预览/移动端未传 view 时，由本组件自持状态。
 function useViewState(controlled) {
-  const [local, setLocal] = useState({ zoom: 1, rotate: 0 });
-  if (controlled) return controlled;
-  return {
-    zoom: local.zoom,
-    rotate: local.rotate,
-    setZoom: (next) => setLocal((s) => ({ ...s, zoom: typeof next === 'function' ? next(s.zoom) : next })),
-    setRotate: (next) => setLocal((s) => ({ ...s, rotate: typeof next === 'function' ? next(s.rotate) : next })),
-  };
+  const local = useImageView();
+  return controlled || local;
 }
 
 // 预览内容组件：桌面预览窗口、快速预览、移动端共用
@@ -43,7 +38,7 @@ export function PreviewContent({ path, compact = false, onEdit, view }) {
   useEffect(() => {
     setError(''); setText(null); setArchiveEntries(null); setOfficeHtml(null);
     // 受控模式（预览窗口）由窗口在切换文件时重置缩放/旋转
-    if (!view) v.setZoom(1);
+    if (!view) v.reset();
     if (!view) v.setRotate(0);
     api.stat(path).then(setStat).catch(() => {});
     if (['text', 'code'].includes(cat)) {
@@ -60,11 +55,17 @@ export function PreviewContent({ path, compact = false, onEdit, view }) {
   if (cat === 'image') {
     return (
       <div className="preview-image">
-        <img src={src} alt={basename(path)} style={{ transform: `scale(${v.zoom}) rotate(${v.rotate}deg)`, maxWidth: '100%', maxHeight: '100%' }} />
+        {/* 滚轮/双指缩放 + 拖拽平移，由 ImageViewer 承载手势 */}
+        <ImageViewer src={src} alt={basename(path)} view={v} />
         {/* 缩放工具统一放在窗口底部操作条里；独立使用时（快速预览/移动端）才自带 */}
         {!view && (
           <div className="preview-toolbar">
             <ZoomTools view={v} />
+            <span className="preview-hint">
+              <span className="hint-fine">滚轮缩放 · </span>拖动平移 ·{' '}
+              <span className="hint-fine">双击复位</span>
+              <span className="hint-coarse">双指缩放 · 双击复位</span>
+            </span>
           </div>
         )}
       </div>
@@ -202,17 +203,11 @@ const Spin = () => <div className="finder-loading"><div className="boot-spinner"
 export default function PreviewWindow({ win }) {
   const { path, siblings, index } = win.props;
   const s = useStore();
-  // 缩放/旋转由窗口持有：工具统一收敛到底部操作条，不再浮在图片上方
-  const [viewState, setViewState] = useState({ zoom: 1, rotate: 0 });
-  const view = {
-    zoom: viewState.zoom,
-    rotate: viewState.rotate,
-    setZoom: (next) => setViewState((s) => ({ ...s, zoom: typeof next === 'function' ? next(s.zoom) : next })),
-    setRotate: (next) => setViewState((s) => ({ ...s, rotate: typeof next === 'function' ? next(s.rotate) : next })),
-  };
+  // 缩放/旋转/平移由窗口持有：工具统一收敛到底部操作条，不再浮在图片上方
+  const view = useImageView();
   useEffect(() => { setWindowTitle(win.id, basename(path)); }, [path, win.id]);
-  // 切换文件时重置缩放/旋转
-  useEffect(() => { setViewState({ zoom: 1, rotate: 0 }); }, [path]);
+  // 切换文件时重置缩放/旋转/平移
+  useEffect(() => { view.reset(); view.setRotate(0); }, [path]);
 
   const nav = (delta) => {
     if (!siblings || siblings.length < 2) return;

@@ -64,7 +64,7 @@ node scripts/uitest.mjs --url http://<IP>/ --user <账号> --password <密码>
 
 - 访达：图标/列表视图、搜索、框选拖拽、右键菜单、简介与权限
 - 终端：真实 PTY、多标签、断线重连
-- 编辑与预览：CodeMirror 6 语法高亮、Quick Look、图片/音视频/PDF/Markdown/CSV/Office 预览
+- 编辑与预览：CodeMirror 6 语法高亮、Quick Look、图片预览支持滚轮/双指缩放与拖拽平移、图片/音视频/PDF/Markdown/CSV/Office 预览
 - 传输：分片断点续传、文件夹上传、批量打包下载、压缩解压
 - 分享与运维：带密码/有效期的分享链接、磁盘监控、废纸篓、深浅主题与通知
 - 移动端：≤768px 自动切换 iPhone 风格形态

@@ -8,6 +8,7 @@
  * 覆盖流程：
  *   初始化向导 / 登录 → 桌面渲染 → 访达 → 终端（真实 PTY 执行命令）
  *   → 文本编辑（输入 + Ctrl+S 保存 + 磁盘核对）→ 访达列表核对
+ *   → 图片预览（滚轮缩放 + 拖拽平移；移动端为双指缩放 + 单指拖动）
  *
  * 依赖（puppeteer-core 不含 Chromium，复用系统 Chrome）：
  *   mkdir -p /home/ubuntu/workspace/.uitest && cd /home/ubuntu/workspace/.uitest \
@@ -23,6 +24,7 @@ import { createRequire } from 'node:module';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import zlib from 'node:zlib';
 
 const require = createRequire(import.meta.url);
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -60,6 +62,7 @@ const USERNAME = arg('user', 'uitest');
 const PASSWORD = arg('password', 'Uitest12345');
 const SESSION = arg('session', null);   // 已有会话 token（测试已部署实例时免密码）
 const MOBILE = flag('mobile');
+const imgName = `uitest-preview-${Date.now()}.png`; // 图片预览自测用图（桌面/移动两分支都会用到）
 const OUT_DIR = join(__dirname, '..', 'shots', `uitest-${new Date().toISOString().replace(/[:.]/g, '-')}`);
 const CHROME = arg('chrome', '/usr/bin/google-chrome');
 
@@ -81,6 +84,47 @@ function check(name, cond, detail = '') {
 }
 function section(t) { console.log(`\n${BOLD}${CYAN}▸ ${t}${RESET}`); }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ---------- 测试用 PNG（手写编码，免图像库依赖） ----------
+function crc32(buf) {
+  let c = ~0;
+  for (let i = 0; i < buf.length; i++) {
+    c ^= buf[i];
+    for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
+  }
+  return ~c >>> 0;
+}
+function makePng(w, h) {
+  const raw = Buffer.alloc((w * 3 + 1) * h);
+  let o = 0;
+  for (let y = 0; y < h; y++) {
+    raw[o++] = 0; // filter: none
+    for (let x = 0; x < w; x++) {
+      raw[o++] = Math.round((x / w) * 255);
+      raw[o++] = Math.round((y / h) * 255);
+      raw[o++] = 160;
+    }
+  }
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(body));
+    return Buffer.concat([len, body, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4);
+  ihdr[8] = 8; ihdr[9] = 2; // 8bit truecolor
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', ihdr),
+    chunk('IDAT', zlib.deflateSync(raw)),
+    chunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
+// 图片预览的 transform 解析：translate(x,y) scale(z)
+const zoomOf = (t) => parseFloat((t.match(/scale\(([\d.]+)\)/) || [])[1] || '0');
+const panOf = (t) => (t.match(/translate\(([-\d.]+)px,\s*([-\d.]+)px\)/) || [0, 0, 0]).slice(1).map(Number);
 
 // ---------- API 反查 ----------
 async function apiFetch(method, path, body, cookie) {
@@ -235,6 +279,91 @@ try {
       await sleep(1800);
       check('终端进入全屏页', !!(await page.$('.m-terminal, .xterm')), '未找到 .m-terminal');
       await shot('移动终端');
+    }
+
+    // ---------- 移动端：图片预览双指缩放 + 单指拖动 ----------
+    section('移动端图片预览（双指缩放 + 单指拖动）');
+    const msid = await loginViaApi(); // 移动分支里 sid 尚未取到，这里单独登录用于反查
+    if (msid) {
+      const pngPath = join(OUT_DIR, imgName);
+      writeFileSync(pngPath, makePng(1400, 900));
+
+      // 回主屏 → 上传应用 → 「选择文件」
+      const backHome = async () => {
+        const b = await page.$('.m-back');
+        if (b) { await b.click(); await sleep(1200); }
+      };
+      await backHome();
+      const upApp = await page.$('.m-dock .m-appitem[aria-label="上传"]');
+      if (upApp) {
+        await upApp.click();
+        await sleep(1500);
+        const pickEl = (await page.evaluateHandle(() =>
+          [...document.querySelectorAll('.m-upload-card')].find((c) => c.textContent.includes('选择文件')))).asElement();
+        if (pickEl) {
+          const [chooser] = await Promise.all([
+            page.waitForFileChooser({ timeout: 8000 }),
+            pickEl.click(),
+          ]);
+          await chooser.accept([pngPath]);
+          await sleep(3500);
+        }
+      }
+      check('移动端测试图片已上传', !!(await apiFetch('GET', `/api/fs/search?path=/&q=${encodeURIComponent(imgName)}`, undefined, `cloudnine_sid=${msid}`).then((r) => (r.json?.results || []).some((x) => x.name === imgName))));
+
+      // 回主屏 → 访达 → 点开图片
+      await backHome();
+      const finderApp = await page.$('.m-dock .m-appitem[aria-label="访达"]');
+      if (finderApp) {
+        await finderApp.click();
+        await sleep(1800);
+        const rowEl = (await page.evaluateHandle((n) =>
+          [...document.querySelectorAll('.m-row, .m-cell')].find((el) => el.textContent.includes(n)), imgName)).asElement();
+        check('移动端访达列出测试图片', !!rowEl, imgName);
+        if (rowEl) {
+          await rowEl.tap();
+          await sleep(2000);
+          check('移动端打开图片快速预览', !!(await page.$('.m-quicklook .preview-stage img')), '未找到 .m-quicklook .preview-stage img');
+
+          const box = await (await page.$('.preview-stage')).boundingBox();
+          const tf = () => page.$eval('.m-quicklook .preview-stage img', (el) => el.style.transform).catch(() => '');
+          const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+          const cdp = await page.createCDPSession();
+
+          const t0 = await tf();
+          check('移动端初始为适应窗口（100%）', /scale\(1\)/.test(t0), t0);
+
+          // 双指张开 → 放大
+          await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: cx - 30, y: cy, id: 1 }, { x: cx + 30, y: cy, id: 2 }] });
+          await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: cx - 90, y: cy, id: 1 }, { x: cx + 90, y: cy, id: 2 }] });
+          await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: cx - 110, y: cy, id: 1 }, { x: cx + 110, y: cy, id: 2 }] });
+          await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+          await sleep(400);
+          const t1 = await tf();
+          check('移动端双指缩放放大', zoomOf(t1) > 1.2, `${t0} → ${t1}`);
+
+          // 单指拖动 → 平移
+          await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: cx, y: cy, id: 1 }] });
+          await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: cx + 60, y: cy + 40, id: 1 }] });
+          await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: cx + 100, y: cy + 70, id: 1 }] });
+          await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+          await sleep(300);
+          const t2 = await tf();
+          const [dx, dy] = panOf(t2);
+          check('移动端单指拖动平移', Math.abs(dx) > 20 && Math.abs(dy) > 10, `${t1} → ${t2}`);
+
+          // 工具条「适应」复位
+          const zBtns = await page.$$('.m-quicklook .preview-zoom .btn');
+          check('移动端缩放工具存在', zBtns.length >= 4, `按钮数 ${zBtns.length}`);
+          if (zBtns.length >= 3) {
+            await zBtns[2].click();
+            await sleep(300);
+            const t3 = await tf();
+            check('移动端「适应」复位', /scale\(1\)/.test(t3) && /translate\(0px, 0px\)/.test(t3), t3);
+          }
+          await shot('移动端图片预览缩放');
+        }
+      }
     } else {
       check('底部工具栏含「终端」入口', false, '未找到 .m-dock .m-appitem[aria-label=终端]');
     }
@@ -543,6 +672,74 @@ try {
     check('需求2：点击该通知后打开传输窗口', !!(await hasTransfers()));
     await closeTransfers();
   }
+
+  // ---------- 5.7 图片预览：滚轮缩放 + 拖拽平移 + 双击复位 ----------
+  section('图片预览（滚轮缩放 + 拖拽平移）');
+  if (sid) {
+    const pngPath = join(OUT_DIR, imgName);
+    writeFileSync(pngPath, makePng(1400, 900));
+
+    // 通过访达「上传文件」把测试图放进当前目录
+    const upBtns = await page.$$('.tb-btn[title="上传文件"]');
+    if (upBtns.length) {
+      const [chooser] = await Promise.all([
+        page.waitForFileChooser({ timeout: 8000 }),
+        upBtns[upBtns.length - 1].click(),
+      ]);
+      await chooser.accept([pngPath]);
+    }
+    // 等待访达刷新出该文件
+    const appeared = await page.waitForFunction(
+      (n) => [...document.querySelectorAll('.finder-item')].some((el) => el.textContent.includes(n)),
+      { timeout: 20000 }, imgName,
+    ).then(() => true).catch(() => false);
+    check('测试图片已上传并出现在访达', appeared, imgName);
+
+    if (appeared) {
+      await page.evaluate((n) => {
+        const el = [...document.querySelectorAll('.finder-item')].find((x) => x.textContent.includes(n));
+        el?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+      }, imgName);
+      await sleep(1800);
+      check('图片预览窗口打开', !!(await page.$('.preview-window .preview-stage img')), '未找到 .preview-stage img');
+
+      const box = await (await page.$('.preview-stage')).boundingBox();
+      const tf = () => page.$eval('.preview-stage img', (el) => el.style.transform).catch(() => '');
+
+      const t0 = await tf();
+      check('初始为适应窗口（100%）', /scale\(1\)/.test(t0), t0);
+
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.wheel({ deltaY: -300 });
+      await sleep(400);
+      const t1 = await tf();
+      check('滚轮向上放大', zoomOf(t1) > 1.2, `${t0} → ${t1}`);
+      check('缩放百分比同步', (await page.$eval('.preview-zoom-val', (el) => el.textContent).catch(() => '')) !== '100%');
+
+      await page.mouse.wheel({ deltaY: 600 });
+      await sleep(400);
+      const t2 = await tf();
+      check('滚轮向下缩小', zoomOf(t2) < zoomOf(t1), `${t1} → ${t2}`);
+
+      await page.mouse.wheel({ deltaY: -400 });
+      await sleep(300);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2 + 120, box.y + box.height / 2 + 80, { steps: 12 });
+      await page.mouse.up();
+      await sleep(300);
+      const t3 = await tf();
+      const [dx, dy] = panOf(t3);
+      check('拖动可平移图片', Math.abs(dx) > 50 && Math.abs(dy) > 30, `${t2} → ${t3}`);
+
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      await sleep(90);
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      await sleep(400);
+      const t4 = await tf();
+      check('双击复位到适应窗口', /scale\(1\)/.test(t4) && /translate\(0px, 0px\)/.test(t4), t4);
+      await shot('图片预览缩放平移');
+    }
+  }
   } // end !MOBILE
 
   // ---------- 6. 控制台错误 ----------
@@ -557,7 +754,7 @@ try {
   if (!flag('keep')) {
     section('清理测试产物');
     const sid2 = await loginViaApi();
-    const names = [proofName, editName, pasteName, notifyName, btnUploadName].filter(Boolean);
+    const names = [proofName, editName, pasteName, notifyName, btnUploadName, imgName].filter(Boolean);
     for (const n of names) {
       const r = await apiFetch('GET', `/api/fs/search?path=/&q=${encodeURIComponent(n)}`, undefined, `cloudnine_sid=${sid2}`);
       const hit = (r.json?.results || []).find((x) => x.name === n);

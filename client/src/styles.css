@@ -395,7 +395,8 @@ a { color: var(--accent); text-decoration: none; }
   background: var(--win-bg); backdrop-filter: blur(34px); border: 1px solid var(--win-border);
   border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; animation: dialog .16s ease-out;
 }
-.quicklook-content { flex: 1; min-height: 0; }
+.quicklook-content { flex: 1; min-height: 0; display: flex; }
+.quicklook-content > * { flex: 1; min-height: 0; }
 .quicklook-footer {
   flex: none; display: flex; align-items: center; justify-content: center; gap: 14px;
   padding: 8px; border-top: 1px solid var(--line);
@@ -593,8 +594,26 @@ a { color: var(--accent); text-decoration: none; }
 .preview-sep { width: 1px; height: 16px; margin: 0 2px; background: var(--line); }
 .preview-zoom { display: flex; align-items: center; gap: 6px; }
 .preview-zoom-val { min-width: 46px; text-align: center; font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
-.preview-image { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; overflow: auto; background: repeating-conic-gradient(var(--hover) 0 25%, transparent 0 50%) 50%/16px 16px; }
-.preview-image img { transition: transform .12s; }
+.preview-image { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; overflow: hidden; background: repeating-conic-gradient(var(--hover) 0 25%, transparent 0 50%) 50%/16px 16px; }
+/* 图片舞台：滚轮/双指缩放 + 拖拽平移；touch-action:none 让触屏手势交给脚本处理 */
+.preview-stage {
+  position: relative; flex: 1; min-height: 0; width: 100%;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden; touch-action: none; overscroll-behavior: contain; cursor: grab;
+}
+.preview-stage.dragging { cursor: grabbing; }
+.preview-stage img {
+  max-width: 100%; max-height: 100%; transform-origin: center center;
+  transition: transform .12s ease; user-select: none; -webkit-user-drag: none; pointer-events: none;
+}
+.preview-stage.dragging img { transition: none; }
+.preview-image > .preview-toolbar { flex: none; }
+.preview-hint { font-size: 11.5px; color: var(--text-2); }
+.preview-hint .hint-coarse { display: none; }
+@media (pointer: coarse) {
+  .preview-hint .hint-fine { display: none; }
+  .preview-hint .hint-coarse { display: inline; }
+}
 .preview-media, .preview-pdf { width: 100%; height: 100%; background: #000; border: none; }
 .preview-audio { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; }
 .audio-art { width: 110px; height: 110px; border-radius: 18px; background: linear-gradient(135deg, #c56bff, #30a5ff); display: flex; align-items: center; justify-content: center; font-size: 44px; color: #fff; }
