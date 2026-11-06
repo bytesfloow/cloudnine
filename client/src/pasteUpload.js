@@ -6,7 +6,7 @@ import { addUpload, pickFiles, notifyTransfer } from './transfers.js';
 // 能力边界（必须实测，见 scripts/paste-probe.html）：
 //   Chrome/Edge 会在 paste 事件的 clipboardData.files 里给出 File（CF_HDROP → isolated filesystem）；
 //   Firefox/Safari 不给，且异步 Clipboard API 也读不到系统剪贴板的文件列表，因此后者只做降级：
-//   提示 + 打开上传选择器（目标目录已预填）。不引入扩展/本地客户端（PRD §7.5）。
+//   提示 + 打开上传选择器（目标目录已预填）。不引入扩展/本地客户端。
 
 const CONFIRM_COUNT = 20;                  // 超过则二次确认
 const CONFIRM_SIZE = 100 * 1024 * 1024;   // 单文件 >100MB 二次确认（仅防误操作，非服务端上限）
