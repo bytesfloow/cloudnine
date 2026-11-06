@@ -3,11 +3,36 @@ import { useStore, setWindowTitle, updateWindowProps, openWindow, notify, basena
 import { api } from '../api.js';
 import { FileIcon, IconChevron } from '../icons.jsx';
 
+// 图片缩放/旋转工具组：预览窗口底部统一操作条与快速预览共用
+function ZoomTools({ view }) {
+  return (
+    <div className="preview-zoom">
+      <button className="btn btn-small" onClick={() => view.setZoom((z) => Math.max(0.1, z - 0.25))} title="缩小">−</button>
+      <span className="preview-zoom-val">{Math.round(view.zoom * 100)}%</span>
+      <button className="btn btn-small" onClick={() => view.setZoom((z) => Math.min(8, z + 0.25))} title="放大">＋</button>
+      <button className="btn btn-small" onClick={() => view.setZoom(1)}>适应</button>
+      <button className="btn btn-small" onClick={() => view.setRotate((r) => (r + 90) % 360)}>旋转</button>
+    </div>
+  );
+}
+
+// 缩放/旋转状态：预览窗口把缩放工具并入底部统一操作条，故由窗口持有并下传；
+// 快速预览/移动端未传 view 时，由本组件自持状态。
+function useViewState(controlled) {
+  const [local, setLocal] = useState({ zoom: 1, rotate: 0 });
+  if (controlled) return controlled;
+  return {
+    zoom: local.zoom,
+    rotate: local.rotate,
+    setZoom: (next) => setLocal((s) => ({ ...s, zoom: typeof next === 'function' ? next(s.zoom) : next })),
+    setRotate: (next) => setLocal((s) => ({ ...s, rotate: typeof next === 'function' ? next(s.rotate) : next })),
+  };
+}
+
 // 预览内容组件：桌面预览窗口、快速预览、移动端共用
-export function PreviewContent({ path, compact = false, onEdit }) {
+export function PreviewContent({ path, compact = false, onEdit, view }) {
   const cat = fileCat(path, 'file');
-  const [zoom, setZoom] = useState(1);
-  const [rotate, setRotate] = useState(0);
+  const v = useViewState(view);
   const [mdView, setMdView] = useState('render');
   const [text, setText] = useState(null);
   const [archiveEntries, setArchiveEntries] = useState(null);
@@ -16,7 +41,10 @@ export function PreviewContent({ path, compact = false, onEdit }) {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    setZoom(1); setRotate(0); setError(''); setText(null); setArchiveEntries(null); setOfficeHtml(null);
+    setError(''); setText(null); setArchiveEntries(null); setOfficeHtml(null);
+    // 受控模式（预览窗口）由窗口在切换文件时重置缩放/旋转
+    if (!view) v.setZoom(1);
+    if (!view) v.setRotate(0);
     api.stat(path).then(setStat).catch(() => {});
     if (['text', 'code'].includes(cat)) {
       api.read(path).then((r) => setText(r)).catch((e) => setError(e.message));
@@ -32,14 +60,13 @@ export function PreviewContent({ path, compact = false, onEdit }) {
   if (cat === 'image') {
     return (
       <div className="preview-image">
-        <img src={src} alt={basename(path)} style={{ transform: `scale(${zoom}) rotate(${rotate}deg)`, maxWidth: '100%', maxHeight: '100%' }} />
-        <div className="preview-toolbar">
-          <button className="btn btn-small" onClick={() => setZoom((z) => Math.max(0.1, z - 0.25))}>−</button>
-          <span>{Math.round(zoom * 100)}%</span>
-          <button className="btn btn-small" onClick={() => setZoom((z) => Math.min(8, z + 0.25))}>＋</button>
-          <button className="btn btn-small" onClick={() => setZoom(1)}>适应</button>
-          <button className="btn btn-small" onClick={() => setRotate((r) => (r + 90) % 360)}>旋转</button>
-        </div>
+        <img src={src} alt={basename(path)} style={{ transform: `scale(${v.zoom}) rotate(${v.rotate}deg)`, maxWidth: '100%', maxHeight: '100%' }} />
+        {/* 缩放工具统一放在窗口底部操作条里；独立使用时（快速预览/移动端）才自带 */}
+        {!view && (
+          <div className="preview-toolbar">
+            <ZoomTools view={v} />
+          </div>
+        )}
       </div>
     );
   }
@@ -175,7 +202,17 @@ const Spin = () => <div className="finder-loading"><div className="boot-spinner"
 export default function PreviewWindow({ win }) {
   const { path, siblings, index } = win.props;
   const s = useStore();
+  // 缩放/旋转由窗口持有：工具统一收敛到底部操作条，不再浮在图片上方
+  const [viewState, setViewState] = useState({ zoom: 1, rotate: 0 });
+  const view = {
+    zoom: viewState.zoom,
+    rotate: viewState.rotate,
+    setZoom: (next) => setViewState((s) => ({ ...s, zoom: typeof next === 'function' ? next(s.zoom) : next })),
+    setRotate: (next) => setViewState((s) => ({ ...s, rotate: typeof next === 'function' ? next(s.rotate) : next })),
+  };
   useEffect(() => { setWindowTitle(win.id, basename(path)); }, [path, win.id]);
+  // 切换文件时重置缩放/旋转
+  useEffect(() => { setViewState({ zoom: 1, rotate: 0 }); }, [path]);
 
   const nav = (delta) => {
     if (!siblings || siblings.length < 2) return;
@@ -183,23 +220,28 @@ export default function PreviewWindow({ win }) {
     updateWindowProps(win.id, { path: siblings[n], index: n });
   };
 
+  const isImage = fileCat(path, 'file') === 'image';
+
   return (
     <div className="preview-window">
       {siblings?.length > 1 && (
         <div className="preview-nav">
           <button className="tb-btn" onClick={() => nav(-1)} title="上一个"><IconChevron dir="left" /></button>
-          <span>{(index ?? 0) + 1} / {siblings.length}</span>
+          <span className="preview-nav-count">{(index ?? 0) + 1} / {siblings.length}</span>
           <button className="tb-btn" onClick={() => nav(1)} title="下一个"><IconChevron /></button>
-          <span className="ellipsis preview-nav-name">{basename(path)}</span>
         </div>
       )}
       <div className="preview-body">
         <PreviewContent
           path={path}
+          view={view}
           onEdit={() => openWindow('editor', { path, name: basename(path) })}
         />
       </div>
+      {/* 统一操作条：缩放/旋转 与 下载/复制路径 收拢在一起（文件名只在窗口标题栏出现一次） */}
       <div className="preview-actions">
+        {isImage && <ZoomTools view={view} />}
+        {isImage && <span className="preview-sep" />}
         <button className="btn btn-small" onClick={() => window.open(api.downloadUrl(path))}>下载</button>
         <button className="btn btn-small" onClick={() => navigator.clipboard?.writeText('/' + path).then(() => notify({ title: '路径已复制' }))}>复制路径</button>
       </div>
