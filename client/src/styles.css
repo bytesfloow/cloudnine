@@ -956,9 +956,11 @@ a { color: var(--accent); text-decoration: none; }
 }
 .m-settitle {
   color: var(--text-2); font-size: 12px; font-weight: 600;
-  padding: 0 4px; margin-bottom: -8px; letter-spacing: .4px;
+  padding: 0 4px; margin-bottom: -8px; letter-spacing: .4px; flex: none;
 }
-.m-setgroup { background: var(--panel-bg); border: 1px solid var(--line); border-radius: 13px; overflow: hidden; }
+/* 分组卡片禁止被 flex 压缩：否则内容超出视口时卡片会被压扁并裁切行（深色模式行消失、文本不居中），
+   正确行为是让 .m-settings 容器整体滚动 */
+.m-setgroup { background: var(--panel-bg); border: 1px solid var(--line); border-radius: 13px; overflow: hidden; flex: none; }
 .m-setrow {
   display: flex; align-items: center; gap: 10px; padding: 10px 13px; width: 100%; text-align: left;
   border-bottom: 1px solid var(--line); font-size: 14px; min-height: 44px;
