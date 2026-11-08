@@ -276,6 +276,70 @@ try {
       await shot('移动访达');
       const rows = await page.$$('.m-row, .m-grid .m-appitem');
       check('访达列表渲染', rows.length >= 0, `条目 ${rows.length}`);
+
+      // ---------- 移动端访达：操作收进工具栏，批量选择已移除 ----------
+      const tbTitles = () => page.$$eval('.m-toolbar .tb-btn', (bs) => bs.map((b) => b.title || b.getAttribute('aria-label')));
+      let tb = await tbTitles();
+      check('工具栏含「新建文件夹」', tb.some((t) => /新建文件夹/.test(t)), tb.join(','));
+      check('工具栏含「上传文件」', tb.some((t) => /上传文件/.test(t)), tb.join(','));
+      check('工具栏含「刷新」', tb.some((t) => /刷新/.test(t)), tb.join(','));
+      check('移动端已移除批量选择入口', !(await page.$('.m-selectbar, .m-select-enter')), '仍存在 .m-selectbar/.m-select-enter');
+
+      // 条目右侧「⋯」仍能打开操作面板
+      const rowMore = await page.$('.m-row-more, .m-cell-more');
+      if (rowMore) {
+        await rowMore.click();
+        await sleep(600);
+        check('条目「⋯」打开操作面板', !!(await page.$('.action-sheet')), '未找到 .action-sheet');
+        await page.evaluate(() => document.querySelector('.action-sheet .cancel')?.click());
+        await sleep(400);
+      } else {
+        check('条目右侧有操作按钮', false, '未找到 .m-row-more/.m-cell-more');
+      }
+
+      // 长按文件/文件夹不再弹出下拉菜单（改用条目右侧的「⋯」）
+      const lpRow = await page.$('.m-row, .m-cell');
+      if (lpRow) {
+        const lb = await lpRow.boundingBox();
+        const lcdp = await page.createCDPSession();
+        const pt = { x: lb.x + lb.width / 2, y: lb.y + lb.height / 2, id: 1 };
+        await lcdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [pt] });
+        await sleep(800);
+        check('长按文件不弹出操作面板', !(await page.$('.action-sheet')), '长按后出现 .action-sheet');
+        // touchCancel 而非 touchEnd：避免合成 click 把文件打开
+        await lcdp.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
+        await sleep(400);
+      }
+
+      // 复制一项 → 工具栏出现「粘贴」；窄屏放不下时收进「更多操作」
+      const rowMore2 = await page.$('.m-row-more');
+      if (rowMore2) {
+        await rowMore2.click();
+        await sleep(600);
+        await page.evaluate(() => {
+          [...document.querySelectorAll('.action-sheet .dropdown-item')].find((b) => b.innerText.trim() === '复制')?.click();
+        });
+        await sleep(900);
+        tb = await tbTitles();
+        check('复制后工具栏出现「粘贴」', tb.some((t) => /粘贴/.test(t)), tb.join(','));
+
+        await page.setViewport({ width: 320, height: 720, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+        await sleep(1000);
+        const moreBtn = await page.$('.m-toolbar .tb-btn[aria-label="更多操作"]');
+        check('窄屏时按钮收进「更多操作」', !!moreBtn, '未找到「更多操作」按钮');
+        if (moreBtn) {
+          await moreBtn.click();
+          await sleep(600);
+          const menuItems = await page.$$eval('.m-toolmenu .dropdown-item', (ns) => ns.map((n) => n.innerText.trim()));
+          check('「更多操作」下拉菜单可展开', menuItems.length > 0, JSON.stringify(menuItems));
+          await shot('移动端更多操作');
+          await page.evaluate(() => document.querySelector('.m-toolmenu .dropdown-item')?.click());
+          await sleep(500);
+          check('「更多操作」菜单点击后收起', !(await page.$('.m-toolmenu')), '菜单未收起');
+        }
+        await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+        await sleep(900);
+      }
     } else {
       check('底部工具栏含「访达」入口', false, '未找到 .m-dock .m-appitem[aria-label=访达]');
     }

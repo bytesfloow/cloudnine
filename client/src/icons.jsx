@@ -174,6 +174,13 @@ export const IconMore = ({ size = 16 }) => (
     <circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" />
   </svg>
 );
+export const IconPaste = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9 4.5h6v2.8H9z" />
+    <path d="M15 5.6h2.5A1.5 1.5 0 0 1 19 7.1v12a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 19.1v-12A1.5 1.5 0 0 1 6.5 5.6H9" />
+    <path d="M9 12.2h6M9 15.8h4" />
+  </svg>
+);
 export const IconRefresh = ({ size = 15 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
     <path d="M20 12a8 8 0 1 1-2.3-5.6M20 3v5h-5" />

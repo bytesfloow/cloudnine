@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   useStore, getState, bus, setState, setTheme, promptDialog, confirmDialog, notify, setClipboard,
   basename, dirname, joinPath, fmtSize, fmtTime, fmtSpeed, TEXT_EDITABLE, openFile,
@@ -12,6 +12,7 @@ import EditorWindow from '../windows/Editor.jsx';
 import {
   FileIcon, IconChevron, IconSearch, IconRefresh, IconGrid, IconList,
   IconCamera, IconPhoto, IconDoc, IconFolderBig, IconClose,
+  IconMore, IconNewFolder, IconUpload, IconPaste, IconTrash,
 } from '../icons.jsx';
 import { HomeScreen, StatusBar, HomeIndicator, Glyph } from './HomeScreen.jsx';
 
@@ -127,17 +128,19 @@ export default function MobileApp() {
 
 // ---------- 访达（移动形态，含废纸篓模式） ----------
 function FinderMobile({ dir, setDir, openFile }) {
+  const s = useStore();
   const isTrash = dir === '__trash__';
   const [entries, setEntries] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [sel, setSel] = useState(new Set());
-  const [selectMode, setSelectMode] = useState(false);
   const [view, setView] = useState('list');
   const [sheet, setSheet] = useState(null);
   const [search, setSearch] = useState('');
   const [searchMode, setSearchMode] = useState(false);
-  const longPress = useRef({ timer: null, fired: false });
+  const [moreOpen, setMoreOpen] = useState(false);
+  const barRef = useRef(null);
+  const btnRef = useRef(null);
+  const [cap, setCap] = useState(99); // 工具栏实际能容纳的按钮数（实测宽度算出）
 
   const load = async () => {
     setLoading(true);
@@ -153,92 +156,68 @@ function FinderMobile({ dir, setDir, openFile }) {
     } catch (e) { setError(e.message); setEntries([]); }
     setLoading(false);
   };
-  useEffect(() => { load(); setSel(new Set()); setSelectMode(false); }, [dir]);
+  useEffect(() => { load(); }, [dir]);
   useEffect(() => bus.on('fs:changed', (d) => {
     if (d === '__trash__' && isTrash) load();
     else if (!isTrash && (d === dir || dir === '' || (d && dir.startsWith(d + '/')))) load();
   }), [dir, isTrash]);
 
-  // 触摸长按 → 操作菜单（桌面浏览器走 contextmenu）
-  // fired 记录长按目标名：长按后浏览器合成的 click 只属于那一行，不应吞掉对其他行的第一次点击
-  const lpStart = (entry) => (e) => {
-    longPress.current.fired = false;
-    longPress.current.name = entry.name;
-    clearTimeout(longPress.current.timer);
-    longPress.current.timer = setTimeout(() => { longPress.current.fired = true; setSheet({ entry }); }, 480);
-  };
-  const lpCancel = () => clearTimeout(longPress.current.timer);
-  const lpClick = (fn, entry) => () => {
-    if (longPress.current.fired && longPress.current.name === entry?.name) { longPress.current.fired = false; return; }
-    fn();
-  };
+  // ---------- 工具栏容量：放不下的按钮收进「更多操作」 ----------
+  // 按实测的按钮宽度与可用宽度计算，换机型/横竖屏都不用改常量
+  useLayoutEffect(() => {
+    const el = barRef.current;
+    if (!el) return;
+    const calc = () => {
+      const cs = getComputedStyle(el);
+      const inner = el.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+      const gap = parseFloat(cs.columnGap || cs.gap) || 0;
+      const up = btnRef.current;
+      const btn = up?.offsetWidth || 38;
+      const upExtra = up ? (parseFloat(getComputedStyle(up).marginLeft) || 0) : 0; // 「返回上级」额外外边距
+      const pathMin = 64; // 路径标签的最小可见宽度
+      const avail = inner - pathMin - upExtra;
+      setCap(Math.max(0, Math.floor((avail + gap) / (btn + gap))));
+    };
+    calc();
+    const ro = new ResizeObserver(calc);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
-  // 空白处触摸长按 → 空白菜单（新建文件夹/粘贴/上传，此前触屏上无法呼出）
-  const blankLp = useRef({ timer: null, x: 0, y: 0 });
-  const blankStart = (e) => {
-    const t = e.touches[0];
-    if (e.target.closest('.m-row, .m-cell, input, button, .m-selectbar, .m-toolbar, .m-search, .m-appbar')) return;
-    blankLp.current.x = t.clientX; blankLp.current.y = t.clientY;
-    clearTimeout(blankLp.current.timer);
-    blankLp.current.timer = setTimeout(() => { navigator.vibrate?.(10); setSheet({ entry: null }); }, 480);
-  };
-  const blankCancel = () => clearTimeout(blankLp.current.timer);
-  const blankMove = (e) => {
-    if (!blankLp.current.timer) return;
-    const t = e.touches[0];
-    if (Math.hypot(t.clientX - blankLp.current.x, t.clientY - blankLp.current.y) > 10) clearTimeout(blankLp.current.timer);
-  };
+  // 换目录时收起「更多操作」
+  useEffect(() => { setMoreOpen(false); }, [dir]);
+  // 点菜单外收起「更多操作」
+  useEffect(() => {
+    if (!moreOpen) return;
+    const close = (e) => { if (!e.target.closest('.m-toolbar-wrap')) setMoreOpen(false); };
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
+  }, [moreOpen]);
 
   function openEntry(entry) {
-    if (selectMode) { toggle(entry); return; }
     if (entry.trashId) return;
     if (entry.type === 'dir') { setDir(joinPath(dir, entry.name)); setSearch(''); setSearchMode(false); return; }
     openFile(joinPath(dir, entry.name), entry.name);
   }
-  function toggle(entry) {
-    setSel((s0) => { const n = new Set(s0); if (n.has(entry.name)) n.delete(entry.name); else n.add(entry.name); return n; });
-  }
 
-  const selPaths = [...sel].map((n) => joinPath(isTrash ? '' : dir, n));
-
-  async function doTrash() {
-    if (!sel.size) return;
-    if (!await confirmDialog({ title: '移入废纸篓', message: `将选中的 ${sel.size} 项移入废纸篓？`, okText: '移入' })) return;
-    await api.trash(selPaths);
-    setSel(new Set()); setSelectMode(false);
-    bus.emit('fs:changed', dir);
-    bus.emit('fs:changed', '__trash__');
-  }
-  async function doRestore() {
-    const ids = entries.filter((e) => sel.has(e.name)).map((e) => e.trashId).filter(Boolean);
-    await api.trashRestore(ids);
-    setSel(new Set()); setSelectMode(false);
-    bus.emit('fs:changed', '__trash__');
-  }
-  async function doDeleteForever() {
-    if (!await confirmDialog({ title: '彻底删除', message: `将彻底删除选中的 ${sel.size} 项，不可恢复。`, danger: true, okText: '删除' })) return;
-    const ids = entries.filter((e) => sel.has(e.name)).map((e) => e.trashId).filter(Boolean);
-    const r = await api.trashDelete(ids);
-    setState({ trashCount: r.trashCount });
-    setSel(new Set()); setSelectMode(false);
-    bus.emit('fs:changed', '__trash__');
-  }
-  async function doMove() {
-    const v = await promptDialog({ title: '移动到', fields: [{ key: 'd', label: '目标目录', value: dir, autofocus: true }], okText: '移动' });
-    if (!v?.d) return;
-    await api.move(selPaths, String(v.d).replace(/^\/+|\/+$/g, ''));
-    setSel(new Set()); setSelectMode(false);
+  async function newFolder() {
+    const v = await promptDialog({ title: '新建文件夹', fields: [{ key: 'n', label: '名称', autofocus: true }] });
+    if (!v?.n) return;
+    await api.mkdir(joinPath(dir, v.n)).catch((e2) => notify({ type: 'error', title: '创建失败', body: e2.message }));
     bus.emit('fs:changed', dir);
   }
-  function doDownload() {
-    const a = document.createElement('a');
-    a.href = sel.size > 1 ? api.zipUrl(selPaths) : api.downloadUrl(selPaths[0]);
-    a.click();
+  async function paste() {
+    const cb = getState().clipboard;
+    if (!cb) return;
+    try {
+      cb.mode === 'copy' ? await api.copy(cb.paths, dir) : await api.move(cb.paths, dir);
+      bus.emit('fs:changed', dir);
+    } catch (e2) { notify({ type: 'error', title: '粘贴失败', body: e2.message }); }
   }
-  async function doCompress() {
-    await api.archiveCreate({ paths: selPaths, format: 'zip', destDir: dir, name: `archive-${Date.now() % 10000}` });
-    notify({ type: 'info', title: '压缩任务已开始' });
-    bus.emit('fs:changed', dir);
+  async function emptyTrash() {
+    if (!await confirmDialog({ title: '清倒废纸篓', message: '将彻底删除全部项目，不可恢复。', danger: true, okText: '清倒' })) return;
+    await api.trashEmpty(); setState({ trashCount: 0 });
+    bus.emit('fs:changed', '__trash__');
   }
 
   const itemActions = (entry) => {
@@ -274,59 +253,66 @@ function FinderMobile({ dir, setDir, openFile }) {
       } },
     ];
   };
-  const blankActions = () => {
-    if (isTrash) return [
-      { label: '清空废纸篓…', danger: true, action: async () => {
-        if (!await confirmDialog({ title: '清倒废纸篓', message: '将彻底删除全部项目，不可恢复。', danger: true, okText: '清倒' })) return;
-        await api.trashEmpty(); setState({ trashCount: 0 });
-        bus.emit('fs:changed', '__trash__');
-      } },
-      { label: '刷新', action: load },
-    ];
-    const cb = getState().clipboard;
-    return [
-      { label: '新建文件夹…', action: async () => {
-        const v = await promptDialog({ title: '新建文件夹', fields: [{ key: 'n', label: '名称', autofocus: true }] });
-        if (v?.n) { await api.mkdir(joinPath(dir, v.n)).catch((e2) => notify({ type: 'error', title: '创建失败', body: e2.message })); bus.emit('fs:changed', dir); }
-      } },
-      { label: cb ? '粘贴' : '粘贴（剪贴板为空）', disabled: !cb, action: async () => {
-        if (!cb) return;
-        cb.mode === 'copy' ? await api.copy(cb.paths, dir) : await api.move(cb.paths, dir);
-        bus.emit('fs:changed', dir);
-      } },
-      '-',
-      { label: '上传文件…', action: () => pickMobileUpload(false, dir) },
-      { label: '刷新', action: load },
-    ];
-  };
+  // 工具栏动作（原先都在「空白处长按」的下拉菜单里）：按重要性排序，放不下的依次收进「更多操作」
+  const clip = s.clipboard;
+  const actions = isTrash ? [
+    { key: 'refresh', label: '刷新', icon: <IconRefresh />, action: load },
+    { key: 'empty', label: '清空废纸篓', icon: <IconTrash />, danger: true, action: emptyTrash },
+  ] : [
+    { key: 'newdir', label: '新建文件夹', icon: <IconNewFolder />, action: newFolder },
+    { key: 'upload', label: '上传文件', icon: <IconUpload />, action: () => pickMobileUpload(false, dir) },
+    ...(clip ? [{ key: 'paste', label: '粘贴', icon: <IconPaste />, action: paste }] : []),
+    { key: 'refresh', label: '刷新', icon: <IconRefresh />, action: load },
+    { key: 'view', label: view === 'list' ? '切换到卡片视图' : '切换到列表视图', icon: view === 'list' ? <IconGrid /> : <IconList />, action: () => setView(view === 'list' ? 'grid' : 'list') },
+  ];
+  const FIXED_BTNS = 1; // 「返回上级」固定占位
+  const inlineCount = actions.length + FIXED_BTNS <= cap
+    ? actions.length
+    : Math.max(0, cap - FIXED_BTNS - 1); // 预留一个「更多操作」按钮的位置
+  const inlineActions = actions.slice(0, inlineCount);
+  const overflowActions = actions.slice(inlineCount);
 
   const shown = (entries || []).filter((e) => !e.hidden && (!searchMode || e.name.toLowerCase().includes(search.toLowerCase())));
 
-  const rowHandlers = (entry) => ({
-    onClick: lpClick(() => openEntry(entry), entry),
-    onContextMenu: (e) => { e.preventDefault(); setSheet({ entry }); },
-    onTouchStart: lpStart(entry),
-    onTouchMove: lpCancel,
-    onTouchEnd: lpCancel,
-  });
-
   return (
-    <div
-      className="m-finder"
-      onContextMenu={(e) => { e.preventDefault(); if (!e.target.closest('.m-row, .m-cell, input, button')) setSheet({ entry: null }); }}
-      onTouchStart={blankStart}
-      onTouchMove={blankMove}
-      onTouchEnd={blankCancel}
-      onTouchCancel={blankCancel}
-    >
-      <div className="m-toolbar">
-        <span className="m-path ellipsis">{isTrash ? '废纸篓' : (dir ? `根目录/${dir}` : '根目录')}</span>
-        <button className="tb-btn" onClick={() => setView(view === 'list' ? 'grid' : 'list')} title={view === 'list' ? '切换到卡片视图' : '切换到列表视图'}>
-          {view === 'list' ? <IconGrid size={14} /> : <IconList size={14} />}
-        </button>
-        <button className="tb-btn" onClick={load} title="刷新"><IconRefresh /></button>
-        {/* 返回上级放最右侧：与左上角"退出窗口"按钮拉开距离，避免误触 */}
-        <button className="tb-btn m-up-btn" disabled={!dir} onClick={() => setDir(isTrash ? (getState().homeRel || '') : dirname(dir))} title="返回上一级"><IconChevron dir="left" /></button>
+    <div className="m-finder">
+      <div className="m-toolbar-wrap">
+        <div className="m-toolbar" ref={barRef}>
+          <span className="m-path ellipsis">{isTrash ? '废纸篓' : (dir ? `根目录/${dir}` : '根目录')}</span>
+          {inlineActions.map((a) => (
+            <button key={a.key} className="tb-btn" onClick={a.action} title={a.label} aria-label={a.label} disabled={a.disabled}>
+              {a.icon}
+            </button>
+          ))}
+          {overflowActions.length > 0 && (
+            <button
+              className={`tb-btn${moreOpen ? ' active' : ''}`}
+              onClick={() => setMoreOpen((v) => !v)}
+              title="更多操作"
+              aria-label="更多操作"
+              aria-expanded={moreOpen}
+            >
+              <IconMore />
+            </button>
+          )}
+          {/* 返回上级放最右侧：与左上角"退出窗口"按钮拉开距离，避免误触 */}
+          <button className="tb-btn m-up-btn" ref={btnRef} disabled={!dir} onClick={() => setDir(isTrash ? (getState().homeRel || '') : dirname(dir))} title="返回上一级"><IconChevron dir="left" /></button>
+        </div>
+        {moreOpen && overflowActions.length > 0 && (
+          <div className="m-toolmenu" role="menu">
+            {overflowActions.map((a) => (
+              <button
+                key={a.key}
+                className={`dropdown-item${a.danger ? ' danger' : ''}`}
+                disabled={a.disabled}
+                onClick={() => { setMoreOpen(false); a.action?.(); }}
+              >
+                <span className="tm-ic">{a.icon}</span>
+                <span className="tm-label">{a.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       <div className="m-search">
         <div className="finder-search">
@@ -341,51 +327,36 @@ function FinderMobile({ dir, setDir, openFile }) {
         : view === 'list' ? (
           <div className="m-list">
             {shown.map((entry) => (
-              <div key={entry.name} className={`m-row${sel.has(entry.name) ? ' selected' : ''}`} {...rowHandlers(entry)}>
-                {selectMode && <span className={`m-check${sel.has(entry.name) ? ' on' : ''}`} onClick={(e) => { e.stopPropagation(); toggle(entry); }} />}
+              <div key={entry.name} className="m-row" onClick={() => openEntry(entry)}>
                 <span className="m-row-ic"><FileIcon name={entry.name} type={entry.type} size={30} /></span>
                 <span className="m-row-info">
                   <span className="m-row-name ellipsis">{entry.name}</span>
                   <span className="m-row-sub">{entry.type === 'dir' ? '文件夹' : fmtSize(entry.size)} · {fmtTime(entry.mtimeMs)}</span>
                 </span>
-                <button className="m-row-more" onClick={(e) => { e.stopPropagation(); setSheet({ entry }); }}>⋯</button>
+                <button className="m-row-more" onClick={(e) => { e.stopPropagation(); setSheet({ entry }); }} aria-label={`${entry.name} 操作`}>⋯</button>
               </div>
             ))}
           </div>
         ) : (
           <div className="m-grid">
             {shown.map((entry) => (
-              <button key={entry.name} className={`m-cell${sel.has(entry.name) ? ' selected' : ''}`} {...rowHandlers(entry)}>
+              <div
+                key={entry.name}
+                className="m-cell"
+                role="button"
+                tabIndex={0}
+                onClick={() => openEntry(entry)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEntry(entry); } }}
+              >
                 <FileIcon name={entry.name} type={entry.type} size={42} />
                 <span className="m-cell-name ellipsis">{entry.name}</span>
-              </button>
+                <button className="m-cell-more" onClick={(e) => { e.stopPropagation(); setSheet({ entry }); }} aria-label={`${entry.name} 操作`}>⋯</button>
+              </div>
             ))}
           </div>
         )}
 
-      {selectMode ? (
-        <div className="m-selectbar">
-          <button className="btn btn-small" onClick={() => setSel(new Set(shown.map((e) => e.name)))}>全选</button>
-          {isTrash ? (
-            <>
-              <button className="btn btn-small" onClick={doRestore} disabled={!sel.size}>放回原处</button>
-              <button className="btn btn-small btn-danger" onClick={doDeleteForever} disabled={!sel.size}>彻底删除</button>
-            </>
-          ) : (
-            <>
-              <button className="btn btn-small" onClick={doMove} disabled={!sel.size}>移动</button>
-              <button className="btn btn-small" onClick={doDownload} disabled={!sel.size}>下载</button>
-              <button className="btn btn-small" onClick={doCompress} disabled={!sel.size}>压缩</button>
-              <button className="btn btn-small btn-danger" onClick={doTrash} disabled={!sel.size}>删除</button>
-            </>
-          )}
-          <button className="btn btn-small" onClick={() => { setSelectMode(false); setSel(new Set()); }}>完成</button>
-        </div>
-      ) : (
-        !isTrash && <button className="m-select-enter" onClick={() => setSelectMode(true)}>选择</button>
-      )}
-
-      {sheet && <ActionSheet title={sheet.entry ? sheet.entry.name : '操作'} items={sheet.entry ? itemActions(sheet.entry) : blankActions()} close={() => setSheet(null)} />}
+      {sheet && <ActionSheet title={sheet.entry.name} items={itemActions(sheet.entry)} close={() => setSheet(null)} />}
     </div>
   );
 }
