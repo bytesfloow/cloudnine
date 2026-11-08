@@ -5,7 +5,8 @@ import { FileIcon, IconChevron } from '../icons.jsx';
 import ImageViewer, { useImageView, MIN_ZOOM, MAX_ZOOM } from './ImageViewer.jsx';
 
 // 图片缩放/旋转工具组：预览窗口底部统一操作条与快速预览共用
-function ZoomTools({ view }) {
+// onDownload：移动端快速预览把「下载」并入本工具条（旋转右侧），桌面预览窗口不用
+function ZoomTools({ view, onDownload }) {
   return (
     <div className="preview-zoom">
       <button className="btn btn-small" onClick={() => view.setZoom((z) => Math.max(MIN_ZOOM, z - 0.25))} title="缩小">−</button>
@@ -13,6 +14,8 @@ function ZoomTools({ view }) {
       <button className="btn btn-small" onClick={() => view.setZoom((z) => Math.min(MAX_ZOOM, z + 0.25))} title="放大">＋</button>
       <button className="btn btn-small zoom-fit" onClick={() => view.reset()} title="适应窗口（双击图片可复位）">适应</button>
       <button className="btn btn-small" onClick={() => view.setRotate((r) => (r + 90) % 360)}>旋转</button>
+      {onDownload && <span className="preview-sep" />}
+      {onDownload && <button className="btn btn-small zoom-download" onClick={onDownload}>下载</button>}
     </div>
   );
 }
@@ -25,7 +28,8 @@ function useViewState(controlled) {
 }
 
 // 预览内容组件：桌面预览窗口、快速预览、移动端共用
-export function PreviewContent({ path, compact = false, onEdit, view }) {
+// onDownload：移动端快速预览传入后，「下载」按钮出现在底部缩放工具条内
+export function PreviewContent({ path, compact = false, onEdit, view, onDownload }) {
   const cat = fileCat(path, 'file');
   const v = useViewState(view);
   const [mdView, setMdView] = useState('render');
@@ -60,7 +64,7 @@ export function PreviewContent({ path, compact = false, onEdit, view }) {
         {/* 缩放工具统一放在窗口底部操作条里；独立使用时（快速预览/移动端）才自带 */}
         {!view && (
           <div className="preview-toolbar">
-            <ZoomTools view={v} />
+            <ZoomTools view={v} onDownload={onDownload} />
             <span className="preview-hint">
               <span className="hint-fine">滚轮缩放 · </span>拖动平移 ·{' '}
               <span className="hint-fine">双击复位</span>

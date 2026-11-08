@@ -11,7 +11,7 @@ import { PreviewContent } from '../windows/Preview.jsx';
 import EditorWindow from '../windows/Editor.jsx';
 import {
   FileIcon, IconChevron, IconSearch, IconRefresh, IconGrid, IconList,
-  IconCamera, IconPhoto, IconDoc, IconFolderBig,
+  IconCamera, IconPhoto, IconDoc, IconFolderBig, IconClose,
 } from '../icons.jsx';
 import { HomeScreen, StatusBar, HomeIndicator, Glyph } from './HomeScreen.jsx';
 
@@ -88,12 +88,20 @@ export default function MobileApp() {
       {quickLookPath && (
         <div className="m-quicklook">
           <div className="m-ql-head">
-            <button className="btn btn-small" onClick={() => setQuickLookPath(null)}>关闭</button>
-            <span className="ellipsis">{basename(quickLookPath)}</span>
-            <button className="btn btn-small" onClick={() => window.open(api.downloadUrl(quickLookPath))}>下载</button>
+            <span className="m-ql-title ellipsis">{basename(quickLookPath)}</span>
+            <div className="m-ql-actions">
+              <button className="m-ql-close" onClick={() => setQuickLookPath(null)} aria-label="关闭" title="关闭">
+                <IconClose size={14} />
+              </button>
+            </div>
           </div>
           <div className="m-ql-body">
-            <PreviewContent path={quickLookPath} compact />
+            {/* 下载按钮并入底部缩放工具条（旋转右侧），顶栏只留关闭图标 */}
+            <PreviewContent
+              path={quickLookPath}
+              compact
+              onDownload={() => window.open(api.downloadUrl(quickLookPath))}
+            />
           </div>
         </div>
       )}
@@ -101,8 +109,12 @@ export default function MobileApp() {
       {editorPath && (
         <div className="m-quicklook">
           <div className="m-ql-head">
-            <button className="btn btn-small" onClick={() => setEditorPath(null)}>关闭</button>
-            <span className="ellipsis">{basename(editorPath)}</span>
+            <span className="m-ql-title ellipsis">{basename(editorPath)}</span>
+            <div className="m-ql-actions">
+              <button className="m-ql-close" onClick={() => setEditorPath(null)} aria-label="关闭" title="关闭">
+                <IconClose size={14} />
+              </button>
+            </div>
           </div>
           <div className="m-ql-body">
             <EditorWindow win={{ id: 'mobile-editor', type: 'editor', props: { path: editorPath, name: basename(editorPath) }, title: basename(editorPath) }} />

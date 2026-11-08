@@ -135,6 +135,11 @@ export const IconChevron = ({ size = 12, dir = 'right' }) => (
 export const IconBell = ({ size = 15 }) => (
   <G size={size} d="M12 22a2.5 2.5 0 0 0 2.5-2.5h-5A2.5 2.5 0 0 0 12 22Zm7-5.5V11a7 7 0 0 0-5.5-6.8V3a1.5 1.5 0 0 0-3 0v1.2A7 7 0 0 0 5 11v5.5L3 19v1h18v-1l-2-2.5Z" />
 );
+export const IconClose = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
+  </svg>
+);
 export const IconUpload = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
     <path d="M12 16V4m0 0l-4.5 4.5M12 4l4.5 4.5" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />

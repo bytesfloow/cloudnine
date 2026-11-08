@@ -944,8 +944,21 @@ a { color: var(--accent); text-decoration: none; }
 .m-upload-card:active { background: var(--accent-soft); }
 .m-transfers { flex: 1; overflow: auto; padding: 12px 10px 80px; }
 .m-quicklook { position: fixed; inset: 0; z-index: 100; background: linear-gradient(var(--win-bg), var(--win-bg)), var(--wallpaper); display: flex; flex-direction: column; }
-.m-ql-head { flex: none; display: flex; align-items: center; gap: 10px; padding: 10px 12px; padding-top: calc(10px + env(safe-area-inset-top, 0px)); border-bottom: 1px solid var(--line); font-weight: 600; }
-.m-ql-head span { flex: 1; text-align: center; }
+/* 顶栏：标题真正居中（对称内边距），关闭按钮收成右上角图标 */
+.m-ql-head {
+  position: relative; flex: none; display: flex; align-items: center; min-height: 52px;
+  padding: 10px 12px; padding-top: calc(10px + env(safe-area-inset-top, 0px));
+  border-bottom: 1px solid var(--line); font-weight: 600;
+}
+.m-ql-title { flex: 1; min-width: 0; text-align: center; padding: 0 var(--ql-act-w, 44px); }
+.m-ql-actions {
+  position: absolute; right: 12px; top: calc(10px + env(safe-area-inset-top, 0px)); bottom: 10px;
+  display: flex; align-items: center; gap: 8px;
+}
+.m-ql-close {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 50%; color: var(--text-2); background: var(--hover);
+}
 .m-ql-body { flex: 1; min-height: 0; display: flex; }
 .m-ql-body > * { flex: 1; }
 
@@ -955,7 +968,7 @@ a { color: var(--accent); text-decoration: none; }
   flex-direction: column; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 0 12px;
 }
 .m-quicklook .preview-zoom {
-  gap: 4px; max-width: 100%; padding: 4px;
+  gap: 4px; max-width: 100%; padding: 4px; flex-wrap: wrap; justify-content: center;
   border: 1px solid var(--line); border-radius: 14px;
   background: var(--panel-bg); backdrop-filter: blur(20px);
 }
@@ -966,6 +979,8 @@ a { color: var(--accent); text-decoration: none; }
 .m-quicklook .preview-zoom .zoom-fit::before {
   content: ''; position: absolute; left: -5px; top: 22%; bottom: 22%; width: 1px; background: var(--line);
 }
+/* 「下载」并入工具条（旋转右侧），单独用分隔线隔开 */
+.m-quicklook .preview-zoom .zoom-download { color: var(--accent); font-weight: 600; }
 .m-quicklook .preview-hint { text-align: center; font-size: 11px; padding: 0 4px; }
 /* 顶栏按钮收小一号，标题留白更均匀 */
 .m-quicklook .m-ql-head .btn { padding: 7px 12px; font-size: 13px; border-radius: 9px; }
