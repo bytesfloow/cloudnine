@@ -60,6 +60,8 @@ node scripts/uitest.mjs --url http://<IP>/ --user <账号> --password <密码>
 
 `smoke_test.py` 仅用标准库，覆盖账号、文件读写、搜索、上传下载、Range、分享、废纸篓、磁盘；`uitest.mjs` 用 puppeteer-core 驱动系统 Chrome 做桌面与移动视口的 UI 自测（需先安装 `puppeteer-core`，可用 `PUPPETEER_CORE` 指定路径）。测试用的 `testroot/`、`server/data/` 是本地产物，已在 `.gitignore` 中，clone 后不存在。
 
+`uitest.mjs` 每次运行会在 `shots/uitest-<时间戳>/` 下留一套分步截图与 `report.txt` 报告（`shots/` 同样在 `.gitignore` 中，不入库）。截图只用于排障：断言失败时报告会指出对应截图文件名。历史目录会自动滚动清理，默认只保留最近 3 次（`--keep-shots N` 可调整），避免 `shots/` 无限膨胀。
+
 ## 功能概览
 
 - 访达：图标/列表视图、搜索、框选拖拽、右键菜单、简介与权限

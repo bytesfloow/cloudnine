@@ -21,7 +21,7 @@
  */
 
 import { createRequire } from 'node:module';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readdirSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
@@ -71,19 +71,34 @@ const GREEN = '\x1b[32m', RED = '\x1b[31m', YELLOW = '\x1b[33m', CYAN = '\x1b[36
 const passed = [];
 const failed = [];
 const steps = [];
+let currentShot = '';   // 最近一次截图的文件名：失败时据此指出该看哪张图
 
 function check(name, cond, detail = '') {
   if (cond) {
     passed.push(name);
     console.log(`${GREEN}  ✓${RESET} ${name}`);
   } else {
-    failed.push([name, detail]);
+    failed.push([name, detail, currentShot]);
     console.log(`${RED}  ✗${RESET} ${name}  ${YELLOW}${detail}${RESET}`);
+    if (currentShot) console.log(`${DIM}    📎 见截图 ${currentShot}${RESET}`);
   }
   return !!cond;
 }
 function section(t) { console.log(`\n${BOLD}${CYAN}▸ ${t}${RESET}`); }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ---------- 截图目录滚动清理：只保留最近 KEEP_SHOTS 次运行，避免 shots/ 无限膨胀 ----------
+const KEEP_SHOTS = Math.max(1, Number(arg('keep-shots', 3)));
+function pruneShots(keep) {
+  const root = join(__dirname, '..', 'shots');
+  if (!existsSync(root)) return;
+  // 目录名自带时间戳（uitest-YYYY-MM-DDTHH-mm-ss-SSSZ），字典序即时间序
+  const runs = readdirSync(root).filter((n) => n.startsWith('uitest-')).sort();
+  for (const name of runs.slice(0, Math.max(0, runs.length - keep))) {
+    rmSync(join(root, name), { recursive: true, force: true });
+    console.log(`${DIM}    🧹 已清理旧截图目录 ${name}${RESET}`);
+  }
+}
 
 // ---------- 测试用 PNG（手写编码，免图像库依赖） ----------
 function crc32(buf) {
@@ -180,6 +195,7 @@ async function shot(label) {
   const name = `${String(++shotIdx).padStart(2, '0')}-${label}.png`;
   await page.screenshot({ path: join(OUT_DIR, name), fullPage: false });
   steps.push(name);
+  currentShot = name;   // 记住当前截图，失败时指出对应图片
   console.log(`${DIM}    📸 ${name}${RESET}`);
   return name;
 }
@@ -794,13 +810,14 @@ const total = passed.length + failed.length;
 writeFileSync(join(OUT_DIR, 'report.txt'),
   `CloudNine UI 自测报告\n时间: ${new Date().toISOString()}\n目标: ${URL_BASE}\n\n` +
   passed.map((p) => `PASS  ${p}`).join('\n') + '\n' +
-  failed.map(([n, d]) => `FAIL  ${n}  ${d}`).join('\n') +
+  failed.map(([n, d, s]) => `FAIL  ${n}  ${d}${s ? `  [截图 ${s}]` : ''}`).join('\n') +
   `\n\n合计: ${passed.length}/${total} 通过\n截图目录: ${OUT_DIR}\n`);
 
 console.log(`\n${BOLD}截图目录${RESET} ${OUT_DIR}`);
+pruneShots(KEEP_SHOTS);   // 只保留最近 KEEP_SHOTS 次运行的截图
 if (failed.length) {
   console.log(`${RED}${BOLD}失败 ${failed.length}/${total}${RESET}`);
-  for (const [n, d] of failed) console.log(`  ${RED}✗${RESET} ${n}  ${DIM}${d}${RESET}`);
+  for (const [n, d, s] of failed) console.log(`  ${RED}✗${RESET} ${n}  ${DIM}${d}${RESET}${s ? `  ${DIM}[截图 ${s}]${RESET}` : ''}`);
   process.exit(1);
 }
 console.log(`${GREEN}${BOLD}全部通过 ${total}/${total}${RESET}`);
