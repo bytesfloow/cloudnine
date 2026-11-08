@@ -39,6 +39,7 @@ export default function ImageViewer({ src, alt = '', view }) {
   const pointers = useRef(new Map()); // 当前按下的指针（鼠标/触摸）
   const gesture = useRef(null); // 手势基线
   const lastTap = useRef(null); // 上一次轻点（用于判定双击复位）
+  const multiTouch = useRef(false); // 本轮触摸是否出现过第二根手指（双指手势不算轻点）
   const live = useRef({ zoom: view.zoom, pan: { ...view.pan } }); // 手势过程中的实时值
   const viewRef = useRef(view);
   const [dragging, setDragging] = useState(false);
@@ -100,13 +101,7 @@ export default function ImageViewer({ src, alt = '', view }) {
 
   const onPointerDown = (e) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
-    // 双击/双指点击复位：自行判定，不依赖 dblclick（Safari 触屏不派发该事件）
-    const lt = lastTap.current;
-    if (lt && e.timeStamp - lt.t < 400 && Math.hypot(e.clientX - lt.x, e.clientY - lt.y) < 30) {
-      lastTap.current = null;
-      resetView();
-      return;
-    }
+    if (pointers.current.size === 0) multiTouch.current = false; // 新的一轮触摸
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* 某些浏览器不支持捕获 */ }
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const cur = live.current;
@@ -114,6 +109,10 @@ export default function ImageViewer({ src, alt = '', view }) {
       gesture.current = { mode: 'pan', startX: e.clientX, startY: e.clientY, startPan: { ...cur.pan } };
       setDragging(true);
     } else if (pointers.current.size === 2) {
+      // 第二根手指落下 = 双指手势：清掉待判定的轻点，
+      // 否则双指缩放抬手会被记成一次轻点，紧接着的滑动就被误判成「双击复位」
+      multiTouch.current = true;
+      lastTap.current = null;
       const [a, b] = [...pointers.current.values()];
       gesture.current = {
         mode: 'pinch',
@@ -161,9 +160,23 @@ export default function ImageViewer({ src, alt = '', view }) {
   const onPointerEnd = (e) => {
     const g = gesture.current;
     pointers.current.delete(e.pointerId);
-    if (g && g.mode === 'pan' && Math.hypot(e.clientX - g.startX, e.clientY - g.startY) < 8) {
-      // 原地轻点：记为「点击」，供下一次快速点击判定双击
-      lastTap.current = { t: e.timeStamp, x: e.clientX, y: e.clientY };
+    // 轻点判定：必须是「单指 + 几乎没移动」的抬手。
+    // 双指缩放（multiTouch）后的抬手不算轻点，否则会被下一次快速点击凑成「双击复位」。
+    const isTap = g && g.mode === 'pan' && !multiTouch.current
+      && Math.hypot(e.clientX - g.startX, e.clientY - g.startY) < 8;
+    if (isTap) {
+      // 双击复位：不依赖 dblclick（Safari 触屏不派发该事件），在第二次抬手时判定
+      const lt = lastTap.current;
+      if (lt && e.timeStamp - lt.t < 400 && Math.hypot(e.clientX - lt.x, e.clientY - lt.y) < 30) {
+        lastTap.current = null;
+        resetView();
+      } else {
+        // 原地轻点：记为「点击」，供下一次快速点击判定双击
+        lastTap.current = { t: e.timeStamp, x: e.clientX, y: e.clientY };
+      }
+    } else {
+      // 拖动或双指手势：打断轻点序列，避免紧接着的抬手被误判成双击
+      lastTap.current = null;
     }
     if (pointers.current.size === 0) {
       gesture.current = null;

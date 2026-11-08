@@ -352,6 +352,24 @@ try {
           const [dx, dy] = panOf(t2);
           check('移动端单指拖动平移', Math.abs(dx) > 20 && Math.abs(dy) > 10, `${t1} → ${t2}`);
 
+          // 双指聚拢缩小 → 立即单指上滑：不应被误判成双击复位（缩放保持、平移生效）
+          const zBefore = zoomOf(t2);
+          await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: cx - 60, y: cy, id: 1 }, { x: cx + 60, y: cy, id: 2 }] });
+          await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: cx - 30, y: cy, id: 1 }, { x: cx + 30, y: cy, id: 2 }] });
+          await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: cx - 15, y: cy, id: 1 }, { x: cx + 15, y: cy, id: 2 }] });
+          await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+          const t4 = await tf();
+          // 不等待：紧接着单指上滑，起点贴着刚抬起的第二根手指
+          await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: cx + 15, y: cy, id: 1 }] });
+          await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: cx + 15, y: cy - 60, id: 1 }] });
+          await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+          await sleep(250);
+          const t5 = await tf();
+          const z4 = zoomOf(t4), z5 = zoomOf(t5), [, dy5] = panOf(t5);
+          check('移动端双指缩小后立即上滑不触发双击复位',
+            z4 < zBefore && Math.abs(z5 - z4) < 0.01 && dy5 < -20,
+            `缩小后 ${t4} → 上滑后 ${t5}`);
+
           // 工具条「适应」复位
           const zBtns = await page.$$('.m-quicklook .preview-zoom .btn');
           check('移动端缩放工具存在', zBtns.length >= 4, `按钮数 ${zBtns.length}`);
