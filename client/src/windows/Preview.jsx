@@ -11,7 +11,7 @@ function ZoomTools({ view }) {
       <button className="btn btn-small" onClick={() => view.setZoom((z) => Math.max(MIN_ZOOM, z - 0.25))} title="缩小">−</button>
       <span className="preview-zoom-val">{Math.round(view.zoom * 100)}%</span>
       <button className="btn btn-small" onClick={() => view.setZoom((z) => Math.min(MAX_ZOOM, z + 0.25))} title="放大">＋</button>
-      <button className="btn btn-small" onClick={() => view.reset()} title="适应窗口（双击图片可复位）">适应</button>
+      <button className="btn btn-small zoom-fit" onClick={() => view.reset()} title="适应窗口（双击图片可复位）">适应</button>
       <button className="btn btn-small" onClick={() => view.setRotate((r) => (r + 90) % 360)}>旋转</button>
     </div>
   );

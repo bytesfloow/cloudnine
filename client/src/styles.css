@@ -949,6 +949,27 @@ a { color: var(--accent); text-decoration: none; }
 .m-ql-body { flex: 1; min-height: 0; display: flex; }
 .m-ql-body > * { flex: 1; }
 
+/* 移动端快速预览：底部缩放工具收拢成居中的胶囊条 —— 按钮不再贴屏幕左边缘、也不再散落一排 */
+.m-quicklook .preview-image { padding: 0 0 calc(12px + env(safe-area-inset-bottom, 0px)); gap: 8px; }
+.m-quicklook .preview-image > .preview-toolbar {
+  flex-direction: column; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 0 12px;
+}
+.m-quicklook .preview-zoom {
+  gap: 4px; max-width: 100%; padding: 4px;
+  border: 1px solid var(--line); border-radius: 14px;
+  background: var(--panel-bg); backdrop-filter: blur(20px);
+}
+.m-quicklook .preview-zoom .btn { padding: 7px 11px; min-width: 40px; }
+.m-quicklook .preview-zoom-val { min-width: 44px; font-size: 11.5px; }
+/* 缩放组与「适应/旋转」之间加一条分隔线，读起来是一组而不是五个散按钮 */
+.m-quicklook .preview-zoom .zoom-fit { position: relative; margin-left: 7px; }
+.m-quicklook .preview-zoom .zoom-fit::before {
+  content: ''; position: absolute; left: -5px; top: 22%; bottom: 22%; width: 1px; background: var(--line);
+}
+.m-quicklook .preview-hint { text-align: center; font-size: 11px; padding: 0 4px; }
+/* 顶栏按钮收小一号，标题留白更均匀 */
+.m-quicklook .m-ql-head .btn { padding: 7px 12px; font-size: 13px; border-radius: 9px; }
+
 /* 设置（iOS 分组列表） */
 .m-settings {
   flex: 1; overflow-y: auto; padding: 12px 12px 90px;
