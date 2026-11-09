@@ -1,10 +1,10 @@
 import React from 'react';
 import { useStore, getState, openWindow } from '../store.js';
 import { addUpload } from '../transfers.js';
-import { IconFinder, IconTerminal, IconEditor, IconTransfer, IconShare, IconDisk, IconTrash } from '../icons.jsx';
+import { IconFiles, IconTerminal, IconEditor, IconTransfer, IconShare, IconDisk, IconTrash } from '../icons.jsx';
 
 const ITEMS = [
-  { type: 'finder', label: '文件', Icon: IconFinder },
+  { type: 'finder', label: '文件', Icon: IconFiles },
   { type: 'terminal', label: '终端', Icon: IconTerminal },
   { type: 'editor', label: '文本编辑', Icon: IconEditor },
   { type: 'transfers', label: '传输', Icon: IconTransfer },

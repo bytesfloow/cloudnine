@@ -107,12 +107,12 @@ export const IconTrash = ({ size = 26, full }) => (
     <path d="M19 9a5 5 0 0 1 10 0" stroke="#a7abb2" strokeWidth="2.4" fill="none" />
   </svg>
 );
-export const IconFinder = ({ size = 26 }) => (
+// 「文件」应用图标：沿用 Dock 的圆角方块风格，内部用文件夹表示
+export const IconFiles = ({ size = 26 }) => (
   <svg width={size} height={size} viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
     <rect x="4" y="4" width="40" height="40" rx="10" fill="#3f9bff" />
-    <path d="M24 4c-4 8-4 32 0 40" stroke="#fff" strokeWidth="3" fill="none" />
-    <path d="M14 17v6M34 17v6" stroke="#fff" strokeWidth="3.2" strokeLinecap="round" />
-    <path d="M16 33c5 3 11 3 16 0" stroke="#fff" strokeWidth="3" strokeLinecap="round" fill="none" />
+    <path d="M13 19.5a3 3 0 0 1 3-3h4.9l2.7 3h11.4a3 3 0 0 1 3 3v11a3 3 0 0 1-3 3H16a3 3 0 0 1-3-3v-14Z" fill="#fff" />
+    <path d="M13 24h22" stroke="#3f9bff" strokeWidth="1.6" fill="none" />
   </svg>
 );
 export const IconHome = ({ size = 26 }) => (

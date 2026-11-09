@@ -6,9 +6,8 @@ import React, { useEffect, useRef, useState } from 'react';
 const GLYPHS = {
   finder: (s) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M12 3c-2.6 4.4-2.6 13.6 0 18" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M7.5 9.2v3M16.5 9.2v3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-      <path d="M8 15.5c2.4 1.6 5.6 1.6 8 0" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M3.2 7.6a2 2 0 0 1 2-2h3.3l2.1 2.3h8.2a2 2 0 0 1 2 2v7.7a2 2 0 0 1-2 2H5.2a2 2 0 0 1-2-2V7.6Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+      <path d="M3.4 11h17.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
     </svg>
   ),
   terminal: (s) => (
