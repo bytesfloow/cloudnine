@@ -458,7 +458,6 @@ a { color: var(--accent); text-decoration: none; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .sb-item:hover { background: var(--hover); }
-.sb-item.small { font-size: 11.5px; color: var(--text-2); }
 .sb-item.active { background: var(--accent); color: #fff; }
 
 .finder-content { flex: 1; position: relative; overflow: auto; padding: 10px 12px 20px; }

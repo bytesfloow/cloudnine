@@ -28,7 +28,6 @@ export default function Finder({ win }) {
   const [marquee, setMarquee] = useState(null);
   const [recents, setRecents] = useState([]);
   const [recentMode, setRecentMode] = useState(false);
-  const [mounted, setMounted] = useState([]);
   const containerRef = useRef(null);
   const bodyRef = useRef(null);
   const selRef = useRef(sel);
@@ -80,7 +79,8 @@ export default function Finder({ win }) {
   // 侧边栏数据
   useEffect(() => {
     api.recents().then((r) => setRecents(r.items)).catch(() => {});
-    api.disk().then((d) => { setMounted(d.mounts); setState({ disk: d.mounts }); }).catch(() => {});
+    // 磁盘信息喂给菜单栏/磁盘窗口，侧边栏不再展示挂载点（「位置」分组已移除）
+    api.disk().then((d) => setState({ disk: d.mounts })).catch(() => {});
   }, []);
 
   // 文件系统变更 → 刷新
@@ -542,14 +542,6 @@ export default function Finder({ win }) {
           {getState().homeRel && <SideItem label="根目录" onClick={() => navigate('')} dropdir="" active={cwd === '' && !isTrash && !recentMode} />}
           <SideItem label="最近" onClick={() => { setRecentMode(true); setCwd(''); setSel(new Set()); }} active={recentMode} />
           <SideItem label="废纸篓" onClick={() => navigate('__trash__')} active={isTrash} />
-          {mounted.filter((m) => m.mountRel != null).length > 0 && (
-            <>
-              <div className="sb-group">位置</div>
-              {mounted.filter((m) => m.mountRel != null).map((m) => (
-                <SideItem key={m.mount} label={m.mount} small onClick={() => navigate(m.mountRel)} dropdir={m.mountRel} active={cwd === m.mountRel} />
-              ))}
-            </>
-          )}
         </div>
 
         <div className="finder-content" ref={bodyRef} onMouseDown={startMarquee}
@@ -662,10 +654,10 @@ export default function Finder({ win }) {
   );
 }
 
-function SideItem({ label, onClick, active, dropdir, small }) {
+function SideItem({ label, onClick, active, dropdir }) {
   return (
     <button
-      className={`sb-item${active ? ' active' : ''}${small ? ' small' : ''}`}
+      className={`sb-item${active ? ' active' : ''}`}
       onClick={onClick}
       data-dropdir={dropdir}
       onDragOver={(e) => { if (dropdir != null) e.preventDefault(); }}
