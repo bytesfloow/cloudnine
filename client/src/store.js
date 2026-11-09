@@ -1,5 +1,30 @@
 import { useSyncExternalStore } from 'react';
 
+// ---------- 桌面视图偏好（排序 / 隐藏文件）----------
+// 桌面图标位置不再手工摆放：桌面即主目录，所有图标同属一个目录，
+// 位置完全由排序规则决定（Windows 桌面自动排列的思路）。
+const DESKTOP_VIEW_KEY = 'cloudnine-desktop-view';
+
+function loadDesktopView() {
+  const fallback = { sort: { key: 'name', asc: true, dirsFirst: true }, showHidden: false };
+  try {
+    const v = JSON.parse(localStorage.getItem(DESKTOP_VIEW_KEY));
+    if (v && typeof v === 'object') {
+      return {
+        sort: {
+          key: ['name', 'size', 'mtime', 'type'].includes(v.sort?.key) ? v.sort.key : 'name',
+          asc: v.sort?.asc !== false,
+          dirsFirst: v.sort?.dirsFirst !== false,
+        },
+        showHidden: !!v.showHidden,
+      };
+    }
+  } catch { /* 忽略解析失败 */ }
+  return fallback;
+}
+
+const dv = loadDesktopView();
+
 // ---------- 极简全局状态 ----------
 let state = {
   booted: false,
@@ -16,6 +41,11 @@ let state = {
 
   clipboard: null, // {mode:'copy'|'cut', paths:[], cwd}
   finderSel: {},   // windowId -> [paths]
+
+  // 桌面（主目录直览）状态
+  desktopSel: [],            // 选中的条目名
+  desktopSort: dv.sort,      // {key:'name'|'size'|'mtime'|'type', asc, dirsFirst}
+  desktopShowHidden: dv.showHidden,
 
   notifications: [],
   dialog: null,        // 当前模态对话框（队列首）
@@ -206,7 +236,7 @@ function saveGeom(type, rect) {
 }
 
 const WINDOW_DEFAULTS = {
-  finder: { title: '访达', w: 860, h: 560, minW: 560, minH: 380, multi: true },
+  finder: { title: '文件', w: 860, h: 560, minW: 560, minH: 380, multi: true },
   terminal: { title: '终端', w: 760, h: 460, minW: 420, minH: 300, multi: true },
   editor: { title: '文本编辑', w: 800, h: 560, minW: 480, minH: 360, multi: true },
   preview: { title: '预览', w: 780, h: 580, minW: 420, minH: 320, multi: true },
@@ -314,6 +344,28 @@ export const setClipboard = (mode, paths, cwd) =>
 // ---------- 访达选择上报（供快速预览等全局功能使用） ----------
 export const setFinderSel = (windowId, paths) =>
   setState((s) => ({ finderSel: { ...s.finderSel, [windowId]: paths } }));
+
+// ---------- 桌面（主目录直览）----------
+// 支持函数式更新：连续点击时避免读到上一次渲染的快照
+export const setDesktopSel = (names) =>
+  setState((s) => ({ desktopSel: typeof names === 'function' ? names(s.desktopSel) : names }));
+
+function saveDesktopView() {
+  const s = getState();
+  try {
+    localStorage.setItem(DESKTOP_VIEW_KEY, JSON.stringify({ sort: s.desktopSort, showHidden: s.desktopShowHidden }));
+  } catch { /* 忽略持久化失败 */ }
+}
+
+export function setDesktopSort(sort) {
+  setState({ desktopSort: sort });
+  saveDesktopView();
+}
+
+export function setDesktopShowHidden(v) {
+  setState({ desktopShowHidden: v });
+  saveDesktopView();
+}
 
 // ---------- 编辑器未保存标记（关闭窗口时拦截） ----------
 export const markDirty = (windowId, dirty) =>

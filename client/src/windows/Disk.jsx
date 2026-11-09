@@ -35,7 +35,7 @@ export default function DiskWindow() {
       {mounts.length === 0 ? <div className="empty-hint">未读取到挂载点信息</div> : (
         <div className="disk-cards">
           {mounts.map((m) => (
-            <div key={m.mount} className="disk-card" onClick={() => m.mountRel != null && openWindow('finder', { cwd: m.mountRel })} title={m.mountRel != null ? '在访达中打开' : ''}>
+            <div key={m.mount} className="disk-card" onClick={() => m.mountRel != null && openWindow('finder', { cwd: m.mountRel })} title={m.mountRel != null ? '在文件中打开' : ''}>
               <div className="dc-head">
                 <span className="dc-mount ellipsis" title={m.mount}>{m.mount}</span>
                 <span className={`dc-pct ${m.usePct > 95 ? 'danger' : m.usePct > 85 ? 'warn' : m.usePct > 70 ? 'notice' : ''}`}>{m.usePct}%</span>
@@ -51,7 +51,7 @@ export default function DiskWindow() {
           ))}
         </div>
       )}
-      <p className="info-hint">使用率分级：&lt;70% 正常 · 70–85% 注意 · 85–95% 警告 · &gt;95% 危险。点击卡片可在访达中打开对应目录。</p>
+      <p className="info-hint">使用率分级：&lt;70% 正常 · 70–85% 注意 · 85–95% 警告 · &gt;95% 危险。点击卡片可在文件中打开对应目录。</p>
     </div>
   );
 }

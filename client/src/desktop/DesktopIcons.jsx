@@ -1,232 +1,492 @@
-import React, { useLayoutEffect, useRef, useState } from 'react';
-import { useStore, getState, openWindow, openContextMenu, setTheme, setState, bus, promptDialog, confirmDialog, notify, dirname, joinPath } from '../store.js';
-import { addUpload } from '../transfers.js';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useStore, getState, setState, openWindow, openContextMenu, openQuickLook, bus,
+  setDesktopSel, setDesktopSort, setDesktopShowHidden, joinPath, basename,
+} from '../store.js';
 import { api } from '../api.js';
-import { IconHome, IconGlobe, IconTrash, IconTerminal } from '../icons.jsx';
+import { FileIcon, IconGlobe, IconTrash } from '../icons.jsx';
+import {
+  createItem, uploadTo, uploadDropped, copyToClipboard, cutToClipboard, pasteInto,
+  trashItems, renameItem, downloadItem, downloadItems, compressItems, extractItem,
+  shareItem, copyPathText, openEntry, isArchive,
+} from '../fsops.js';
 
-// 桌面图标区：常用位置聚合（决策 Q12），外部文件拖入上传到主目录
-// 图标可自由拖动，松手后自动对齐到网格单元（决策：位置按 key 持久化到 localStorage）
-const CELL_W = 92;
-const CELL_H = 96;
-const ICON_W = 84;
-const POS_KEY = 'cloudnine-icon-pos';
-const DRAG_THRESHOLD = 4;
+// 桌面 = 用户主目录的直视图：每一个图标都是主目录里的真实文件 / 文件夹。
+// 图标位置不再手工摆放（同属一个目录，拖到空白处移动无意义），完全由排序规则决定；
+// 拖拽的语义改为「移动文件」：拖到文件夹上=移入该文件夹，拖到废纸篓上=删除。
+const DRAG_TYPE = 'application/x-cloudnine';
 
-function loadSavedPositions() {
-  try {
-    const v = JSON.parse(localStorage.getItem(POS_KEY));
-    return v && typeof v === 'object' ? v : {};
-  } catch { return {}; }
-}
+// 桌面一次性渲染的图标上限：主目录条目极多时避免页面卡死，
+// 超出的部分明确提示「去文件窗口看」，不做静默截断。
+const MAX_ICONS = 400;
 
 export default function DesktopIcons() {
   const s = useStore();
-  const [selected, setSelected] = useState(null);
-  const [dragOver, setDragOver] = useState(false);
-  const [positions, setPositions] = useState(loadSavedPositions);
-  const [size, setSize] = useState(null);
-  const [dragging, setDragging] = useState(null); // { key, x, y } 拖动中的实时像素位置
-  const layerRef = useRef(null);
-  const dragRef = useRef(null);   // 指针拖动会话
-  const dragPosRef = useRef(null); // 拖动中最新的像素坐标
-  const draggedAtRef = useRef(0); // 最近一次拖动结束时间，用于抑制误触 click/dblclick
+  const cwd = s.homeRel || '';
+  const sel = s.desktopSel;
 
-  // 挂载时同步测量一次确定网格范围，之后交给 ResizeObserver 跟踪窗口尺寸变化
-  // （不依赖 RO 的初始回调：部分环境/隐藏标签页下它不会及时触发）
-  useLayoutEffect(() => {
-    const el = layerRef.current;
-    if (!el) return;
-    const measure = () => setSize({ w: el.clientWidth, h: el.clientHeight });
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
+  const [entries, setEntries] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [renaming, setRenaming] = useState(null);
+  const [marquee, setMarquee] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [dropTarget, setDropTarget] = useState(null);
+  const [anchor, setAnchor] = useState(null);
+
+  const layerRef = useRef(null);
+
+  const load = useCallback(async (silent) => {
+    if (!silent) setLoading(true);
+    try {
+      const r = await api.list(cwd);
+      setEntries(r.entries);
+      setError('');
+    } catch (e) {
+      setError(e.message);
+      setEntries([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [cwd]);
+
+  useEffect(() => { load(); }, [load]);
+
+  // 旧版本把图标位置存在本地；桌面改为自动排布后不再使用，顺手清掉
+  useEffect(() => {
+    try { localStorage.removeItem('cloudnine-icon-pos'); } catch { /* 忽略 */ }
   }, []);
 
-  const maxCol = size ? Math.max(0, Math.floor((size.w - CELL_W) / CELL_W)) : 0;
-  const maxRow = size ? Math.max(0, Math.floor((size.h - CELL_H) / CELL_H)) : 0;
+  // 文件系统变更 → 刷新（终端里的操作不会广播，靠轮询与窗口聚焦兜底）
+  useEffect(() => bus.on('fs:changed', (d) => {
+    if (d === '__trash__') return;
+    if (d === cwd || d === '' || (d && cwd.startsWith(d + '/'))) load(true);
+  }), [cwd, load]);
 
-  // 主目录与根目录重合时（Windows 默认 fileRoot 即用户主目录，homeRel 为空），不再单独显示根目录
-  const icons = [
-    { key: 'home', label: '主目录', Icon: IconHome, open: () => openWindow('finder', { cwd: s.homeRel || '' }) },
-    ...(s.homeRel ? [{ key: 'root', label: '根目录', Icon: IconGlobe, open: () => openWindow('finder', { cwd: '' }) }] : []),
-    { key: 'trash', label: '废纸篓', Icon: IconTrash, open: () => openWindow('finder', { trash: true }), badge: s.trashCount },
-  ];
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (document.visibilityState === 'visible') load(true);
+    }, 20000);
+    const onFocus = () => load(true);
+    window.addEventListener('focus', onFocus);
+    return () => { clearInterval(t); window.removeEventListener('focus', onFocus); };
+  }, [load]);
 
-  const clampCell = (p) => ({ col: Math.min(Math.max(0, p.col | 0), maxCol), row: Math.min(Math.max(0, p.row | 0), maxRow) });
+  // 选中项里已被删除的条目要清掉
+  useEffect(() => {
+    if (!entries) return;
+    const names = new Set(entries.map((e) => e.name));
+    const alive = sel.filter((n) => names.has(n));
+    if (alive.length !== sel.length) setDesktopSel(alive);
+  }, [entries, sel]);
 
-  // 图标网格坐标：已保存位置优先（越界裁剪），否则默认排在左上角一列
-  const posOf = (key, idx) => {
-    const saved = positions[key];
-    if (saved) return clampCell(saved);
-    const perCol = maxRow + 1;
-    return { col: Math.min(maxCol, Math.floor(idx / perCol)), row: idx % perCol };
-  };
+  // 排序：文件夹优先 + 主排序键
+  const files = useMemo(() => {
+    const list = (entries || []).filter((e) => s.desktopShowHidden || !e.hidden);
+    const cmp = {
+      name: (a, b) => a.name.localeCompare(b.name, 'zh'),
+      size: (a, b) => (a.size || 0) - (b.size || 0),
+      mtime: (a, b) => (a.mtimeMs || 0) - (b.mtimeMs || 0),
+      type: (a, b) => (extOf(a.name).localeCompare(extOf(b.name), 'zh') || a.name.localeCompare(b.name, 'zh')),
+    }[s.desktopSort.key] || ((a, b) => a.name.localeCompare(b.name, 'zh'));
+    const dirFirst = s.desktopSort.dirsFirst
+      ? (a, b) => (a.type === b.type ? 0 : a.type === 'dir' ? -1 : 1)
+      : () => 0;
+    return [...list].sort((a, b) => (dirFirst(a, b) || cmp(a, b)) * (s.desktopSort.asc ? 1 : -1));
+  }, [entries, s.desktopShowHidden, s.desktopSort]);
 
-  // 目标像素坐标 → 最近的空闲网格单元（被占用时向外圈扩展查找）
-  const nearestFreeCell = (x, y, key) => {
-    const col = Math.min(maxCol, Math.max(0, Math.round(x / CELL_W)));
-    const row = Math.min(maxRow, Math.max(0, Math.round(y / CELL_H)));
-    const taken = new Set(icons.filter((i) => i.key !== key).map((i, idx) => {
-      const p = posOf(i.key, idx);
-      return `${p.col}:${p.row}`;
-    }));
-    for (let r = 0; r <= Math.max(maxCol, maxRow); r++) {
-      for (let dc = -r; dc <= r; dc++) for (let dr = -r; dr <= r; dr++) {
-        if (Math.max(Math.abs(dc), Math.abs(dr)) !== r) continue;
-        const c = col + dc, w = row + dr;
-        if (c < 0 || c > maxCol || w < 0 || w > maxRow) continue;
-        if (!taken.has(`${c}:${w}`)) return { col: c, row: w };
-      }
+  const selectedEntries = useMemo(() => files.filter((e) => sel.includes(e.name)), [files, sel]);
+  const selectedPaths = useMemo(() => selectedEntries.map((e) => joinPath(cwd, e.name)), [selectedEntries, cwd]);
+  const shownFiles = files.length > MAX_ICONS ? files.slice(0, MAX_ICONS) : files;
+
+  // ---------- 选择 ----------
+  function clickItem(e, entry, idx) {
+    setState({ focusId: null }); // 点桌面图标：焦点回到桌面，菜单栏切到桌面菜单
+    if (e.metaKey || e.ctrlKey) {
+      setDesktopSel((prev) => (prev.includes(entry.name) ? prev.filter((n) => n !== entry.name) : [...prev, entry.name]));
+      setAnchor(idx);
+    } else if (e.shiftKey && anchor != null) {
+      const [a, b] = [Math.min(anchor, idx), Math.max(anchor, idx)];
+      setDesktopSel(files.slice(a, b + 1).map((x) => x.name));
+    } else {
+      setDesktopSel([entry.name]);
+      setAnchor(idx);
     }
-    return { col, row };
-  };
-
-  function startDrag(e, key) {
-    if (e.button !== 0) return;
-    const el = e.currentTarget;
-    dragRef.current = { key, pointerId: e.pointerId, x0: e.clientX, y0: e.clientY, baseX: el.offsetLeft, baseY: el.offsetTop, moved: false };
-    el.setPointerCapture(e.pointerId);
-  }
-  function moveDrag(e) {
-    const d = dragRef.current;
-    if (!d || e.pointerId !== d.pointerId) return;
-    const dx = e.clientX - d.x0, dy = e.clientY - d.y0;
-    if (!d.moved) {
-      if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
-      d.moved = true;
-    }
-    dragPosRef.current = { x: d.baseX + dx, y: d.baseY + dy };
-    setDragging({ key: d.key, ...dragPosRef.current });
-  }
-  function endDrag(e) {
-    const d = dragRef.current;
-    if (!d || e.pointerId !== d.pointerId) return;
-    dragRef.current = null;
-    if (!d.moved) return;
-    const cur = dragPosRef.current;
-    dragPosRef.current = null;
-    draggedAtRef.current = Date.now();
-    setDragging(null);
-    if (!cur) return;
-    const cell = nearestFreeCell(cur.x, cur.y, d.key);
-    setPositions((prev) => {
-      const np = { ...prev, [d.key]: cell };
-      try { localStorage.setItem(POS_KEY, JSON.stringify(np)); } catch { /* 忽略持久化失败 */ }
-      return np;
-    });
-  }
-  function cancelDrag(e) {
-    const d = dragRef.current;
-    if (!d || e.pointerId !== d.pointerId) return;
-    dragRef.current = null;
-    dragPosRef.current = null;
-    if (d.moved) { draggedAtRef.current = Date.now(); setDragging(null); }
-  }
-  const justDragged = () => Date.now() - draggedAtRef.current < 600;
-
-  const desktopMenu = (e) => {
-    e.preventDefault();
-    openContextMenu(e.clientX, e.clientY, [
-      { label: '新建文件夹', action: () => newInHome('dir') },
-      { label: '新建空白文件', action: () => newInHome('file') },
-      '-',
-      { label: '上传文件…', action: () => uploadToHome(false) },
-      { label: '上传文件夹…', action: () => uploadToHome(true) },
-      '-',
-      { label: '打开访达', action: () => openWindow('finder') },
-      { label: '打开终端', action: () => openWindow('terminal', { cwd: s.homeRel || '' }) },
-      '-',
-      { label: '重排桌面图标', action: () => { setPositions({}); try { localStorage.removeItem(POS_KEY); } catch {} } },
-      { label: '切换深浅色主题', checked: document.documentElement.dataset.theme === 'dark', action: () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark') },
-    ]);
-  };
-
-  async function newInHome(kind) {
-    const v = await promptDialog({
-      title: kind === 'dir' ? '新建文件夹' : '新建空白文件',
-      fields: [{ key: 'name', label: '名称', required: true, autofocus: true, placeholder: kind === 'dir' ? '文件夹名称' : '文件名称.md' }],
-    });
-    if (!v?.name) return;
-    try {
-      const p = joinPath(s.homeRel || '', v.name);
-      if (kind === 'dir') await api.mkdir(p); else await api.touch(p);
-      bus.emit('fs:changed', dirname(p));
-    } catch (e) { notify({ type: 'error', title: '创建失败', body: e.message }); }
   }
 
-  function uploadToHome(folder) {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.multiple = true;
-    if (folder) input.webkitdirectory = true;
-    input.onchange = () => {
-      const { homeRel } = getState();
-      for (const f of input.files) {
-        const rel = folder ? (f.webkitRelativePath || f.name) : '';
-        addUpload(f, homeRel || '', rel);
-      }
+  // 橡皮筋框选
+  function startMarquee(e) {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey) return;
+    if (e.target.closest('.desktop-icon, .desktop-sysicon, input, button')) return;
+    const box = layerRef.current.getBoundingClientRect();
+    const sx = e.clientX, sy = e.clientY;
+    const onMove = (ev) => {
+      const r = { x: Math.min(sx, ev.clientX), y: Math.min(sy, ev.clientY), w: Math.abs(ev.clientX - sx), h: Math.abs(ev.clientY - sy) };
+      setMarquee({ ...r, left: r.x - box.left, top: r.y - box.top });
+      const names = new Set();
+      layerRef.current.querySelectorAll('.desktop-icon[data-entry]').forEach((el) => {
+        const er = el.getBoundingClientRect();
+        if (er.left < r.x + r.w && er.right > r.x && er.top < r.y + r.h && er.bottom > r.y) names.add(el.dataset.entry);
+      });
+      setDesktopSel([...names]);
     };
-    input.click();
+    const onUp = () => {
+      setMarquee(null);
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
   }
 
+  // ---------- 操作 ----------
+  async function doCreate(kind) {
+    const p = await createItem(cwd, kind);
+    if (!p) return;
+    setDesktopSel([basename(p)]);
+    if (kind === 'file') openWindow('editor', { path: p, name: basename(p) });
+  }
+
+  async function doTrash(paths = selectedPaths, names = selectedEntries.map((e) => e.name)) {
+    if (!paths.length) return;
+    const ok = await trashItems(paths, names);
+    if (ok) setDesktopSel([]);
+  }
+
+  function selectAll() {
+    setDesktopSel(files.map((e) => e.name));
+  }
+
+  function startRename() {
+    if (selectedEntries.length !== 1) return;
+    setRenaming(selectedEntries[0].name);
+  }
+
+  async function submitRename(oldName, newName) {
+    setRenaming(null);
+    if (!newName || newName === oldName) return;
+    const ok = await renameItem(joinPath(cwd, oldName), newName);
+    if (ok) setDesktopSel([newName]);
+  }
+
+  // ---------- 右键菜单 ----------
+  function itemMenu(e, entry) {
+    e.preventDefault();
+    e.stopPropagation();
+    // 右键未选中的条目 → 只作用于该条目；右键已选中的条目 → 作用于整个选中集
+    const inSel = sel.includes(entry.name);
+    const multi = inSel && selectedEntries.length > 1;
+    if (!inSel) setDesktopSel([entry.name]);
+    const path = joinPath(cwd, entry.name);
+    const paths = multi ? selectedPaths : [path];
+    const targets = multi ? selectedEntries : [entry];
+    const filesOnly = targets.filter((x) => x.type !== 'dir').map((x) => joinPath(cwd, x.name));
+    openContextMenu(e.clientX, e.clientY, [
+      { label: '打开', action: () => openEntry(entry, cwd) },
+      ...(entry.type !== 'dir' ? [{ label: '快速预览', action: () => openQuickLook(filesOnly.length ? filesOnly : [path], 0) }] : []),
+      '-',
+      { label: '重命名', action: startRename, disabled: multi },
+      { label: '复制', action: () => copyToClipboard(paths, cwd) },
+      { label: '剪切', action: () => cutToClipboard(paths, cwd) },
+      '-',
+      ...(entry.type !== 'dir' ? [{ label: '下载', action: () => downloadItem(path) }] : []),
+      ...(paths.length > 1 ? [{ label: '打包下载', action: () => downloadItems(paths) }] : []),
+      { label: '压缩…', action: () => compressItems(paths, cwd) },
+      ...(isArchive(entry) ? [{ label: '解压到…', action: () => extractItem(path, cwd) }] : []),
+      '-',
+      { label: '分享…', action: () => shareItem(path, entry.name) },
+      { label: '显示简介', action: () => openWindow('info', { path }) },
+      { label: '复制路径', action: () => copyPathText(path) },
+      ...(entry.type === 'dir' ? [{ label: '在终端中打开', action: () => openWindow('terminal', { cwd: path }) }] : []),
+      '-',
+      { label: '移入废纸篓', danger: true, action: () => doTrash(paths, targets.map((x) => x.name)) },
+    ]);
+  }
+
+  function blankMenu(e) {
+    if (e.target.closest('.desktop-icon, .desktop-sysicon, input, button')) return;
+    e.preventDefault();
+    const cb = getState().clipboard;
+    openContextMenu(e.clientX, e.clientY, [
+      { label: '新建文件夹', action: () => doCreate('dir') },
+      { label: '新建空白文件', action: () => doCreate('file') },
+      '-',
+      {
+        label: cb ? (cb.mode === 'copy' ? '粘贴项目' : '移动项目到此处') : '粘贴',
+        disabled: !cb,
+        action: () => pasteInto(cwd),
+      },
+      '-',
+      { label: '上传文件…', action: () => uploadTo(cwd, false) },
+      { label: '上传文件夹…', action: () => uploadTo(cwd, true) },
+      '-',
+      { label: '显示隐藏文件', checked: s.desktopShowHidden, action: () => setDesktopShowHidden(!s.desktopShowHidden) },
+      { label: '文件夹优先', checked: s.desktopSort.dirsFirst, action: () => setDesktopSort({ ...s.desktopSort, dirsFirst: !s.desktopSort.dirsFirst }) },
+      { label: '按名称排列', checked: s.desktopSort.key === 'name', action: () => setDesktopSort({ ...s.desktopSort, key: 'name' }) },
+      { label: '按大小排列', checked: s.desktopSort.key === 'size', action: () => setDesktopSort({ ...s.desktopSort, key: 'size' }) },
+      { label: '按修改时间排列', checked: s.desktopSort.key === 'mtime', action: () => setDesktopSort({ ...s.desktopSort, key: 'mtime' }) },
+      { label: '按类型排列', checked: s.desktopSort.key === 'type', action: () => setDesktopSort({ ...s.desktopSort, key: 'type' }) },
+      '-',
+      { label: '刷新', action: () => load() },
+    ]);
+  }
+
+  // ---------- 拖拽 ----------
+  function onDragStart(e, entry) {
+    const names = sel.includes(entry.name) ? sel : [entry.name];
+    const paths = names.map((n) => joinPath(cwd, n));
+    e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ paths, cwd, mode: e.altKey ? 'copy' : 'move' }));
+    e.dataTransfer.effectAllowed = 'copyMove';
+  }
+
+  // 拖到文件夹上：移入该文件夹（按住 Alt 为复制）
+  async function onDropOnFolder(e, entry) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDropTarget(null);
+    const target = joinPath(cwd, entry.name);
+    const raw = e.dataTransfer.getData(DRAG_TYPE);
+    if (raw) {
+      try {
+        const { paths, mode } = JSON.parse(raw);
+        if (mode === 'copy') await api.copy(paths, target);
+        else await api.move(paths, target);
+        bus.emit('fs:changed', target);
+        bus.emit('fs:changed', cwd);
+      } catch (err) {
+        notify({ type: 'error', title: '移动失败', body: err.message });
+      }
+      return;
+    }
+    if (e.dataTransfer.files.length) uploadDropped(target, e.dataTransfer.files);
+  }
+
+  // 拖到废纸篓上：删除
+  async function onDropOnTrash(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDropTarget(null);
+    const raw = e.dataTransfer.getData(DRAG_TYPE);
+    if (!raw) return;
+    try {
+      const { paths } = JSON.parse(raw);
+      const names = paths.map((p) => basename(p));
+      const ok = await trashItems(paths, names);
+      if (ok) setDesktopSel([]);
+    } catch { /* 忽略 */ }
+  }
+
+  // 拖到桌面空白处：外部文件上传到主目录；内部拖拽原地放下（同目录移动无意义）
+  function onContainerDrop(e) {
+    e.preventDefault();
+    setDragOver(false);
+    if (e.dataTransfer.getData(DRAG_TYPE)) return;
+    if (e.dataTransfer.files.length) uploadDropped(cwd, e.dataTransfer.files);
+  }
+
+  // ---------- 菜单栏 / 快捷键动作 ----------
+  useEffect(() => bus.on('desktop-action', ({ action }) => {
+    switch (action) {
+      case 'newFolder': return doCreate('dir');
+      case 'newFile': return doCreate('file');
+      case 'uploadFile': return uploadTo(cwd, false);
+      case 'uploadFolder': return uploadTo(cwd, true);
+      case 'paste': return pasteInto(cwd);
+      case 'copy': if (selectedPaths.length) copyToClipboard(selectedPaths, cwd); return;
+      case 'cut': if (selectedPaths.length) cutToClipboard(selectedPaths, cwd); return;
+      case 'selectAll': return selectAll();
+      case 'rename': return startRename();
+      case 'trash': return doTrash();
+      case 'refresh': return load();
+      case 'quickLook': {
+        const previewFiles = selectedEntries.filter((e) => e.type !== 'dir').map((e) => joinPath(cwd, e.name));
+        if (previewFiles.length) openQuickLook(previewFiles, 0);
+        return;
+      }
+      case 'toggleHidden': return setDesktopShowHidden(!getState().desktopShowHidden);
+      case 'toggleSortDir': {
+        const st = getState().desktopSort;
+        return setDesktopSort({ ...st, asc: !st.asc });
+      }
+      case 'dirsFirst': {
+        const st = getState().desktopSort;
+        return setDesktopSort({ ...st, dirsFirst: !st.dirsFirst });
+      }
+      case 'goHome': return;
+      case 'goRoot': return openWindow('finder', { cwd: '' });
+      case 'goTrash': return openWindow('finder', { trash: true });
+      case 'openTerminal': return openWindow('terminal', { cwd });
+      default:
+        if (action.startsWith('sort:')) {
+          const st = getState().desktopSort;
+          return setDesktopSort({ ...st, key: action.slice(5) });
+        }
+    }
+  }), [cwd, selectedPaths, selectedEntries, files]);
+
+  // ---------- 渲染 ----------
   return (
-    <div
-      ref={layerRef}
-      className={`desktop-icons${dragOver ? ' drag-over' : ''}`}
-      onContextMenu={desktopMenu}
-      onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={(e) => {
-        e.preventDefault();
-        setDragOver(false);
-        for (const f of e.dataTransfer.files) addUpload(f, s.homeRel || '');
+    <>
+      <div
+        ref={layerRef}
+        className={`desktop-icons${dragOver ? ' drag-over' : ''}`}
+        onContextMenu={blankMenu}
+        onMouseDown={(e) => {
+          if (e.target.closest('.desktop-icon, .desktop-sysicon')) return;
+          startMarquee(e);
+          if (sel.length) setDesktopSel([]);
+          setAnchor(null);
+          setState({ focusId: null }); // 焦点回到桌面：菜单栏切换为桌面菜单
+        }}
+        onDragOver={(e) => {
+          // 内部拖拽不接管：落到空白处等于原地放下
+          if (e.dataTransfer.types.includes('Files')) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+            setDragOver(true);
+          }
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(false);
+        }}
+        onDrop={onContainerDrop}
+      >
+        {loading && <div className="desktop-loading"><div className="boot-spinner" /></div>}
+        {!loading && error && <div className="desktop-hint err">⚠️ {error}</div>}
+        {!loading && !error && files.length === 0 && (
+          <div className="desktop-hint">桌面为空 · 在此右键新建文件或上传</div>
+        )}
+
+        <div className="desktop-grid">
+          {shownFiles.map((entry, idx) => {
+            const isSel = sel.includes(entry.name);
+            const path = joinPath(cwd, entry.name);
+            return (
+              <div
+                key={entry.name}
+                data-entry={entry.name}
+                className={`desktop-icon${isSel ? ' selected' : ''}${dropTarget === path ? ' drop-target' : ''}`}
+                draggable={renaming !== entry.name}
+                onClick={(e) => clickItem(e, entry, idx)}
+                onDoubleClick={() => { if (renaming) return; openEntry(entry, cwd); }}
+                onContextMenu={(e) => itemMenu(e, entry)}
+                onDragStart={(e) => onDragStart(e, entry)}
+                onDragOver={(e) => {
+                  if (entry.type !== 'dir') return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDropTarget(path);
+                }}
+                onDragLeave={() => setDropTarget((t) => (t === path ? null : t))}
+                onDrop={(e) => onDropOnFolder(e, entry)}
+                title={entry.name}
+              >
+                <span className="di-icon-wrap">
+                  <FileIcon name={entry.name} type={entry.type} size={52} />
+                </span>
+                {renaming === entry.name ? (
+                  <RenameInput value={entry.name} onSubmit={(v) => submitRename(entry.name, v)} onCancel={() => setRenaming(null)} />
+                ) : (
+                  <span className="di-label">{entry.name}</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {files.length > shownFiles.length && (
+          <div className="desktop-hint">
+            共 {files.length} 项，桌面只显示前 {MAX_ICONS} 项；其余请在「文件」窗口中查看。
+          </div>
+        )}
+
+        {marquee && (
+          <div className="marquee" style={{ left: marquee.left, top: marquee.top, width: marquee.w, height: marquee.h }} />
+        )}
+      </div>
+
+      {/* 系统图标：根目录 / 废纸篓（固定在右下角，废纸篓可接收拖入的文件） */}
+      <div className="desktop-sysicons">
+        <button
+          className="desktop-sysicon"
+          title="根目录"
+          onClick={() => openWindow('finder', { cwd: '' })}
+          onDoubleClick={() => openWindow('finder', { cwd: '' })}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            openContextMenu(e.clientX, e.clientY, [
+              { label: '打开根目录', action: () => openWindow('finder', { cwd: '' }) },
+              { label: '在终端中打开', action: () => openWindow('terminal', { cwd: '' }) },
+            ]);
+          }}
+        >
+          <span className="di-icon-wrap"><IconGlobe size={48} /></span>
+          <span className="di-label">根目录</span>
+        </button>
+        <button
+          className={`desktop-sysicon${dropTarget === '__trash__' ? ' drop-target' : ''}`}
+          title="废纸篓"
+          onClick={() => openWindow('finder', { trash: true })}
+          onDoubleClick={() => openWindow('finder', { trash: true })}
+          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget('__trash__'); }}
+          onDragLeave={() => setDropTarget((t) => (t === '__trash__' ? null : t))}
+          onDrop={onDropOnTrash}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            openContextMenu(e.clientX, e.clientY, [
+              { label: '打开废纸篓', action: () => openWindow('finder', { trash: true }) },
+              ...(s.trashCount > 0 ? ['-', {
+                label: '清倒废纸篓', danger: true, action: async () => {
+                  const { confirmDialog } = await import('../store.js');
+                  if (await confirmDialog({ title: '清倒废纸篓', message: `将彻底删除废纸篓中的 ${s.trashCount} 项，此操作不可撤销。`, danger: true, okText: '清倒' })) {
+                    await api.trashEmpty();
+                    setState({ trashCount: 0 });
+                    bus.emit('fs:changed', '__trash__');
+                  }
+                },
+              }] : []),
+            ]);
+          }}
+        >
+          <span className="di-icon-wrap"><IconTrash size={48} full={s.trashCount > 0} /></span>
+          <span className="di-label">废纸篓</span>
+          {s.trashCount > 0 && <span className="desktop-badge">{s.trashCount}</span>}
+        </button>
+      </div>
+    </>
+  );
+}
+
+function extOf(name) {
+  const i = name.lastIndexOf('.');
+  return i > 0 ? name.slice(i + 1).toLowerCase() : '';
+}
+
+function RenameInput({ value, onSubmit, onCancel }) {
+  const [v, setV] = useState(value);
+  const ref = useRef(null);
+  useEffect(() => {
+    const input = ref.current;
+    input?.focus();
+    const dot = value.lastIndexOf('.');
+    input?.setSelectionRange(0, dot > 0 ? dot : value.length);
+  }, []);
+  return (
+    <input
+      ref={ref}
+      className="rename-input"
+      value={v}
+      onChange={(e) => setV(e.target.value)}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') onSubmit(v);
+        if (e.key === 'Escape') onCancel();
       }}
-      onMouseDown={(e) => { if (e.target === e.currentTarget) setSelected(null); }}
-    >
-      {size && icons.map(({ key, label, Icon, open, badge }, idx) => {
-        const isDragging = dragging?.key === key;
-        const pos = posOf(key, idx);
-        const style = isDragging
-          ? { left: dragging.x, top: dragging.y, width: ICON_W, zIndex: 20 }
-          : { left: pos.col * CELL_W, top: pos.row * CELL_H, width: ICON_W };
-        return (
-          <button
-            key={key}
-            className={`desktop-icon${selected === key ? ' selected' : ''}${isDragging ? ' dragging' : ''}`}
-            style={style}
-            draggable={false}
-            onPointerDown={(e) => startDrag(e, key)}
-            onPointerMove={moveDrag}
-            onPointerUp={endDrag}
-            onPointerCancel={cancelDrag}
-            onClick={(e) => { if (justDragged()) { e.stopPropagation(); return; } setSelected(key); }}
-            onDoubleClick={() => { if (justDragged()) return; open(); }}
-            onContextMenu={(e) => {
-              e.preventDefault(); e.stopPropagation();
-              openContextMenu(e.clientX, e.clientY, [
-                { label: '打开', action: open },
-                ...(key !== 'trash' ? [{ label: '在终端中打开', action: () => openWindow('terminal', { cwd: key === 'home' ? (s.homeRel || '') : '' }) }] : []),
-                ...(key === 'trash' && s.trashCount > 0 ? ['-', {
-                  label: '清倒废纸篓', danger: true, action: async () => {
-                    if (await confirmDialog({ title: '清倒废纸篓', message: `将彻底删除废纸篓中的 ${s.trashCount} 项，此操作不可撤销。`, danger: true, okText: '清倒' })) {
-                      await api.trashEmpty();
-                      setState({ trashCount: 0 });
-                      bus.emit('fs:changed', '__trash__');
-                    }
-                  },
-                }] : []),
-              ]);
-            }}
-          >
-            <span className="di-icon-wrap">
-              {key === 'trash' ? <IconTrash size={52} full={s.trashCount > 0} /> : <Icon size={52} />}
-              {badge > 0 && <span className="desktop-badge">{badge}</span>}
-            </span>
-            <span className="di-label">{label}</span>
-          </button>
-        );
-      })}
-    </div>
+      onBlur={() => onSubmit(v)}
+      draggable
+      onDragStart={(e) => e.preventDefault()}
+    />
   );
 }

@@ -2,7 +2,7 @@ import React, { Suspense, lazy } from 'react';
 import Finder from './Finder.jsx';
 import ErrorBoundary from '../ErrorBoundary.jsx';
 
-// 核心窗口（访达）随桌面加载；其余按需分包，减小首屏体积
+// 核心窗口（文件）随桌面加载；其余按需分包，减小首屏体积
 const TerminalWindow = lazy(() => import('./Terminal.jsx'));
 const EditorWindow = lazy(() => import('./Editor.jsx'));
 const PreviewWindow = lazy(() => import('./Preview.jsx'));

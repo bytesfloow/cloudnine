@@ -4,7 +4,7 @@ import { addUpload } from '../transfers.js';
 import { IconFinder, IconTerminal, IconEditor, IconTransfer, IconShare, IconDisk, IconTrash } from '../icons.jsx';
 
 const ITEMS = [
-  { type: 'finder', label: '访达', Icon: IconFinder },
+  { type: 'finder', label: '文件', Icon: IconFinder },
   { type: 'terminal', label: '终端', Icon: IconTerminal },
   { type: 'editor', label: '文本编辑', Icon: IconEditor },
   { type: 'transfers', label: '传输', Icon: IconTransfer },
@@ -25,7 +25,7 @@ export default function Dock() {
             key={type}
             className="dock-item"
             title={label}
-            onClick={() => trash ? openWindow('finder', { trash: true }) : openWindow(type)}
+            onClick={() => trash ? openWindow('finder', { trash: true }) : openWindow(type, type === 'finder' ? { cwd: s.homeRel || '' } : undefined)}
             onDragOver={(e) => { if (trash || type === 'transfers') { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }}
             onDrop={(e) => {
               if (!trash && type !== 'transfers') return;

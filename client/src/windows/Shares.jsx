@@ -71,7 +71,7 @@ export default function SharesWindow() {
         </div>
       </div>
       {!shares ? <div className="boot-spinner" /> : shares.length === 0 ? (
-        <div className="empty-hint">还没有创建过分享。在访达中右键任意文件或文件夹，选择“分享…”。</div>
+        <div className="empty-hint">还没有创建过分享。在桌面或文件窗口中右键任意文件或文件夹，选择“分享…”。</div>
       ) : (
         <div className="shares-table-wrap">
           <table className="list-table">

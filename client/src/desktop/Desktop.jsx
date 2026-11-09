@@ -1,6 +1,5 @@
 import React, { useEffect } from 'react';
 import { useStore, bus, openWindow, closeWindow, focusWindow, closeContextMenu, openQuickLook, getState, minimizeWindow, showDialog } from '../store.js';
-import { addUpload } from '../transfers.js';
 import { installPasteUpload } from '../pasteUpload.js';
 import WindowFrame from './WindowFrame.jsx';
 import MenuBar from './MenuBar.jsx';
@@ -25,9 +24,23 @@ export default function Desktop() {
       }
       if (inEditable) return;
       const focus = getState().windows.find((w) => w.id === getState().focusId);
+
+      // 焦点在桌面（无窗口获得焦点）：走桌面级快捷键
+      if (!focus) {
+        if (meta && e.key.toLowerCase() === 'a') { e.preventDefault(); bus.emit('desktop-action', { action: 'selectAll' }); }
+        else if (meta && e.key.toLowerCase() === 'c') { e.preventDefault(); bus.emit('desktop-action', { action: 'copy' }); }
+        else if (meta && e.key.toLowerCase() === 'x') { e.preventDefault(); bus.emit('desktop-action', { action: 'cut' }); }
+        else if (meta && e.key.toLowerCase() === 'n') { e.preventDefault(); bus.emit('desktop-action', { action: 'newFolder' }); }
+        else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); bus.emit('desktop-action', { action: 'trash' }); }
+        else if (e.key === 'F2') { e.preventDefault(); bus.emit('desktop-action', { action: 'rename' }); }
+        else if (e.key === ' ') { e.preventDefault(); bus.emit('desktop-action', { action: 'quickLook' }); }
+        return;
+      }
+
       if (meta && e.key.toLowerCase() === 'w' && focus) { e.preventDefault(); closeWindow(focus.id); }
       else if (meta && e.key.toLowerCase() === 'n' && !e.shiftKey) { e.preventDefault(); openWindow('finder'); }
       else if (meta && e.key.toLowerCase() === 'm' && focus) { e.preventDefault(); minimizeWindow(focus.id); }
+      else if (meta && e.key.toLowerCase() === 'a' && focus.type === 'finder') { e.preventDefault(); bus.emit('win-action', { windowId: focus.id, action: 'selectAll' }); }
       else if (e.key === ' ' && focus?.type === 'finder') {
         const sel = getState().finderSel[focus.id] || [];
         if (sel.length) { e.preventDefault(); openQuickLook(sel, 0); }
@@ -69,14 +82,6 @@ export default function Desktop() {
     >
       <MenuBar />
       <DesktopIcons />
-      <div className="desktop-dropzone"
-        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
-        onDrop={(e) => {
-          e.preventDefault();
-          const { homeRel } = getState();
-          for (const f of e.dataTransfer.files) addUpload(f, homeRel || '');
-        }}
-      />
       {s.windows.map((w) => (
         <WindowFrame key={w.id} win={w} focused={s.focusId === w.id}>
           {renderWindow(w)}

@@ -6,6 +6,10 @@ import {
 } from '../store.js';
 import { api } from '../api.js';
 import { addUpload, pickFiles } from '../transfers.js';
+import {
+  createItem, uploadTo, copyToClipboard, cutToClipboard, pasteInto, trashItems, renameItem,
+  downloadItem, downloadItems, compressItems, extractItem, shareItem, copyPathText, isArchive,
+} from '../fsops.js';
 import { FileIcon, IconSearch, IconChevron, IconGrid, IconList, IconRefresh, IconNewFolder, IconUpload } from '../icons.jsx';
 
 export default function Finder({ win }) {
@@ -36,9 +40,10 @@ export default function Finder({ win }) {
   // 导航离开（主目录/最近等）后自动退出；「最近」是虚拟视图，不算废纸篓
   const isTrash = !recentMode && cwd === '__trash__';
 
-  // 窗口标题与菜单状态：位置信息已由工具栏面包屑展示，标题栏不再重复显示目录名（「最近」无面包屑指示，保留）
+  // 窗口标题与菜单状态：标题栏显示当前目录名（「最近」是虚拟视图，保留原名）
   useEffect(() => {
-    setWindowTitle(win.id, recentMode ? '最近' : '');
+    const title = recentMode ? '最近' : isTrash ? '废纸篓' : (cwd === '' ? '根目录' : basename(cwd));
+    setWindowTitle(win.id, title);
     // pasteBlocked 供全局粘贴上传判断目标目录：虚拟视图/废纸篓不允许写入
     const pasteBlocked = recentMode ? '最近使用' : searchMode ? '搜索结果' : isTrash ? '废纸篓' : null;
     updateWindowProps(win.id, { view, showHidden, cwd, pasteBlocked });
@@ -112,8 +117,8 @@ export default function Finder({ win }) {
       case 'uploadFile': return pickUpload(false);
       case 'uploadFolder': return pickUpload(true);
       case 'openTerminal': return openWindow('terminal', { cwd: isTrash ? '' : cwd });
-      case 'copy': if (!isTrash && selPaths.length) setClipboard('copy', selPaths, cwd); return;
-      case 'cut': if (!isTrash && selPaths.length) setClipboard('cut', selPaths, cwd); return;
+      case 'copy': if (!isTrash && selPaths.length) copyToClipboard(selPaths, cwd); return;
+      case 'cut': if (!isTrash && selPaths.length) cutToClipboard(selPaths, cwd); return;
       case 'paste': return paste();
       case 'selectAll': return setSel(new Set(visibleNames()));
       case 'rename': if (selectedEntries[0]) setRenaming(selectedEntries[0].name); return;
@@ -218,62 +223,33 @@ export default function Finder({ win }) {
   // ---------- 新建 / 上传 / 重命名 / 剪贴板 ----------
   async function newItem(kind) {
     if (isTrash) return;
-    const v = await promptDialog({
-      title: kind === 'dir' ? '新建文件夹' : '新建空白文件',
-      fields: [{ key: 'name', label: '名称', required: true, autofocus: true, placeholder: kind === 'dir' ? '文件夹名称' : '未命名.md' }],
-    });
-    if (!v?.name) return;
-    try {
-      const p = joinPath(cwd, v.name);
-      if (kind === 'dir') await api.mkdir(p);
-      else await api.touch(p);
-      bus.emit('fs:changed', cwd);
-      if (kind === 'file') openWindow('editor', { path: p, name: v.name });
-    } catch (e) { notify({ type: 'error', title: '创建失败', body: e.message }); }
+    const p = await createItem(cwd, kind);
+    if (!p) return;
+    if (kind === 'file') openWindow('editor', { path: p, name: basename(p) });
   }
 
   function pickUpload(folder) {
     if (isTrash) return;
-    pickFiles(cwd, folder);
+    uploadTo(cwd, folder);
   }
 
   async function submitRename(oldName, newName) {
     setRenaming(null);
     if (!newName || newName === oldName) return;
-    try {
-      await api.rename(joinPath(cwd, oldName), newName);
-      bus.emit('fs:changed', cwd);
-    } catch (e) { notify({ type: 'error', title: '重命名失败', body: e.message }); }
+    await renameItem(joinPath(cwd, oldName), newName);
   }
 
   async function paste() {
-    const cb = getState().clipboard;
-    if (!cb || isTrash) return;
-    try {
-      if (cb.mode === 'copy') await api.copy(cb.paths, cwd);
-      else await api.move(cb.paths, cwd);
-      if (cb.mode === 'cut') setClipboard(null);
-      bus.emit('fs:changed', cwd);
-      bus.emit('fs:changed', cb.cwd);
-    } catch (e) { notify({ type: 'error', title: '粘贴失败', body: e.message }); }
+    if (isTrash) return;
+    await pasteInto(cwd);
   }
 
   // ---------- 删除 ----------
   async function trashSelected() {
     if (isTrash || !sel.size) return;
     const names = [...sel];
-    const ok = await confirmDialog({
-      title: '移入废纸篓',
-      message: names.length === 1 ? `要将“${names[0]}”移入废纸篓吗？` : `要将选中的 ${names.length} 项移入废纸篓吗？`,
-      okText: '移入废纸篓',
-    });
-    if (!ok) return;
-    try {
-      await api.trash(names.map((n) => joinPath(cwd, n)));
-      setSel(new Set());
-      bus.emit('fs:changed', cwd);
-      bus.emit('fs:changed', '__trash__');
-    } catch (e) { notify({ type: 'error', title: '删除失败', body: e.message }); }
+    const ok = await trashItems(names.map((n) => joinPath(cwd, n)), names);
+    if (ok) setSel(new Set());
   }
 
   async function restoreSelected() {
@@ -308,89 +284,23 @@ export default function Finder({ win }) {
 
   // ---------- 下载 ----------
   function downloadPath(p) {
-    const a = document.createElement('a');
-    a.href = api.downloadUrl(p);
-    a.download = '';
-    a.click();
+    downloadItem(p);
   }
   function downloadZip(paths) {
-    const a = document.createElement('a');
-    a.href = api.zipUrl(paths);
-    a.download = '';
-    a.click();
-    notify({ type: 'info', title: '开始打包下载', body: `${paths.length} 项，浏览器将下载 zip 文件` });
+    downloadItems(paths);
   }
 
   // ---------- 压缩 / 解压 / 分享 ----------
-  async function compressDialog(paths) {
-    const v = await promptDialog({
-      title: '压缩',
-      wide: true,
-      fields: [
-        { key: 'format', label: '格式', type: 'select', value: 'zip', options: [{ value: 'zip', label: 'zip' }, { value: 'tar.gz', label: 'tar.gz' }, { value: 'tar', label: 'tar' }] },
-        { key: 'name', label: '文件名（不含扩展名）', value: basename(paths[0]) || 'archive' },
-      ],
-      okText: '开始压缩',
-    });
-    if (!v) return;
-    try {
-      await api.archiveCreate({ paths, format: v.format, destDir: cwd, name: v.name || 'archive' });
-      notify({ type: 'info', title: '压缩任务已开始', body: '进度可在传输窗口查看' });
-      openWindow('transfers');
-    } catch (e) { notify({ type: 'error', title: '压缩失败', body: e.message }); }
+  function compressDialog(paths) {
+    return compressItems(paths, cwd);
   }
 
-  async function extractDialog(entry) {
-    const p = joinPath(cwd, entry.name);
-    const v = await promptDialog({
-      title: `解压 ${entry.name}`,
-      wide: true,
-      fields: [
-        { key: 'destDir', label: '解压到（目录）', value: cwd },
-        { key: 'intoSubdir', label: '解压到以包名命名的子目录', type: 'checkbox', value: true },
-      ],
-      okText: '开始解压',
-    });
-    if (!v) return;
-    try {
-      await api.archiveExtract({ path: p, destDir: v.destDir || cwd, intoSubdir: !!v.intoSubdir });
-      notify({ type: 'info', title: '解压任务已开始', body: '进度可在传输窗口查看' });
-      openWindow('transfers');
-    } catch (e) { notify({ type: 'error', title: '解压失败', body: e.message }); }
+  function extractDialog(entry) {
+    return extractItem(joinPath(cwd, entry.name), cwd);
   }
 
-  async function shareDialog({ path, name }) {
-    const v = await promptDialog({
-      title: `分享“${name}”`,
-      wide: true,
-      fields: [
-        { key: 'expiresIn', label: '有效期', type: 'select', value: '604800', options: [
-          { value: '3600', label: '1 小时' }, { value: '86400', label: '1 天' }, { value: '604800', label: '7 天' },
-          { value: '2592000', label: '30 天' }, { value: '', label: '永久' },
-        ] },
-        { key: 'password', label: '访问密码（可选）', type: 'text' },
-        { key: 'allowDownload', label: '允许下载', type: 'checkbox', value: true },
-        { key: 'allowUpload', label: '允许他人上传到此目录', type: 'checkbox', value: false },
-        { key: 'maxDownloads', label: '下载次数上限（可选）', type: 'number' },
-        { key: 'note', label: '备注（可选）', type: 'text' },
-      ],
-      okText: '创建分享',
-    });
-    if (!v) return;
-    try {
-      const r = await api.shareCreate({
-        path,
-        expiresIn: v.expiresIn || null,
-        password: v.password || null,
-        allowDownload: !!v.allowDownload,
-        allowUpload: !!v.allowUpload,
-        maxDownloads: v.maxDownloads || null,
-        note: v.note,
-      });
-      const url = `${location.origin}/s/${r.share.token}`;
-      navigator.clipboard?.writeText(url).catch(() => {});
-      notify({ type: 'success', title: '分享链接已创建并复制', body: url });
-    } catch (e) { notify({ type: 'error', title: '创建分享失败', body: e.message }); }
+  function shareDialog({ path, name }) {
+    return shareItem(path, name);
   }
 
   // ---------- 右键菜单 ----------
@@ -413,11 +323,11 @@ export default function Finder({ win }) {
       '-',
       ...(entry.type !== 'dir' ? [{ label: '下载', action: () => downloadPath(paths) }] : []),
       { label: '压缩…', action: () => compressDialog(sel.has(entry.name) ? [...sel].map((n) => joinPath(cwd, n)) : [paths]) },
-      ...(fileCat(entry.name) === 'archive' ? [{ label: '解压到…', action: () => extractDialog(entry) }] : []),
+      ...(isArchive(entry) ? [{ label: '解压到…', action: () => extractDialog(entry) }] : []),
       '-',
       { label: '分享…', action: () => shareDialog({ path: paths, name: entry.name }) },
       { label: '显示简介', action: () => openWindow('info', { path: paths }) },
-      { label: '复制路径', action: () => navigator.clipboard?.writeText('/' + paths).then(() => notify({ title: '路径已复制' })).catch(() => {}) },
+      { label: '复制路径', action: () => copyPathText(paths) },
       ...(entry.type === 'dir' ? [{ label: '在终端中打开', action: () => openWindow('terminal', { cwd: paths }) }] : []),
       '-',
       { label: '移入废纸篓', danger: true, action: trashSelected },

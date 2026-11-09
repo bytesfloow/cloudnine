@@ -17,7 +17,7 @@ import {
 import { HomeScreen, StatusBar, HomeIndicator, Glyph } from './HomeScreen.jsx';
 
 // iOS 风格移动形态：主屏幕（应用图标 + Dock）+ 全屏应用层 + Home 指示条返回（F-11 / 决策 Q10 的 v2 演进）
-const APP_TITLES = { finder: '访达', terminal: '终端', upload: '上传', transfers: '传输', settings: '设置' };
+const APP_TITLES = { finder: '文件', terminal: '终端', upload: '上传', transfers: '传输', settings: '设置' };
 
 export default function MobileApp() {
   const s = useStore();
@@ -126,14 +126,14 @@ export default function MobileApp() {
   );
 }
 
-// ---------- 访达（移动形态，含废纸篓模式） ----------
+// ---------- 文件（移动形态：目录直览 + 废纸篓模式） ----------
 function FinderMobile({ dir, setDir, openFile }) {
   const s = useStore();
   const isTrash = dir === '__trash__';
   const [entries, setEntries] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [view, setView] = useState('list');
+  const [view, setView] = useState('grid'); // 默认图标直览，与桌面端一致
   const [sheet, setSheet] = useState(null);
   const [search, setSearch] = useState('');
   const [searchMode, setSearchMode] = useState(false);

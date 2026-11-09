@@ -13,7 +13,39 @@ function appMenus(type, w) {
   const emit = undefined; // 动作统一通过 win-action 事件派发
   const g = (action) => bus.emit('global-action', { action });
 
-  if (type === 'finder') {
+  if (!type) {
+    // 桌面态：没有窗口获得焦点时，菜单栏作用于桌面上的文件
+    const st = getState();
+    const cb = st.clipboard;
+    menus.push({ label: '文件', items: [
+      A('newFolder', '新建文件夹'), A('newFile', '新建空白文件'), A('uploadFile', '上传文件…'), A('uploadFolder', '上传文件夹…'), '-',
+      A('paste', '粘贴', { disabled: !cb }),
+    ] });
+    menus.push({ label: '编辑', items: [
+      A('copy', '复制'), A('cut', '剪切'), A('paste', '粘贴', { disabled: !cb }), '-',
+      { label: cb ? `剪贴板：${cb.mode === 'cut' ? '剪切' : '复制'} ${cb.paths?.length ?? 0} 项` : '剪贴板：空', disabled: true },
+      { label: '清空剪贴板', action: '__clearClipboard', disabled: !cb },
+      '-', A('selectAll', '全选'), A('rename', '重命名'), '-', A('trash', '移入废纸篓'),
+    ] });
+    menus.push({ label: '显示', items: [
+      A('sort:name', '按名称排列', { checked: st.desktopSort.key === 'name' }),
+      A('sort:size', '按大小排列', { checked: st.desktopSort.key === 'size' }),
+      A('sort:mtime', '按修改时间排列', { checked: st.desktopSort.key === 'mtime' }),
+      A('sort:type', '按类型排列', { checked: st.desktopSort.key === 'type' }),
+      '-',
+      A('toggleSortDir', st.desktopSort.asc ? '改为降序' : '改为升序'),
+      A('dirsFirst', '文件夹优先', { checked: st.desktopSort.dirsFirst }),
+      '-',
+      A('toggleHidden', '显示隐藏文件', { checked: st.desktopShowHidden }),
+      '-', A('refresh', '刷新'),
+    ] });
+    menus.push({ label: '前往', items: [
+      A('goHome', '主目录'),
+      ...(st.homeRel ? [A('goRoot', '根目录')] : []),
+      A('goTrash', '废纸篓'), '-',
+      A('openTerminal', '在终端中打开'),
+    ] });
+  } else if (type === 'finder') {
     menus.push({ label: '文件', items: [
       A('newFolder', '新建文件夹'), A('newFile', '新建空白文件'), A('uploadFile', '上传文件…'), A('uploadFolder', '上传文件夹…'), '-',
       A('openTerminal', '在终端中打开'), '-', A('closeWin', '关闭窗口'),
@@ -51,7 +83,7 @@ function appMenus(type, w) {
     menus.push({ label: '文件', items: [A('download', '下载'), A('edit', '用编辑器打开'), '-', A('closeWin', '关闭窗口')] });
   }
   menus.push({ label: '窗口', items: [
-    A('minimize', '最小化'), { label: '最小化全部窗口', action: '__minAll' }, '-', { label: '新建访达窗口', action: '__newFinder' },
+    A('minimize', '最小化'), { label: '最小化全部窗口', action: '__minAll' }, '-', { label: '新建文件窗口', action: '__newFinder' },
   ] });
   menus.push({ label: '帮助', items: [{ label: '关于本系统', action: '__about' }] });
   return menus;
@@ -86,7 +118,10 @@ export default function MenuBar() {
       else if (item.action === '__clearClipboard') setClipboard(null);
       return;
     }
-    bus.emit('win-action', { windowId: getState().focusId, action: item.action, arg: item.arg });
+    // 没有窗口获得焦点 → 动作作用于桌面上的文件
+    const fid = getState().focusId;
+    if (!fid) bus.emit('desktop-action', { action: item.action, arg: item.arg });
+    else bus.emit('win-action', { windowId: fid, action: item.action, arg: item.arg });
   }
 
   return (

@@ -4,7 +4,7 @@ import { pauseUpload, resumeUpload, cancelUpload, clearFinishedUploads, fmtProgr
 import { api } from '../api.js';
 import { FileIcon, IconUpload } from '../icons.jsx';
 
-// 系统文件选择器（同访达工具栏的上传入口），落点与桌面拖放一致：主目录
+// 系统文件选择器（同文件窗口工具栏的上传入口），落点与桌面拖放一致：主目录
 function pickUpload(folder, destDir) {
   const input = document.createElement('input');
   input.type = 'file';
@@ -65,7 +65,7 @@ export default function TransfersWindow() {
           <button className="empty-state" onClick={() => pickUpload(false, homeRel)} title="选择文件上传到主目录">
             <span className="es-icon"><IconUpload size={22} /></span>
             <span className="es-title">选择文件开始上传</span>
-            <span className="es-sub">点击选择系统文件，或把文件拖到访达窗口 / 桌面上</span>
+            <span className="es-sub">点击选择系统文件，或把文件拖到文件窗口 / 桌面上</span>
           </button>
         ) : (
           <div className="transfer-list">

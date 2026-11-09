@@ -135,7 +135,7 @@ export function installPasteUpload() {
       lastKey = key; lastAt = now;
 
       // 内部剪贴板优先：两者同时存在时给二选一，默认动作交给用户明确选择
-      if (target.windowId && cb) {
+      if (cb) {
         const choice = await showDialog({
           kind: 'paste-choice',
           title: '粘贴到当前文件夹',
@@ -144,7 +144,8 @@ export function installPasteUpload() {
           internalText: `粘贴内部项（${cb.paths?.length ?? 0}）`,
         });
         if (choice === 'internal') {
-          bus.emit('win-action', { windowId: target.windowId, action: 'paste' });
+          if (target.windowId) bus.emit('win-action', { windowId: target.windowId, action: 'paste' });
+          else bus.emit('desktop-action', { action: 'paste' });
           return;
         }
         if (choice !== 'upload') return;
@@ -154,7 +155,14 @@ export function installPasteUpload() {
     }
 
     // 没拿到文件：内部剪贴板优先，保持原有 Ctrl+V 行为不变（内部粘贴仍走菜单/右键）
-    if (cb) return;
+    if (cb) {
+      // 桌面：把系统内剪贴板项粘贴到主目录
+      if (!target.windowId) {
+        e.preventDefault();
+        bus.emit('desktop-action', { action: 'paste' });
+      }
+      return;
+    }
     const fileLike = types.some((t) => /^(Files|text\/uri-list)$/i.test(t));
     const hasContent = types.some((t) => !/^(Files|text\/uri-list)$/i.test(t));
     if (fileLike) {

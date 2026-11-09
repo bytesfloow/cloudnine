@@ -54,7 +54,7 @@ export function Glyph({ name, size = 16 }) {
 
 // 主屏幕应用清单（dock 中的应用不再重复出现在网格）
 export const APP_LIST = [
-  { key: 'finder', name: '访达', bg: 'linear-gradient(180deg,#53b0ff,#146ffe)' },
+  { key: 'finder', name: '文件', bg: 'linear-gradient(180deg,#53b0ff,#146ffe)' },
   { key: 'terminal', name: '终端', bg: 'linear-gradient(180deg,#48484c,#17171a)' },
   { key: 'upload', name: '上传', bg: 'linear-gradient(180deg,#ffc94d,#ff9500)' },
   { key: 'transfers', name: '传输', bg: 'linear-gradient(180deg,#41c95f,#1fad3d)' },
