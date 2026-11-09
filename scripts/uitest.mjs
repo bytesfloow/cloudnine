@@ -6,8 +6,8 @@
  * 并通过 API 反查磁盘状态来断言结果（比刮 DOM 文本可靠得多）。
  *
  * 覆盖流程：
- *   初始化向导 / 登录 → 桌面渲染 → 访达 → 终端（真实 PTY 执行命令）
- *   → 文本编辑（输入 + Ctrl+S 保存 + 磁盘核对）→ 访达列表核对
+ *   初始化向导 / 登录 → 桌面直览（主目录）→ 文件窗口 → 终端（真实 PTY 执行命令）
+ *   → 文本编辑（输入 + Ctrl+S 保存 + 磁盘核对）→ 文件窗口列表核对
  *   → 图片预览（滚轮缩放 + 拖拽平移；移动端为双指缩放 + 单指拖动）
  *
  * 依赖（puppeteer-core 不含 Chromium，复用系统 Chrome）：
@@ -63,6 +63,8 @@ const PASSWORD = arg('password', 'Uitest12345');
 const SESSION = arg('session', null);   // 已有会话 token（测试已部署实例时免密码）
 const MOBILE = flag('mobile');
 const imgName = `uitest-preview-${Date.now()}.png`; // 图片预览自测用图（桌面/移动两分支都会用到）
+const probeName = `uitest-probe-${Date.now()}.txt`; // 探针文件：保证文件页至少有一个条目可断言
+const newDirName = `uitest-desktop-dir-renamed-${Date.now()}`; // 桌面重命名用例的目标名
 const OUT_DIR = join(__dirname, '..', 'shots', `uitest-${new Date().toISOString().replace(/[:.]/g, '-')}`);
 const CHROME = arg('chrome', '/usr/bin/google-chrome');
 
@@ -275,17 +277,30 @@ try {
     check('应用图标数量 ≥ 2', gridItems.length >= 2, `实际 ${gridItems.length}`);
     await shot('移动主屏');
 
-    // 底部工具栏点「访达」→ 访达页
-    const finderBtn = await page.$('.m-dock .m-appitem[aria-label="访达"]');
+    // 先在主目录放一个探针文件：文件页的「条目右侧 ⋯」断言需要至少有一个条目
+    const psid = await loginViaApi();
+    if (psid) {
+      const phome = await apiFetch('GET', '/api/fs/home', undefined, `cloudnine_sid=${psid}`);
+      const phomeRel = phome.json?.homeRel || '';
+      await apiFetch('POST', '/api/fs/write', {
+        path: phomeRel ? `${phomeRel}/${probeName}` : probeName, content: 'probe\n',
+      }, `cloudnine_sid=${psid}`);
+      await page.reload({ waitUntil: 'networkidle2', timeout: 45000 });
+      await page.waitForSelector('.m-home', { timeout: 15000 });
+      await sleep(900);
+    }
+
+    // 底部工具栏点「文件」→ 文件页
+    const finderBtn = await page.$('.m-dock .m-appitem[aria-label="文件"]');
     if (finderBtn) {
       await finderBtn.click();
       await sleep(1600);
-      check('访达进入全屏页', !!(await page.$('.m-finder, .m-toolbar')), '未找到 .m-finder');
-      await shot('移动访达');
+      check('文件进入全屏页', !!(await page.$('.m-finder, .m-toolbar')), '未找到 .m-finder');
+      await shot('移动文件');
       const rows = await page.$$('.m-row, .m-grid .m-appitem');
-      check('访达列表渲染', rows.length >= 0, `条目 ${rows.length}`);
+      check('文件列表渲染', rows.length >= 0, `条目 ${rows.length}`);
 
-      // ---------- 移动端访达：操作收进工具栏，批量选择已移除 ----------
+      // ---------- 移动端文件：操作收进工具栏，批量选择已移除 ----------
       const tbTitles = () => page.$$eval('.m-toolbar .tb-btn', (bs) => bs.map((b) => b.title || b.getAttribute('aria-label')));
       let tb = await tbTitles();
       check('工具栏含「新建文件夹」', tb.some((t) => /新建文件夹/.test(t)), tb.join(','));
@@ -349,7 +364,7 @@ try {
         await sleep(900);
       }
     } else {
-      check('底部工具栏含「访达」入口', false, '未找到 .m-dock .m-appitem[aria-label=访达]');
+      check('底部工具栏含「文件」入口', false, '未找到 .m-dock .m-appitem[aria-label=文件]');
     }
 
     // 返回桌面
@@ -399,15 +414,15 @@ try {
       }
       check('移动端测试图片已上传', !!(await apiFetch('GET', `/api/fs/search?path=/&q=${encodeURIComponent(imgName)}`, undefined, `cloudnine_sid=${msid}`).then((r) => (r.json?.results || []).some((x) => x.name === imgName))));
 
-      // 回主屏 → 访达 → 点开图片
+      // 回主屏 → 文件 → 点开图片
       await backHome();
-      const finderApp = await page.$('.m-dock .m-appitem[aria-label="访达"]');
+      const finderApp = await page.$('.m-dock .m-appitem[aria-label="文件"]');
       if (finderApp) {
         await finderApp.click();
         await sleep(1800);
         const rowEl = (await page.evaluateHandle((n) =>
           [...document.querySelectorAll('.m-row, .m-cell')].find((el) => el.textContent.includes(n)), imgName)).asElement();
-        check('移动端访达列出测试图片', !!rowEl, imgName);
+        check('移动端文件列出测试图片', !!rowEl, imgName);
         if (rowEl) {
           await rowEl.tap();
           await sleep(2000);
@@ -490,21 +505,210 @@ try {
   const pasteName = `uitest-paste-${Date.now()}.md`;
   const notifyName = `uitest-notify-${Date.now()}.md`;
   const btnUploadName = `uitest-btnupload-${Date.now()}.txt`;
+  const deskName = `uitest-desktop-${Date.now()}.txt`;
+  const dirName = `uitest-desktop-dir-${Date.now()}`;
   if (!MOBILE) {
-  section('访达（Finder）');
+  // ---------- 桌面直览：主目录里的真实文件直接铺在桌面上 ----------
+  section('桌面直览（主目录）');
+  const dsid = await loginViaApi();
+  const homeRes = await apiFetch('GET', '/api/fs/home', undefined, `cloudnine_sid=${dsid}`);
+  const homeRel = homeRes.json?.homeRel || '';
+  const deskPath = homeRel ? `${homeRel}/${deskName}` : deskName;
+  await apiFetch('POST', '/api/fs/write', { path: deskPath, content: 'desktop test\n' }, `cloudnine_sid=${dsid}`);
+  await page.reload({ waitUntil: 'networkidle2', timeout: 45000 });
+  await page.waitForSelector('.desktop-icons', { timeout: 15000 });
+  await sleep(1500);
+
+  const deskIcons = await page.$$eval('.desktop-icon', (els) => els.map((e) => e.dataset.entry));
+  check('桌面直接显示主目录里的真实文件', deskIcons.includes(deskName),
+    `桌面条目: ${deskIcons.join(',') || '(空)'}`);
+  const sysCount = (await page.$$('.desktop-sysicon')).length;
+  check('桌面保留根目录/废纸篓入口', sysCount === 2, `数量 ${sysCount}`);
+  await shot('桌面直览');
+
+  // 右键桌面空白处：新建 / 上传 / 排序入口都在
+  await page.evaluate(() => {
+    const el = document.querySelector('.desktop-icons');
+    el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 700, clientY: 620 }));
+  });
+  await sleep(400); // 等 React 重渲染出右键菜单
+  const blankItems = await page.evaluate(() =>
+    [...document.querySelectorAll('.context-menu .dropdown-item')].map((b) => b.innerText.trim()));
+  check('桌面右键菜单含「新建文件夹」', blankItems.some((t) => /新建文件夹/.test(t)), blankItems.join(','));
+  check('桌面右键菜单含「上传文件…」', blankItems.some((t) => /上传文件/.test(t)), blankItems.join(','));
+  check('桌面右键菜单含排序方式', blankItems.some((t) => /按名称排列/.test(t)), blankItems.join(','));
+  await shot('桌面右键菜单');
+
+  // 从右键菜单新建文件夹 → 直接出现在桌面上
+  await page.evaluate(() => {
+    const it = [...document.querySelectorAll('.context-menu .dropdown-item')].find((b) => b.innerText.trim() === '新建文件夹');
+    it?.click();
+  });
+  await sleep(700);
+  const dlgInput = await page.$('.dialog input');
+  check('「新建文件夹」弹出命名对话框', !!dlgInput);
+  if (dlgInput) {
+    await dlgInput.click();
+    await page.keyboard.type(dirName);
+    const okBtn = await page.$('.dialog-actions .btn-primary');
+    if (okBtn) await okBtn.click();
+    await sleep(1500);
+  }
+  const afterNew = await page.$$eval('.desktop-icon', (els) => els.map((e) => e.dataset.entry));
+  check('桌面上新建的文件夹立即出现', afterNew.includes(dirName),
+    `桌面条目: ${afterNew.join(',') || '(空)'}`);
+  const dirQ = await apiFetch('GET', `/api/fs/search?path=/&q=${encodeURIComponent(dirName)}`, undefined, `cloudnine_sid=${dsid}`);
+  check('新建的文件夹确实落盘', (dirQ.json?.results || []).some((x) => x.name === dirName), `status=${dirQ.status}`);
+  await shot('桌面新建文件夹');
+
+  // 桌面多选：Ctrl 点击 + 全选
+  await page.evaluate(() => {
+    const els = [...document.querySelectorAll('.desktop-icon')];
+    els[0]?.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
+    els[1]?.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
+  });
+  await sleep(400);
+  const selInfo = await page.evaluate(() => ({
+    total: document.querySelectorAll('.desktop-icon').length,
+    selected: document.querySelectorAll('.desktop-icon.selected').length,
+  }));
+  check('桌面支持 Ctrl 多选', selInfo.selected === 2, `选中 ${selInfo.selected}/${selInfo.total}`);
+  await page.keyboard.down('Control');
+  await page.keyboard.press('KeyA');
+  await page.keyboard.up('Control');
+  await sleep(400);
+  const selAll = await page.evaluate(() => ({
+    selected: document.querySelectorAll('.desktop-icon.selected').length,
+    total: document.querySelectorAll('.desktop-icon').length,
+  }));
+  check('桌面 Cmd/Ctrl+A 全选', selAll.selected === selAll.total && selAll.total > 0, JSON.stringify(selAll));
+  await shot('桌面多选');
+
+  // 文件条目的右键菜单：完整操作项
+  await page.evaluate((n) => {
+    const el = [...document.querySelectorAll('.desktop-icon')].find((x) => x.dataset.entry === n);
+    el?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 60, clientY: 60 }));
+  }, deskName);
+  await sleep(400);
+  const itemItems = await page.evaluate(() =>
+    [...document.querySelectorAll('.context-menu .dropdown-item')].map((b) => b.innerText.trim()));
+  check('文件右键菜单含「打开」「快速预览」', itemItems.some((x) => /打开/.test(x)) && itemItems.some((x) => /快速预览/.test(x)), itemItems.join(','));
+  check('文件右键菜单含「重命名」「复制」「剪切」', ['重命名', '复制', '剪切'].every((k) => itemItems.includes(k)), itemItems.join(','));
+  check('文件右键菜单含「下载」「压缩…」', itemItems.some((x) => /下载/.test(x)) && itemItems.some((x) => /压缩/.test(x)), itemItems.join(','));
+  check('文件右键菜单含「分享…」「显示简介」「移入废纸篓」',
+    itemItems.some((x) => /分享/.test(x)) && itemItems.some((x) => /显示简介/.test(x)) && itemItems.some((x) => /移入废纸篓/.test(x)),
+    itemItems.join(','));
+  await shot('桌面文件右键菜单');
+  await page.keyboard.press('Escape');
+  await sleep(300);
+
+  // 拖拽前先清空选择：否则拖一个已选中的文件会带走全部选中项
+  await page.evaluate(() => {
+    const el = document.querySelector('.desktop-icons');
+    const o = { bubbles: true, clientX: 900, clientY: 700 };
+    el.dispatchEvent(new MouseEvent('mousedown', o));
+    el.dispatchEvent(new MouseEvent('mouseup', o));
+  });
+  await sleep(300);
+
+  // 拖到文件夹上 = 移入该文件夹（桌面拖拽语义：移动文件）
+  const dragInfo = await page.evaluate((fileName, dirName2) => {
+    const src = [...document.querySelectorAll('.desktop-icon')].find((x) => x.dataset.entry === fileName);
+    const dst = [...document.querySelectorAll('.desktop-icon')].find((x) => x.dataset.entry === dirName2);
+    if (!src || !dst) return { ok: false, reason: `找不到拖拽源/目标 ${!!src}/${!!dst}` };
+    const dt = new DataTransfer();
+    src.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
+    const raw = dt.getData('application/x-cloudnine');
+    dst.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    dst.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    return { ok: true, raw };
+  }, deskName, dirName);
+  check('桌面拖拽能生成移动数据', dragInfo.ok && /"mode":"move"/.test(dragInfo.raw || ''), dragInfo.raw || dragInfo.reason);
+  await sleep(1500);
+  const inDir = await apiFetch('GET', `/api/fs/list?path=${encodeURIComponent(homeRel ? `${homeRel}/${dirName}` : dirName)}`, undefined, `cloudnine_sid=${dsid}`);
+  check('拖到文件夹上后文件确实移入该目录',
+    (inDir.json?.entries || []).some((x) => x.name === deskName),
+    `status=${inDir.status} ${(inDir.json?.entries || []).map((x) => x.name).join(',')}`);
+  const afterMove = await page.$$eval('.desktop-icon', (els) => els.map((e) => e.dataset.entry));
+  check('移入后桌面不再显示该文件', !afterMove.includes(deskName), afterMove.join(','));
+  await shot('桌面拖拽移入文件夹');
+
+  // 双击文件夹 → 打开「文件」窗口，标题是目录名
+  await page.evaluate((n) => {
+    const el = [...document.querySelectorAll('.desktop-icon')].find((x) => x.dataset.entry === n);
+    el?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+  }, dirName);
+  await sleep(1500);
+  const winTitle = await page.$eval('.window-title', (el) => el.innerText).catch(() => '');
+  check('双击桌面文件夹打开「文件」窗口', !!winTitle, `title=${winTitle}`);
+  check('文件窗口标题是目录名', winTitle.trim() === dirName, `title=${winTitle}`);
+  await shot('双击打开文件窗口');
+
+  // 关掉窗口，回到桌面态
+  await page.evaluate(() => {
+    const w = [...document.querySelectorAll('.window')].pop();
+    w?.querySelector('.tc-close')?.click();
+  });
+  await sleep(900);
+
+  // 重命名：F2 → 输入新名 → 回车
+  await page.evaluate((n) => {
+    const el = [...document.querySelectorAll('.desktop-icon')].find((x) => x.dataset.entry === n);
+    el?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  }, dirName);
+  await sleep(300);
+  await page.keyboard.press('F2');
+  await sleep(400);
+  const renameInput = await page.$('.desktop-icon .rename-input');
+  check('F2 进入重命名', !!renameInput);
+  if (renameInput) {
+    await page.keyboard.down('Control');
+    await page.keyboard.press('KeyA');
+    await page.keyboard.up('Control');
+    await page.keyboard.type(newDirName);
+    await page.keyboard.press('Enter');
+    await sleep(1500);
+  }
+  const renamed = await page.$$eval('.desktop-icon', (els) => els.map((e) => e.dataset.entry));
+  check('重命名后桌面显示新名字', renamed.includes(newDirName), renamed.join(','));
+  const renQ = await apiFetch('GET', `/api/fs/search?path=/&q=${encodeURIComponent(newDirName)}`, undefined, `cloudnine_sid=${dsid}`);
+  check('重命名确实落盘', (renQ.json?.results || []).some((x) => x.name === newDirName), `status=${renQ.status}`);
+  await shot('桌面重命名');
+
+  // 删除：选中 → Delete → 确认 → 移入废纸篓
+  await page.evaluate((n) => {
+    const el = [...document.querySelectorAll('.desktop-icon')].find((x) => x.dataset.entry === n);
+    el?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  }, newDirName);
+  await sleep(300);
+  await page.keyboard.press('Delete');
+  await sleep(600);
+  const trashConfirm = await page.$('.dialog-actions .btn-primary');
+  check('Delete 弹出「移入废纸篓」确认', !!trashConfirm);
+  if (trashConfirm) { await trashConfirm.click(); await sleep(1500); }
+  const afterDel = await page.$$eval('.desktop-icon', (els) => els.map((e) => e.dataset.entry));
+  check('删除后桌面不再显示该项', !afterDel.includes(newDirName), afterDel.join(','));
+  await shot('桌面删除');
+
+  // 焦点在桌面时，菜单栏切换为桌面菜单
+  const menuLabels = await page.evaluate(() => [...document.querySelectorAll('.mb-menu-btn')].map((b) => b.innerText.trim()));
+  check('桌面态菜单栏含「编辑」「显示」', menuLabels.includes('编辑') && menuLabels.includes('显示'), menuLabels.join(','));
+
+
+  section('文件窗口（Finder）');
   const dockItems = await page.$$('.dock-item');
   check(`Dock 应用数量 ≥ 5`, dockItems.length >= 5, `实际 ${dockItems.length}`);
 
-  const finderBtn = await page.$('.dock-item[title="访达"]');
+  const finderBtn = await page.$('.dock-item[title="文件"]');
   if (finderBtn) {
     await finderBtn.click();
     await sleep(1500);
     const winTitle = await page.$('.window-title');
     const titleText = winTitle ? await page.$eval('.window-title', (el) => el.innerText) : '';
-    check('访达窗口打开', /访达|文件|Finder/i.test(titleText) || !!winTitle, `title=${titleText}`);
-    await shot('访达窗口');
+    check('文件窗口打开', /文件|Finder/i.test(titleText) || !!winTitle, `title=${titleText}`);
+    await shot('文件窗口');
   } else {
-    check('Dock 中存在「访达」入口', false, '未找到 .dock-item[title=访达]');
+    check('Dock 中存在「文件」入口', false, '未找到 .dock-item[title=文件]');
   }
 
   // ---------- 4. 终端（真实 PTY） ----------
@@ -620,8 +824,8 @@ try {
   // 真机能力验证另见 scripts/paste-probe.html；此处只验证前端分支逻辑与上传链路。
   section('粘贴上传（Ctrl+V）');
   if (sid) {
-    // 打开并激活一个访达窗口：此前焦点在编辑器窗口，非访达窗口按设计不接管粘贴
-    const fb = await page.$('.dock-item[title="访达"]');
+    // 打开并激活一个文件窗口：此前焦点在编辑器窗口，非文件窗口按设计不接管粘贴
+    const fb = await page.$('.dock-item[title="文件"]');
     if (fb) await fb.click();
     await sleep(1500);
 
@@ -705,14 +909,14 @@ try {
   }
 
   // ---------- 5.6 上传通知：点击「开始上传」自动打开传输窗口 ----------
-  // 两个上传入口都要覆盖：Ctrl+V 粘贴上传、访达工具栏「上传文件」按钮。
+  // 两个上传入口都要覆盖：Ctrl+V 粘贴上传、文件工具栏「上传文件」按钮。
   // 重新载入页面以拿到干净的窗口/通知状态（会话 cookie 保留），避免前面流程的残留干扰。
   section('上传通知（点击打开传输窗口）');
   if (sid) {
     await page.reload({ waitUntil: 'networkidle2', timeout: 45000 });
     await page.waitForSelector('.menubar', { timeout: 15000 });
     await sleep(1000);
-    const fb = await page.$('.dock-item[title="访达"]');
+    const fb = await page.$('.dock-item[title="文件"]');
     if (fb) await fb.click();
     await page.waitForSelector('.finder', { timeout: 15000 });
     await sleep(500);
@@ -757,12 +961,12 @@ try {
     await closeTransfers();
     await sleep(300);
 
-    // 需求 2：访达「上传文件」按钮上传时也要弹出通知，且点击同样可打开传输窗口
+    // 需求 2：文件窗口「上传文件」按钮上传时也要弹出通知，且点击同样可打开传输窗口
     const beforeB = await countStart();
     const uploadPath = join(OUT_DIR, btnUploadName);
     writeFileSync(uploadPath, 'button upload notify test\n');
     const btns = await page.$$('.tb-btn[title="上传文件"]');
-    check('访达工具栏存在「上传文件」按钮', btns.length >= 1, `count=${btns.length}`);
+    check('文件工具栏存在「上传文件」按钮', btns.length >= 1, `count=${btns.length}`);
     const [chooser] = await Promise.all([
       page.waitForFileChooser({ timeout: 8000 }),
       btns[btns.length - 1].click(),
@@ -787,7 +991,7 @@ try {
     const pngPath = join(OUT_DIR, imgName);
     writeFileSync(pngPath, makePng(1400, 900));
 
-    // 通过访达「上传文件」把测试图放进当前目录
+    // 通过文件窗口「上传文件」把测试图放进当前目录
     const upBtns = await page.$$('.tb-btn[title="上传文件"]');
     if (upBtns.length) {
       const [chooser] = await Promise.all([
@@ -796,12 +1000,12 @@ try {
       ]);
       await chooser.accept([pngPath]);
     }
-    // 等待访达刷新出该文件
+    // 等待文件窗口刷新出该文件
     const appeared = await page.waitForFunction(
       (n) => [...document.querySelectorAll('.finder-item')].some((el) => el.textContent.includes(n)),
       { timeout: 20000 }, imgName,
     ).then(() => true).catch(() => false);
-    check('测试图片已上传并出现在访达', appeared, imgName);
+    check('测试图片已上传并出现在文件窗口', appeared, imgName);
 
     if (appeared) {
       await page.evaluate((n) => {
@@ -868,7 +1072,7 @@ try {
   if (!flag('keep')) {
     section('清理测试产物');
     const sid2 = await loginViaApi();
-    const names = [proofName, editName, pasteName, notifyName, btnUploadName, imgName].filter(Boolean);
+    const names = [proofName, editName, pasteName, notifyName, btnUploadName, imgName, deskName, dirName, probeName, newDirName].filter(Boolean);
     for (const n of names) {
       const r = await apiFetch('GET', `/api/fs/search?path=/&q=${encodeURIComponent(n)}`, undefined, `cloudnine_sid=${sid2}`);
       const hit = (r.json?.results || []).find((x) => x.name === n);
