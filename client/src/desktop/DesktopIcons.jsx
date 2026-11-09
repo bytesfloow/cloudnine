@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   useStore, getState, setState, openWindow, openContextMenu, openQuickLook, bus,
-  setDesktopSel, setDesktopSort, setDesktopShowHidden, joinPath, basename,
+  setDesktopSel, setDesktopSort, setDesktopShowHidden, joinPath, basename, confirmDialog,
 } from '../store.js';
 import { api } from '../api.js';
 import { FileIcon, IconGlobe, IconTrash } from '../icons.jsx';
@@ -39,6 +39,7 @@ export default function DesktopIcons() {
   const [dropTarget, setDropTarget] = useState(null);
   const [anchor, setAnchor] = useState(null);
   const [rows, setRows] = useState(10);
+  const [sysSel, setSysSel] = useState(null); // 选中的系统图标（根目录 / 废纸篓）
 
   const layerRef = useRef(null);
   const gridRef = useRef(null);
@@ -124,8 +125,42 @@ export default function DesktopIcons() {
   const selectedPaths = useMemo(() => selectedEntries.map((e) => joinPath(cwd, e.name)), [selectedEntries, cwd]);
   const shownFiles = files.length > MAX_ICONS ? files.slice(0, MAX_ICONS) : files;
 
+  // 系统图标（根目录 / 废纸篓）：与文件同处一个图标网格，占据左上角前两格，
+  // 排列逻辑和 Windows 桌面快捷方式一致；双击才打开，单击只选中。
+  const sysItems = [
+    { key: '__root__', label: '根目录', Icon: IconGlobe, trash: false },
+    { key: '__trash__', label: '废纸篓', Icon: IconTrash, trash: true },
+  ];
+
+  function openSys(key) {
+    if (key === '__trash__') openWindow('finder', { trash: true });
+    else openWindow('finder', { cwd: '' });
+  }
+
+  function sysMenu(e, key) {
+    if (key !== '__trash__') {
+      openContextMenu(e.clientX, e.clientY, [
+        { label: '打开根目录', action: () => openWindow('finder', { cwd: '' }) },
+        { label: '在终端中打开', action: () => openWindow('terminal', { cwd: '' }) },
+      ]);
+      return;
+    }
+    openContextMenu(e.clientX, e.clientY, [
+      { label: '打开废纸篓', action: () => openWindow('finder', { trash: true }) },
+      ...(s.trashCount > 0 ? ['-', {
+        label: '清倒废纸篓', danger: true, action: async () => {
+          if (!await confirmDialog({ title: '清倒废纸篓', message: `将彻底删除废纸篓中的 ${s.trashCount} 项，此操作不可撤销。`, danger: true, okText: '清倒' })) return;
+          await api.trashEmpty();
+          setState({ trashCount: 0 });
+          bus.emit('fs:changed', '__trash__');
+        },
+      }] : []),
+    ]);
+  }
+
   // ---------- 选择 ----------
   function clickItem(e, entry, idx) {
+    setSysSel(null); // 选中文件时取消系统图标的选中态
     setState({ focusId: null }); // 点桌面图标：焦点回到桌面，菜单栏切到桌面菜单
     if (e.metaKey || e.ctrlKey) {
       setDesktopSel((prev) => (prev.includes(entry.name) ? prev.filter((n) => n !== entry.name) : [...prev, entry.name]));
@@ -360,6 +395,7 @@ export default function DesktopIcons() {
           if (e.target.closest('.desktop-icon, .desktop-sysicon')) return;
           startMarquee(e);
           if (sel.length) setDesktopSel([]);
+          setSysSel(null);
           setAnchor(null);
           setState({ focusId: null }); // 焦点回到桌面：菜单栏切换为桌面菜单
         }}
@@ -383,6 +419,27 @@ export default function DesktopIcons() {
         )}
 
         <div className="desktop-grid" ref={gridRef} style={{ gridTemplateRows: `repeat(${rows}, ${ROW_H}px)` }}>
+          {sysItems.map((it) => (
+            <div
+              key={it.key}
+              className={`desktop-icon desktop-sysicon${sysSel === it.key ? ' selected' : ''}${dropTarget === it.key ? ' drop-target' : ''}`}
+              title={it.label}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); setSysSel(it.key); setDesktopSel([]); setState({ focusId: null }); }}
+              onDoubleClick={(e) => { e.stopPropagation(); openSys(it.key); }}
+              onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); sysMenu(e, it.key); }}
+              onDragOver={it.trash ? (e) => { e.preventDefault(); e.stopPropagation(); setDropTarget(it.key); } : undefined}
+              onDragLeave={it.trash ? () => setDropTarget((t) => (t === it.key ? null : t)) : undefined}
+              onDrop={it.trash ? onDropOnTrash : undefined}
+            >
+              <span className="di-icon-wrap">
+                <it.Icon size={48} full={it.trash ? s.trashCount > 0 : undefined} />
+              </span>
+              <span className="di-label">{it.label}</span>
+              {it.trash && s.trashCount > 0 && <span className="desktop-badge">{s.trashCount}</span>}
+            </div>
+          ))}
+
           {shownFiles.map((entry, idx) => {
             const isSel = sel.includes(entry.name);
             const path = joinPath(cwd, entry.name);
@@ -430,54 +487,6 @@ export default function DesktopIcons() {
         )}
       </div>
 
-      {/* 系统图标：根目录 / 废纸篓（固定在右下角，废纸篓可接收拖入的文件） */}
-      <div className="desktop-sysicons">
-        <button
-          className="desktop-sysicon"
-          title="根目录"
-          onClick={() => openWindow('finder', { cwd: '' })}
-          onDoubleClick={() => openWindow('finder', { cwd: '' })}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            openContextMenu(e.clientX, e.clientY, [
-              { label: '打开根目录', action: () => openWindow('finder', { cwd: '' }) },
-              { label: '在终端中打开', action: () => openWindow('terminal', { cwd: '' }) },
-            ]);
-          }}
-        >
-          <span className="di-icon-wrap"><IconGlobe size={48} /></span>
-          <span className="di-label">根目录</span>
-        </button>
-        <button
-          className={`desktop-sysicon${dropTarget === '__trash__' ? ' drop-target' : ''}`}
-          title="废纸篓"
-          onClick={() => openWindow('finder', { trash: true })}
-          onDoubleClick={() => openWindow('finder', { trash: true })}
-          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget('__trash__'); }}
-          onDragLeave={() => setDropTarget((t) => (t === '__trash__' ? null : t))}
-          onDrop={onDropOnTrash}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            openContextMenu(e.clientX, e.clientY, [
-              { label: '打开废纸篓', action: () => openWindow('finder', { trash: true }) },
-              ...(s.trashCount > 0 ? ['-', {
-                label: '清倒废纸篓', danger: true, action: async () => {
-                  const { confirmDialog } = await import('../store.js');
-                  if (await confirmDialog({ title: '清倒废纸篓', message: `将彻底删除废纸篓中的 ${s.trashCount} 项，此操作不可撤销。`, danger: true, okText: '清倒' })) {
-                    await api.trashEmpty();
-                    setState({ trashCount: 0 });
-                    bus.emit('fs:changed', '__trash__');
-                  }
-                },
-              }] : []),
-            ]);
-          }}
-        >
-          <span className="di-icon-wrap"><IconTrash size={48} full={s.trashCount > 0} /></span>
-          <span className="di-label">废纸篓</span>
-          {s.trashCount > 0 && <span className="desktop-badge">{s.trashCount}</span>}
-        </button>
-      </div>
     </>
   );
 }

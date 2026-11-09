@@ -519,12 +519,38 @@ try {
   await page.waitForSelector('.desktop-icons', { timeout: 15000 });
   await sleep(1500);
 
-  const deskIcons = await page.$$eval('.desktop-icon', (els) => els.map((e) => e.dataset.entry));
+  const deskIcons = await page.$$eval('.desktop-icon[data-entry]', (els) => els.map((e) => e.dataset.entry));
   check('桌面直接显示主目录里的真实文件', deskIcons.includes(deskName),
     `桌面条目: ${deskIcons.join(',') || '(空)'}`);
   const sysCount = (await page.$$('.desktop-sysicon')).length;
   check('桌面保留根目录/废纸篓入口', sysCount === 2, `数量 ${sysCount}`);
   await shot('桌面直览');
+
+  // 系统图标：并入左上角图标网格（前两格），单击只选中、双击才打开
+  const sysOrder = await page.evaluate(() => [...document.querySelector('.desktop-grid').children]
+    .slice(0, 2).map((el) => el.innerText.trim().split('\n')[0]));
+  check('系统图标排在左上角前两格', sysOrder[0] === '根目录' && sysOrder[1] === '废纸篓', sysOrder.join(','));
+  await page.evaluate(() => {
+    const el = [...document.querySelectorAll('.desktop-sysicon')].find((x) => x.innerText.includes('根目录'));
+    el?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+  await sleep(700);
+  const winAfterClick = await page.$$eval('.window', (els) => els.length);
+  check('单击系统图标不打开窗口', winAfterClick === 0, `窗口数 ${winAfterClick}`);
+  await page.evaluate(() => {
+    const el = [...document.querySelectorAll('.desktop-sysicon')].find((x) => x.innerText.includes('根目录'));
+    el?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+  });
+  await sleep(1300);
+  const winAfterDbl = await page.$$eval('.window', (els) => els.length);
+  const sysTitle = await page.$eval('.window-title', (el) => el.innerText).catch(() => '');
+  check('双击系统图标才打开窗口', winAfterDbl === 1, `窗口数 ${winAfterDbl}`);
+  check('系统图标打开的窗口标题正确', sysTitle.trim() === '根目录', `title=${sysTitle}`);
+  await page.evaluate(() => {
+    const w = [...document.querySelectorAll('.window')].pop();
+    w?.querySelector('.tc-close')?.click();
+  });
+  await sleep(800);
 
   // 右键桌面空白处：新建 / 上传 / 排序入口都在
   await page.evaluate(() => {
@@ -554,7 +580,7 @@ try {
     if (okBtn) await okBtn.click();
     await sleep(1500);
   }
-  const afterNew = await page.$$eval('.desktop-icon', (els) => els.map((e) => e.dataset.entry));
+  const afterNew = await page.$$eval('.desktop-icon[data-entry]', (els) => els.map((e) => e.dataset.entry));
   check('桌面上新建的文件夹立即出现', afterNew.includes(dirName),
     `桌面条目: ${afterNew.join(',') || '(空)'}`);
   const dirQ = await apiFetch('GET', `/api/fs/search?path=/&q=${encodeURIComponent(dirName)}`, undefined, `cloudnine_sid=${dsid}`);
@@ -563,14 +589,14 @@ try {
 
   // 桌面多选：Ctrl 点击 + 全选
   await page.evaluate(() => {
-    const els = [...document.querySelectorAll('.desktop-icon')];
+    const els = [...document.querySelectorAll('.desktop-icon[data-entry]')];
     els[0]?.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
     els[1]?.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
   });
   await sleep(400);
   const selInfo = await page.evaluate(() => ({
-    total: document.querySelectorAll('.desktop-icon').length,
-    selected: document.querySelectorAll('.desktop-icon.selected').length,
+    total: document.querySelectorAll('.desktop-icon[data-entry]').length,
+    selected: document.querySelectorAll('.desktop-icon[data-entry].selected').length,
   }));
   check('桌面支持 Ctrl 多选', selInfo.selected === 2, `选中 ${selInfo.selected}/${selInfo.total}`);
   await page.keyboard.down('Control');
@@ -578,15 +604,15 @@ try {
   await page.keyboard.up('Control');
   await sleep(400);
   const selAll = await page.evaluate(() => ({
-    selected: document.querySelectorAll('.desktop-icon.selected').length,
-    total: document.querySelectorAll('.desktop-icon').length,
+    selected: document.querySelectorAll('.desktop-icon[data-entry].selected').length,
+    total: document.querySelectorAll('.desktop-icon[data-entry]').length,
   }));
   check('桌面 Cmd/Ctrl+A 全选', selAll.selected === selAll.total && selAll.total > 0, JSON.stringify(selAll));
   await shot('桌面多选');
 
   // 文件条目的右键菜单：完整操作项
   await page.evaluate((n) => {
-    const el = [...document.querySelectorAll('.desktop-icon')].find((x) => x.dataset.entry === n);
+    const el = [...document.querySelectorAll('.desktop-icon[data-entry]')].find((x) => x.dataset.entry === n);
     el?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 60, clientY: 60 }));
   }, deskName);
   await sleep(400);
@@ -613,8 +639,8 @@ try {
 
   // 拖到文件夹上 = 移入该文件夹（桌面拖拽语义：移动文件）
   const dragInfo = await page.evaluate((fileName, dirName2) => {
-    const src = [...document.querySelectorAll('.desktop-icon')].find((x) => x.dataset.entry === fileName);
-    const dst = [...document.querySelectorAll('.desktop-icon')].find((x) => x.dataset.entry === dirName2);
+    const src = [...document.querySelectorAll('.desktop-icon[data-entry]')].find((x) => x.dataset.entry === fileName);
+    const dst = [...document.querySelectorAll('.desktop-icon[data-entry]')].find((x) => x.dataset.entry === dirName2);
     if (!src || !dst) return { ok: false, reason: `找不到拖拽源/目标 ${!!src}/${!!dst}` };
     const dt = new DataTransfer();
     src.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
@@ -629,13 +655,13 @@ try {
   check('拖到文件夹上后文件确实移入该目录',
     (inDir.json?.entries || []).some((x) => x.name === deskName),
     `status=${inDir.status} ${(inDir.json?.entries || []).map((x) => x.name).join(',')}`);
-  const afterMove = await page.$$eval('.desktop-icon', (els) => els.map((e) => e.dataset.entry));
+  const afterMove = await page.$$eval('.desktop-icon[data-entry]', (els) => els.map((e) => e.dataset.entry));
   check('移入后桌面不再显示该文件', !afterMove.includes(deskName), afterMove.join(','));
   await shot('桌面拖拽移入文件夹');
 
   // 双击文件夹 → 打开「文件」窗口，标题是目录名
   await page.evaluate((n) => {
-    const el = [...document.querySelectorAll('.desktop-icon')].find((x) => x.dataset.entry === n);
+    const el = [...document.querySelectorAll('.desktop-icon[data-entry]')].find((x) => x.dataset.entry === n);
     el?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
   }, dirName);
   await sleep(1500);
@@ -653,13 +679,13 @@ try {
 
   // 重命名：F2 → 输入新名 → 回车
   await page.evaluate((n) => {
-    const el = [...document.querySelectorAll('.desktop-icon')].find((x) => x.dataset.entry === n);
+    const el = [...document.querySelectorAll('.desktop-icon[data-entry]')].find((x) => x.dataset.entry === n);
     el?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   }, dirName);
   await sleep(300);
   await page.keyboard.press('F2');
   await sleep(400);
-  const renameInput = await page.$('.desktop-icon .rename-input');
+  const renameInput = await page.$('.desktop-icon[data-entry] .rename-input');
   check('F2 进入重命名', !!renameInput);
   if (renameInput) {
     await page.keyboard.down('Control');
@@ -669,7 +695,7 @@ try {
     await page.keyboard.press('Enter');
     await sleep(1500);
   }
-  const renamed = await page.$$eval('.desktop-icon', (els) => els.map((e) => e.dataset.entry));
+  const renamed = await page.$$eval('.desktop-icon[data-entry]', (els) => els.map((e) => e.dataset.entry));
   check('重命名后桌面显示新名字', renamed.includes(newDirName), renamed.join(','));
   const renQ = await apiFetch('GET', `/api/fs/search?path=/&q=${encodeURIComponent(newDirName)}`, undefined, `cloudnine_sid=${dsid}`);
   check('重命名确实落盘', (renQ.json?.results || []).some((x) => x.name === newDirName), `status=${renQ.status}`);
@@ -677,7 +703,7 @@ try {
 
   // 删除：选中 → Delete → 确认 → 移入废纸篓
   await page.evaluate((n) => {
-    const el = [...document.querySelectorAll('.desktop-icon')].find((x) => x.dataset.entry === n);
+    const el = [...document.querySelectorAll('.desktop-icon[data-entry]')].find((x) => x.dataset.entry === n);
     el?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   }, newDirName);
   await sleep(300);
@@ -686,7 +712,7 @@ try {
   const trashConfirm = await page.$('.dialog-actions .btn-primary');
   check('Delete 弹出「移入废纸篓」确认', !!trashConfirm);
   if (trashConfirm) { await trashConfirm.click(); await sleep(1500); }
-  const afterDel = await page.$$eval('.desktop-icon', (els) => els.map((e) => e.dataset.entry));
+  const afterDel = await page.$$eval('.desktop-icon[data-entry]', (els) => els.map((e) => e.dataset.entry));
   check('删除后桌面不再显示该项', !afterDel.includes(newDirName), afterDel.join(','));
   await shot('桌面删除');
 

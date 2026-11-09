@@ -170,18 +170,8 @@ a { color: var(--accent); text-decoration: none; }
   text-align: center;
 }
 
-/* 系统图标（根目录 / 废纸篓）：固定在右下角，废纸篓可接收拖入的文件 */
-.desktop-sysicons {
-  position: absolute; right: 14px; bottom: 92px; z-index: 2;
-  display: flex; flex-direction: column; align-items: center; gap: 18px;
-}
-.desktop-sysicon {
-  position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px;
-  width: 84px; padding: 6px 2px; border-radius: 8px; cursor: default;
-  touch-action: none; user-select: none; -webkit-user-select: none;
-}
-.desktop-sysicon:hover { background: rgba(255,255,255,.14); }
-.desktop-sysicon.drop-target { background: var(--accent-soft); box-shadow: 0 0 0 2px var(--accent); }
+/* 系统图标（根目录 / 废纸篓）：与文件同处一个图标网格，占据左上角前两格 */
+.desktop-sysicon { position: relative; }
 /* 系统图标（根目录等）用线条绘制，需在深色壁纸上保持可读 */
 .desktop-sysicon .di-icon-wrap { color: #eef1f8; }
 
