@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   useStore, getState, setState, openWindow, openContextMenu, openQuickLook, bus,
   setDesktopSel, setDesktopSort, setDesktopShowHidden, joinPath, basename,
@@ -20,6 +20,11 @@ const DRAG_TYPE = 'application/x-cloudnine';
 // 超出的部分明确提示「去文件窗口看」，不做静默截断。
 const MAX_ICONS = 400;
 
+// 图标网格：纵向填充（先从上到下填满一列，再向右开新列）
+const CELL_W = 102;      // 列宽（含列间距）
+const ROW_H = 88;        // 行高
+const DOCK_RESERVE = 96; // 底部给 Dock 留出的空间
+
 export default function DesktopIcons() {
   const s = useStore();
   const cwd = s.homeRel || '';
@@ -33,8 +38,11 @@ export default function DesktopIcons() {
   const [dragOver, setDragOver] = useState(false);
   const [dropTarget, setDropTarget] = useState(null);
   const [anchor, setAnchor] = useState(null);
+  const [rows, setRows] = useState(10);
 
   const layerRef = useRef(null);
+  const gridRef = useRef(null);
+
 
   const load = useCallback(async (silent) => {
     if (!silent) setLoading(true);
@@ -94,6 +102,23 @@ export default function DesktopIcons() {
       : () => 0;
     return [...list].sort((a, b) => (dirFirst(a, b) || cmp(a, b)) * (s.desktopSort.asc ? 1 : -1));
   }, [entries, s.desktopShowHidden, s.desktopSort]);
+
+  // 纵向排列需要知道一列能放多少行：按容器可用高度算，
+  // 提示行（空目录/超量提示）占掉的高度也要扣掉。
+  useLayoutEffect(() => {
+    const measure = () => {
+      const c = layerRef.current;
+      const g = gridRef.current;
+      if (!c || !g) return;
+      const top = g.offsetTop || 0;
+      const avail = c.clientHeight - top - DOCK_RESERVE;
+      setRows(Math.max(1, Math.floor(avail / ROW_H)));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    if (layerRef.current) ro.observe(layerRef.current);
+    return () => ro.disconnect();
+  }, [loading, error, files.length]);
 
   const selectedEntries = useMemo(() => files.filter((e) => sel.includes(e.name)), [files, sel]);
   const selectedPaths = useMemo(() => selectedEntries.map((e) => joinPath(cwd, e.name)), [selectedEntries, cwd]);
@@ -357,7 +382,7 @@ export default function DesktopIcons() {
           <div className="desktop-hint">桌面为空 · 在此右键新建文件或上传</div>
         )}
 
-        <div className="desktop-grid">
+        <div className="desktop-grid" ref={gridRef} style={{ gridTemplateRows: `repeat(${rows}, ${ROW_H}px)` }}>
           {shownFiles.map((entry, idx) => {
             const isSel = sel.includes(entry.name);
             const path = joinPath(cwd, entry.name);
@@ -381,7 +406,7 @@ export default function DesktopIcons() {
                 onDrop={(e) => onDropOnFolder(e, entry)}
                 title={entry.name}
               >
-                <span className="di-icon-wrap">
+                <span className={`di-icon-wrap${entry.type === 'dir' ? ' no-shadow' : ''}`}>
                   <FileIcon name={entry.name} type={entry.type} size={52} />
                 </span>
                 {renaming === entry.name ? (

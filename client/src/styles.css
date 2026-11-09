@@ -10,10 +10,10 @@
   --mono: 'SF Mono', 'Cascadia Code', Menlo, Consolas, 'Courier New', monospace;
 }
 :root[data-theme='light'] {
-  --wallpaper: radial-gradient(1200px 800px at 20% 10%, #7fb2ff 0%, transparent 60%),
-               radial-gradient(1000px 700px at 80% 20%, #c9a7ff 0%, transparent 55%),
-               radial-gradient(900px 900px at 50% 100%, #7ee8c7 0%, transparent 50%),
-               linear-gradient(160deg, #dbe7ff 0%, #eef1fb 50%, #e6f4ef 100%);
+  --wallpaper: radial-gradient(1200px 800px at 20% 10%, #2f5aa8 0%, transparent 62%),
+               radial-gradient(1000px 700px at 80% 20%, #6b3d9e 0%, transparent 58%),
+               radial-gradient(900px 900px at 50% 100%, #17655f 0%, transparent 52%),
+               linear-gradient(160deg, #131d33 0%, #1a1d38 50%, #0f2429 100%);
   --text: #1d1d1f;
   --text-2: #6e6e73;
   --win-bg: rgba(248, 248, 250, 0.88);
@@ -140,22 +140,25 @@ a { color: var(--accent); text-decoration: none; }
 /* 桌面 = 主目录直视图：图标按排序规则自动网格排布，位置不再手工摆放 */
 .desktop-icons {
   position: absolute; top: calc(var(--menubar-h) + 8px); left: 10px; right: 10px; bottom: 0;
-  z-index: 1; border-radius: 10px;
+  z-index: 1; border-radius: 10px; overflow-x: auto; overflow-y: hidden;
 }
 .desktop-icons.drag-over { outline: 2px dashed var(--accent); outline-offset: -4px; background: var(--accent-soft); }
+/* 纵向填充：先从上到下填满一列，再向右开新列 */
 .desktop-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, 96px); gap: 6px;
-  align-content: start; justify-content: start; padding-bottom: 96px;
+  display: grid; grid-auto-flow: column; grid-auto-columns: 102px;
+  column-gap: 6px; row-gap: 0; align-content: start; justify-content: start;
 }
 .desktop-icon {
   display: flex; flex-direction: column; align-items: center; gap: 2px;
   width: 84px; padding: 6px 2px; border-radius: 8px; cursor: default;
   touch-action: none; user-select: none; -webkit-user-select: none;
+  justify-self: center;
 }
 .desktop-icon:hover { background: rgba(255,255,255,.14); }
 .desktop-icon.selected { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
 .desktop-icon.drop-target { background: var(--accent-soft); box-shadow: 0 0 0 2px var(--accent); }
 .di-icon-wrap { position: relative; filter: drop-shadow(0 3px 6px rgba(0,0,0,.25)); }
+.di-icon-wrap.no-shadow { filter: none; }
 .desktop-badge {
   position: absolute; top: -2px; right: -4px; min-width: 16px; height: 16px;
   border-radius: 8px; background: var(--accent); color: #fff; font-size: 10px;
@@ -179,6 +182,8 @@ a { color: var(--accent); text-decoration: none; }
 }
 .desktop-sysicon:hover { background: rgba(255,255,255,.14); }
 .desktop-sysicon.drop-target { background: var(--accent-soft); box-shadow: 0 0 0 2px var(--accent); }
+/* 系统图标（根目录等）用线条绘制，需在深色壁纸上保持可读 */
+.desktop-sysicon .di-icon-wrap { color: #eef1f8; }
 
 .desktop-hint {
   color: rgba(255,255,255,.78); font-size: 12.5px; padding: 12px 10px;
