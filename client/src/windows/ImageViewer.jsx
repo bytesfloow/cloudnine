@@ -36,19 +36,33 @@ export function useImageView() {
 // 图片舞台：承载缩放/平移的手势
 export default function ImageViewer({ src, alt = '', view }) {
   const stageRef = useRef(null);
+  const imgRef = useRef(null);
   const pointers = useRef(new Map()); // 当前按下的指针（鼠标/触摸）
   const gesture = useRef(null); // 手势基线
   const lastTap = useRef(null); // 上一次轻点（用于判定双击复位）
   const multiTouch = useRef(false); // 本轮触摸是否出现过第二根手指（双指手势不算轻点）
-  const live = useRef({ zoom: view.zoom, pan: { ...view.pan } }); // 手势过程中的实时值
+  const live = useRef({ zoom: view.zoom, pan: { x: view.pan?.x || 0, y: view.pan?.y || 0 }, rotate: view.rotate || 0 }); // 手势过程中的实时值
   const viewRef = useRef(view);
+  const gesturing = useRef(false); // 手势进行中：外部状态不得回灌，否则画面会跳
   const [dragging, setDragging] = useState(false);
   viewRef.current = view;
 
-  // 受控状态（外部改缩放/平移）同步到实时值
+  // 画面变换直接写 DOM style：
+  // 拖动过程中不触发 React 重渲染，避免整个预览窗口（含 backdrop-filter 模糊背景）
+  // 每移动一像素就整窗重绘，既卡顿又容易在合成层上留下残影。
+  const paint = useCallback(() => {
+    const el = imgRef.current;
+    if (!el) return;
+    const { zoom, pan, rotate } = live.current;
+    el.style.transform = `translate(${pan.x}px, ${pan.y}px) scale(${zoom}) rotate(${rotate}deg)`;
+  }, []);
+
+  // 外部改动（缩放工具条 / 旋转 / 复位 / 切换文件）→ 同步到手势实时值并重绘
   useEffect(() => {
-    live.current = { zoom: view.zoom, pan: { x: view.pan?.x || 0, y: view.pan?.y || 0 } };
-  }, [view.zoom, view.pan?.x, view.pan?.y]);
+    if (gesturing.current) return;
+    live.current = { zoom: view.zoom, pan: { x: view.pan?.x || 0, y: view.pan?.y || 0 }, rotate: view.rotate || 0 };
+    paint();
+  }, [view.zoom, view.pan?.x, view.pan?.y, view.rotate, paint]);
 
   // 以锚点缩放：锚点相对舞台中心的偏移
   const applyZoom = useCallback((factor, anchor) => {
@@ -59,10 +73,12 @@ export default function ImageViewer({ src, alt = '', view }) {
       x: anchor.x - f * (anchor.x - cur.pan.x),
       y: anchor.y - f * (anchor.y - cur.pan.y),
     };
-    live.current = { zoom, pan };
+    live.current = { zoom, pan, rotate: cur.rotate };
+    paint();
+    // 缩放值要实时反映到工具条百分比上，这里仍需同步给共享状态
     viewRef.current.setZoom(zoom);
     viewRef.current.setPan(pan);
-  }, []);
+  }, [paint]);
 
   // 滚轮缩放：非被动监听才能阻止页面滚动/整页缩放
   useEffect(() => {
@@ -94,16 +110,22 @@ export default function ImageViewer({ src, alt = '', view }) {
 
   // 复位到「适应窗口」
   const resetView = useCallback(() => {
-    live.current = { zoom: 1, pan: { x: 0, y: 0 } };
+    live.current = { zoom: 1, pan: { x: 0, y: 0 }, rotate: live.current.rotate };
+    paint();
     viewRef.current.setZoom(1);
     viewRef.current.setPan({ x: 0, y: 0 });
-  }, []);
+  }, [paint]);
 
   const onPointerDown = (e) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
+    // 阻止浏览器的默认行为：否则按住图片拖动会被浏览器接管成原生 HTML5 拖拽，
+    // 指针被浏览器截走后页面收不到 pointermove，图片就拖不动，
+    // 同时浏览器还会拖出一个半透明的图片重影。
+    e.preventDefault();
     if (pointers.current.size === 0) multiTouch.current = false; // 新的一轮触摸
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* 某些浏览器不支持捕获 */ }
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    gesturing.current = true;
     const cur = live.current;
     if (pointers.current.size === 1) {
       gesture.current = { mode: 'pan', startX: e.clientX, startY: e.clientY, startPan: { ...cur.pan } };
@@ -134,8 +156,9 @@ export default function ImageViewer({ src, alt = '', view }) {
         x: g.startPan.x + (e.clientX - g.startX),
         y: g.startPan.y + (e.clientY - g.startY),
       };
-      live.current = { zoom: live.current.zoom, pan };
-      viewRef.current.setPan(pan);
+      // 平移只改画面，不动共享状态：拖动期间不触发任何 React 重渲染
+      live.current = { ...live.current, pan };
+      paint();
       return;
     }
     const pts = [...pointers.current.values()];
@@ -152,9 +175,10 @@ export default function ImageViewer({ src, alt = '', view }) {
       x: m1.x - f * (m0.x - g.startPan.x),
       y: m1.y - f * (m0.y - g.startPan.y),
     };
-    live.current = { zoom, pan };
+    live.current = { zoom, pan, rotate: live.current.rotate };
+    paint();
+    // 双指缩放要实时反映到工具条百分比上
     viewRef.current.setZoom(zoom);
-    viewRef.current.setPan(pan);
   };
 
   const onPointerEnd = (e) => {
@@ -180,7 +204,11 @@ export default function ImageViewer({ src, alt = '', view }) {
     }
     if (pointers.current.size === 0) {
       gesture.current = null;
+      gesturing.current = false;
       setDragging(false);
+      // 手势收尾：把最终平移/缩放提交回共享状态（工具条、复位、切换文件都依赖它）
+      viewRef.current.setPan({ ...live.current.pan });
+      viewRef.current.setZoom(live.current.zoom);
     } else if (pointers.current.size === 1) {
       // 从双指回到单指：以剩余手指为新的拖拽起点，避免画面跳动
       const [p] = [...pointers.current.values()];
@@ -191,9 +219,6 @@ export default function ImageViewer({ src, alt = '', view }) {
   // 鼠标双击复位（触屏由上面的手动判定覆盖）
   const onDoubleClick = () => resetView();
 
-  const pan = view.pan || { x: 0, y: 0 };
-  const transform = `translate(${pan.x}px, ${pan.y}px) scale(${view.zoom}) rotate(${view.rotate}deg)`;
-
   return (
     <div
       ref={stageRef}
@@ -203,12 +228,15 @@ export default function ImageViewer({ src, alt = '', view }) {
       onPointerUp={onPointerEnd}
       onPointerCancel={onPointerEnd}
       onDoubleClick={onDoubleClick}
+      // 兜底：任何落到预览区里的原生拖拽一律掐掉，避免浏览器接管指针后图片拖不动
+      draggable={false}
+      onDragStart={(e) => e.preventDefault()}
     >
       <img
+        ref={imgRef}
         src={src}
         alt={alt}
         draggable={false}
-        style={{ transform }}
         onDragStart={(e) => e.preventDefault()}
       />
     </div>

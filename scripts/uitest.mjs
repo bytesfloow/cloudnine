@@ -189,6 +189,14 @@ const consoleErrors = [];
 page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
 page.on('pageerror', (e) => consoleErrors.push(`pageerror: ${e.message} @ ${e.stack || '(无堆栈)'}`));
 
+// 探针：统计浏览器原生 HTML5 拖拽事件。
+// 图片预览里一旦触发原生拖拽，浏览器会接管指针（页面收不到 pointermove，图片拖不动），
+// 同时还会拖出一份半透明重影，所以这里必须保持为 0。
+await page.evaluateOnNewDocument(() => {
+  window.__dragProbe = { start: 0 };
+  document.addEventListener('dragstart', () => { window.__dragProbe.start++; }, true);
+});
+
 mkdirSync(OUT_DIR, { recursive: true });
 let shotIdx = 0;
 async function shot(label) {
@@ -431,6 +439,8 @@ try {
           const t2 = await tf();
           const [dx, dy] = panOf(t2);
           check('移动端单指拖动平移', Math.abs(dx) > 20 && Math.abs(dy) > 10, `${t1} → ${t2}`);
+          const mDragStart = await page.evaluate(() => window.__dragProbe?.start ?? -1);
+          check('移动端拖动不触发浏览器原生拖拽（否则图片拖不动并拖出重影）', mDragStart === 0, `dragstart ${mDragStart} 次`);
 
           // 双指聚拢缩小 → 立即单指上滑：不应被误判成双击复位（缩放保持、平移生效）
           const zBefore = zoomOf(t2);
@@ -823,11 +833,17 @@ try {
       await sleep(300);
       await page.mouse.down();
       await page.mouse.move(box.x + box.width / 2 + 120, box.y + box.height / 2 + 80, { steps: 12 });
+      // 拖动过程中取样：图片必须跟着鼠标走，且浏览器不能接管成原生拖拽
+      const midTf = await tf();
       await page.mouse.up();
       await sleep(300);
       const t3 = await tf();
       const [dx, dy] = panOf(t3);
       check('拖动可平移图片', Math.abs(dx) > 50 && Math.abs(dy) > 30, `${t2} → ${t3}`);
+      const [mdx] = panOf(midTf);
+      check('拖动过程中画面跟随鼠标', Math.abs(mdx) > 10, `拖动中 ${midTf}`);
+      const dragStart = await page.evaluate(() => window.__dragProbe?.start ?? -1);
+      check('拖动图片不触发浏览器原生拖拽（否则图片拖不动并拖出重影）', dragStart === 0, `dragstart ${dragStart} 次`);
 
       await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
       await sleep(90);
