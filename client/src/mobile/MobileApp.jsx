@@ -4,6 +4,7 @@ import {
   basename, dirname, joinPath, fmtSize, fmtTime, fmtSpeed, TEXT_EDITABLE, openFile,
 } from '../store.js';
 import { api } from '../api.js';
+import { shareBlockReason } from '../fsops.js';
 import { addUpload, pauseUpload, resumeUpload, cancelUpload, clearFinishedUploads, fmtProgress, fmtUploaded } from '../transfers.js';
 import { refreshDisk } from '../App.jsx';
 import { TerminalView } from '../windows/Terminal.jsx';
@@ -243,7 +244,7 @@ function FinderMobile({ dir, setDir, openFile }) {
       } },
       { label: '复制', action: () => { setClipboard('copy', [joinPath(dir, entry.name)], dir); notify({ title: '已复制' }); } },
       { label: '剪切', action: () => { setClipboard('cut', [joinPath(dir, entry.name)], dir); notify({ title: '已剪切' }); } },
-      { label: '分享…', action: () => shareFlowMobile(joinPath(dir, entry.name), entry.name) },
+      { label: shareBlockReason(entry) ? `分享…（${shareBlockReason(entry)}）` : '分享…', disabled: !!shareBlockReason(entry), action: () => shareFlowMobile(joinPath(dir, entry.name), entry.name, entry) },
       { label: '下载', disabled: entry.type === 'dir', action: () => { const a = document.createElement('a'); a.href = api.downloadUrl(joinPath(dir, entry.name)); a.click(); } },
       '-',
       { label: '移入废纸篓', danger: true, action: async () => {
@@ -361,7 +362,10 @@ function FinderMobile({ dir, setDir, openFile }) {
   );
 }
 
-async function shareFlowMobile(path, name) {
+async function shareFlowMobile(path, name, entry) {
+  // 分享只支持普通文件（目录 / 软链接后端也会拒），这里先给前端提示
+  const blocked = shareBlockReason(entry);
+  if (blocked) { notify({ type: 'error', title: '无法分享', body: blocked }); return; }
   const v = await promptDialog({
     title: `分享“${name}”`,
     fields: [

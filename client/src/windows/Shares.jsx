@@ -21,7 +21,6 @@ export default function SharesWindow() {
         ] },
         { key: 'password', label: '访问密码（可选）' },
         { key: 'allowDownload', label: '允许下载', type: 'checkbox', value: true },
-        { key: 'allowUpload', label: '允许他人上传到此目录', type: 'checkbox' },
         { key: 'maxDownloads', label: '下载次数上限（可选）', type: 'number' },
       ],
       okText: '创建',
@@ -33,7 +32,6 @@ export default function SharesWindow() {
         expiresIn: v.expiresIn || null,
         password: v.password || null,
         allowDownload: !!v.allowDownload,
-        allowUpload: !!v.allowUpload,
         maxDownloads: v.maxDownloads || null,
       });
       const url = `${location.origin}/s/${r.share.token}`;
@@ -71,7 +69,7 @@ export default function SharesWindow() {
         </div>
       </div>
       {!shares ? <div className="boot-spinner" /> : shares.length === 0 ? (
-        <div className="empty-hint">还没有创建过分享。在桌面或文件窗口中右键任意文件或文件夹，选择“分享…”。</div>
+        <div className="empty-hint">还没有创建过分享。在桌面或文件窗口中右键任意文件，选择“分享…”（文件夹请先压缩成压缩包）。</div>
       ) : (
         <div className="shares-table-wrap">
           <table className="list-table">
@@ -79,7 +77,7 @@ export default function SharesWindow() {
             <tbody>
               {shares.map((sh) => (
                 <tr key={sh.id}>
-                  <td className="ellipsis" title={`/${sh.path}`}>{sh.isDir ? '📁' : '📄'} {sh.name}</td>
+                  <td className="ellipsis" title={`/${sh.path}`}>📄 {sh.name}</td>
                   <td><span className={`share-status st-${status(sh) === '有效' ? 'ok' : 'bad'}`}>{status(sh)}</span></td>
                   <td>{sh.downloads}{sh.maxDownloads ? ` / ${sh.maxDownloads}` : ''} 次</td>
                   <td>{sh.expiresAt ? fmtTime(sh.expiresAt) : '永久'}</td>

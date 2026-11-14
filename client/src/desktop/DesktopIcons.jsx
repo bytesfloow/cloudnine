@@ -8,7 +8,7 @@ import { FileIcon, IconGlobe, IconTrash } from '../icons.jsx';
 import {
   createItem, uploadTo, uploadDropped, copyToClipboard, cutToClipboard, pasteInto,
   trashItems, renameItem, downloadItem, downloadItems, compressItems, extractItem,
-  shareItem, copyPathText, openEntry, isArchive,
+  shareItem, shareBlockReason, copyPathText, openEntry, isArchive,
 } from '../fsops.js';
 
 // 桌面 = 用户主目录的直视图：每一个图标都是主目录里的真实文件 / 文件夹。
@@ -256,7 +256,7 @@ export default function DesktopIcons() {
       { label: '压缩…', action: () => compressItems(paths, cwd) },
       ...(isArchive(entry) ? [{ label: '解压到…', action: () => extractItem(path, cwd) }] : []),
       '-',
-      { label: '分享…', action: () => shareItem(path, entry.name) },
+      { label: shareBlockReason(entry) ? `分享…（${shareBlockReason(entry)}）` : '分享…', disabled: !!shareBlockReason(entry), action: () => shareItem(path, entry.name, entry) },
       { label: '显示简介', action: () => openWindow('info', { path }) },
       { label: '复制路径', action: () => copyPathText(path) },
       ...(entry.type === 'dir' ? [{ label: '在终端中打开', action: () => openWindow('terminal', { cwd: path }) }] : []),

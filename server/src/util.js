@@ -19,6 +19,51 @@ export function safeJoin(root, rel) {
   return t;
 }
 
+// ---------- 分享路径校验 ----------
+/**
+ * 分享只允许 FILE_ROOT 内的普通文件。三道关卡缺一不可：
+ *   1. 目标是目录 → 拒绝（分享只发单个文件）
+ *   2. 目标本身是符号链接 → 拒绝（lstat 才能看到链接本身）
+ *   3. 路径上任何一级是符号链接 → 拒绝（软链可以藏在父目录里，只查文件本身不够）
+ *   4. 解析后的真实路径必须仍在根目录内（兜住上面逐级检查漏掉的情况）
+ * 返回解析后的真实路径，调用方应使用它读写，避免检查与实际打开的是两个文件（TOCTOU）。
+ */
+export async function resolveShareTarget(root, rel) {
+  const base = path.resolve(root);
+  const abs = safeJoin(base, rel);
+  const lstat = async (p) => {
+    try { return await fs.promises.lstat(p); } catch (e) {
+      if (e.code === 'ENOENT' || e.code === 'ENOTDIR') throw err(404, '文件不存在', 'fs_not_found');
+      throw e;
+    }
+  };
+
+  const self = await lstat(abs);
+  if (self.isSymbolicLink()) throw err(400, '软链接不能分享', 'share_symlink');
+  if (self.isDirectory()) throw err(400, '文件夹暂不支持分享，请先压缩成压缩包', 'share_dir_unsupported');
+  if (!self.isFile()) throw err(400, '只能分享普通文件', 'share_path_unsupported');
+
+  // 逐级检查根目录之下每一段（根目录本身允许是软链，它由管理员配置）
+  const parts = path.relative(base, abs).split(path.sep).filter(Boolean);
+  let cur = base;
+  for (const seg of parts) {
+    cur = path.join(cur, seg);
+    const st = await lstat(cur);
+    if (st.isSymbolicLink()) throw err(400, '路径经过软链接，不能分享', 'share_path_unsupported');
+  }
+
+  const rootReal = await fs.promises.realpath(base).catch(() => base);
+  const real = await fs.promises.realpath(abs).catch(() => null);
+  if (!real || (real !== rootReal && !real.startsWith(rootReal + path.sep))) {
+    throw err(400, '路径经过软链接，不能分享', 'share_path_unsupported');
+  }
+  const final = await fs.promises.stat(real).catch(() => null);
+  if (!final) throw err(404, '文件不存在', 'fs_not_found');
+  if (final.isDirectory()) throw err(400, '文件夹暂不支持分享，请先压缩成压缩包', 'share_dir_unsupported');
+  if (!final.isFile()) throw err(400, '只能分享普通文件', 'share_path_unsupported');
+  return { abs, real, stat: final };
+}
+
 export function modeStr(mode) {
   const m = mode & 0o777;
   const bits = 'rwxrwxrwx';

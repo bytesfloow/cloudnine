@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import http.cookiejar
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -120,6 +121,7 @@ def main() -> int:
     ap.add_argument("--keep", action="store_true", help="保留测试产生的文件")
     ap.add_argument("--save-creds", help="把新建的测试账号写入该文件")
     ap.add_argument("--session", help="直接使用已有会话 token（跳过登录，用于测试已部署实例）")
+    ap.add_argument("--file-root", help="服务端 FILE_ROOT 的本地路径（仅本地测试时提供，用于构造软链用例）")
     args = ap.parse_args()
 
     c = Client(args.url)
@@ -274,26 +276,86 @@ def main() -> int:
                                   headers={"Range": "bytes=0-9"}, expect_json=False)
         check("Range 下载返回 206 局部内容", st == 206 and raw == up_content[:10], f"status={st} len={len(raw)}")
 
-    # ---------- 5. 分享 ----------
+    # ---------- 5. 分享（只支持单个普通文件） ----------
     section("文件分享")
     created_shares: list[str] = []   # 结束时删除，避免在生产环境留下垃圾
     # 注意：前面已把 hello.txt 重命名并移走，这里分享仍然存在的上传产物
     share_target = f"{test_dir}/upload.bin"
     st, body, _ = c.post("/api/shares", {"path": share_target, "expiresIn": 3600, "allowDownload": True})
     share_ok = st == 200 and body.get("share", {}).get("token")
-    check("POST /api/shares 创建分享", share_ok, f"status={st} {body}")
+    check("POST /api/shares 创建文件分享", share_ok, f"status={st} {body}")
 
     if share_ok:
         token = body["share"]["token"]
         created_shares.append(body["share"]["id"])
         st, body, _ = c.get(f"/api/share/{token}/meta")
-        check("GET /api/share/<token>/meta 公开元信息", st == 200 and body.get("name"), f"status={st} {body}")
+        check("GET /api/share/<token>/meta 公开元信息", st == 200 and body.get("name") == "upload.bin",
+              f"status={st} {body}")
+        check("meta 不再声明目录能力与上传开关",
+              st == 200 and "isDir" not in body and "allowUpload" not in body, f"{body}")
 
-        st, raw, _ = c.get(f"/api/share/{token}/file?path=upload.bin", expect_json=False)
+        st, raw, _ = c.get(f"/api/share/{token}/file", expect_json=False)
         check("GET /api/share/<token>/file 下载内容一致", st == 200 and raw == up_content, f"status={st} len={len(raw)}")
 
         st, body, _ = c.get("/api/shares")
         check("GET /api/shares 管理列表", st == 200 and "shares" in body, f"status={st} {body}")
+
+        # 只发单个文件后，目录相关的公开接口应全部下线
+        st, _, _ = c.get(f"/api/share/{token}/list")
+        check("目录浏览 /share/<token>/list 已下线", st == 404, f"status={st}")
+        st, raw, _ = c.get(f"/api/share/{token}/zip", expect_json=False)
+        check("打包下载 /share/<token>/zip 已下线", st == 404, f"status={st}")
+        st, _, _ = c.put(f"/api/share/{token}/upload?name=x.txt", raw=b"x",
+                         headers={"Content-Type": "application/octet-stream"})
+        check("投递上传 /share/<token>/upload 已下线", st == 404, f"status={st}")
+
+        # 负向用例 1：目录不能分享
+        st, body, _ = c.post("/api/shares", {"path": test_dir, "expiresIn": 3600})
+        check("拒绝分享文件夹（400 share_dir_unsupported）",
+              st == 400 and body.get("code") == "share_dir_unsupported", f"status={st} {body}")
+
+        # 负向用例 2 / 3：软链与路径经过软链（需要在服务器本地造软链）
+        if not args.file_root:
+            print(f"{DIM}    ! 未提供 --file-root，跳过软链分享用例（本地测试时传入即可）{RESET}")
+        else:
+            root = Path(args.file_root).resolve()
+            base = root / test_dir
+            try:
+                # 目标本身是软链
+                link_file = base / "link.bin"
+                link_file.unlink(missing_ok=True)
+                link_file.symlink_to(base / "upload.bin")
+                st, body, _ = c.post("/api/shares", {"path": f"{test_dir}/link.bin"})
+                check("拒绝分享软链接文件（400 share_symlink）",
+                      st == 400 and body.get("code") == "share_symlink", f"status={st} {body}")
+
+                # 路径中间一级是软链（文件本身是普通文件）
+                real_sub = base / "realsub"
+                real_sub.mkdir(exist_ok=True)
+                (real_sub / "inner.bin").write_bytes(b"inner")
+                link_dir = base / "linkdir"
+                if link_dir.is_symlink() or link_dir.is_file():
+                    link_dir.unlink()
+                link_dir.symlink_to(real_sub)
+                st, body, _ = c.post("/api/shares", {"path": f"{test_dir}/linkdir/inner.bin"})
+                check("拒绝分享路径经过软链的文件（400 share_path_unsupported）",
+                      st == 400 and body.get("code") == "share_path_unsupported", f"status={st} {body}")
+
+                # 已分享的文件被换成软链 → 公开下载接口必须再次拦住
+                swap = base / "swap.bin"
+                swap.write_bytes(b"before-swap")
+                st, body, _ = c.post("/api/shares", {"path": f"{test_dir}/swap.bin"})
+                if st == 200 and body.get("share", {}).get("token"):
+                    stoken = body["share"]["token"]
+                    created_shares.append(body["share"]["id"])
+                    swap.unlink()
+                    swap.symlink_to(base / "upload.bin")
+                    st, raw, _ = c.get(f"/api/share/{stoken}/file", expect_json=False)
+                    check("分享后文件被替换成软链 → /file 拒绝", st in (400, 410), f"status={st} {raw[:80]}")
+                else:
+                    check("分享后文件被替换成软链 → /file 拒绝", False, f"无法创建 swap 分享: {st} {body}")
+            except (OSError, NotImplementedError) as e:
+                print(f"{DIM}    ! 当前环境无法创建软链，跳过软链用例：{e}{RESET}")
 
         # 带密码的分享：无密码必须被拒，正确密码才放行
         st, body, _ = c.post("/api/shares", {"path": share_target, "password": "share-pass-123"})

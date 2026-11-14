@@ -159,7 +159,21 @@ export async function extractItem(path, destDir) {
 
 // ---------- 分享 / 路径 ----------
 
-export async function shareItem(path, name) {
+// 分享只支持普通文件；目录与软链接提前给出可读原因，不用等后端报错
+// （返回空字符串表示可以分享）
+export function shareBlockReason(entry) {
+  if (!entry) return '';
+  if (entry.type === 'dir') return '文件夹暂不支持分享，请先压缩成压缩包';
+  if (entry.type === 'symlink' || entry.type === 'broken' || entry.target) return '软链接不能分享';
+  return '';
+}
+
+export async function shareItem(path, name, entry) {
+  const blocked = shareBlockReason(entry);
+  if (blocked) {
+    notify({ type: 'error', title: '无法分享', body: blocked });
+    return false;
+  }
   const v = await promptDialog({
     title: `分享“${name}”`,
     wide: true,
@@ -170,7 +184,6 @@ export async function shareItem(path, name) {
       ] },
       { key: 'password', label: '访问密码（可选）', type: 'text' },
       { key: 'allowDownload', label: '允许下载', type: 'checkbox', value: true },
-      { key: 'allowUpload', label: '允许他人上传到此目录', type: 'checkbox', value: false },
       { key: 'maxDownloads', label: '下载次数上限（可选）', type: 'number' },
       { key: 'note', label: '备注（可选）', type: 'text' },
     ],
@@ -183,7 +196,6 @@ export async function shareItem(path, name) {
       expiresIn: v.expiresIn || null,
       password: v.password || null,
       allowDownload: !!v.allowDownload,
-      allowUpload: !!v.allowUpload,
       maxDownloads: v.maxDownloads || null,
       note: v.note,
     });

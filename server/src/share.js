@@ -1,13 +1,10 @@
 import { Router } from 'express';
-import fsp from 'node:fs/promises';
 import fs from 'node:fs';
 import path from 'node:path';
-import express from 'express';
 import bcrypt from 'bcryptjs';
-import archiver from 'archiver';
 import mime from 'mime-types';
-import { config, toAbs, toRel } from './config.js';
-import { safeJoin, sanitizeName, randomToken, uid, err, uniqueName } from './util.js';
+import { config, toRel } from './config.js';
+import { randomToken, uid, err, resolveShareTarget } from './util.js';
 import { getDB, saveDB } from './db.js';
 import { requireLogin } from './auth.js';
 
@@ -25,7 +22,16 @@ function checkPassword(s, req) {
   if (!bcrypt.compareSync(String(pw), s.passwordHash)) throw err(401, '需要访问密码', 'need_password');
 }
 
-function shareAbsDir(s) { return safeJoin(config.fileRoot, s.path); }
+// 分享只发单个普通文件：目录、软链接、路径经过软链接一律拒绝（见 util.resolveShareTarget）
+async function requireShareTarget(s) {
+  try {
+    return await resolveShareTarget(config.fileRoot, s.path);
+  } catch (e) {
+    // 创建后文件被删 → 链接还在但内容没了，用 410 区别于「非法路径」
+    if (e.status === 404) throw err(410, '该分享的文件已不存在', 'share_gone');
+    throw e;
+  }
+}
 
 // ================= 管理端（需登录） =================
 export const shareAdminRouter = Router();
@@ -35,23 +41,21 @@ shareAdminRouter.get('/shares', (req, res) => {
   res.json({ shares: getDB().shares.filter((s) => !s.canceled) });
 });
 
-shareAdminRouter.post('/shares', (req, res, next) => {
+shareAdminRouter.post('/shares', async (req, res, next) => {
   try {
-    const { path: rel, expiresIn, password, allowDownload = true, allowUpload = false, maxDownloads, note } = req.body || {};
-    const abs = safeJoin(config.fileRoot, rel);
-    const st = fs.statSync(abs);
+    const { path: rel, expiresIn, password, allowDownload = true, maxDownloads, note } = req.body || {};
+    // 目录 / 软链接 / 经过软链接 → 400，错误码区分原因，前端直接展示后端中文原因
+    const { abs, stat } = await resolveShareTarget(config.fileRoot, rel);
     const s = {
       id: uid(),
       token: randomToken(20),
       path: toRel(abs),
       name: path.basename(abs),
-      isDir: st.isDirectory(),
-      size: st.size,
+      size: stat.size,
       createdAt: Date.now(),
       expiresAt: expiresIn ? Date.now() + Number(expiresIn) * 1000 : null,
       passwordHash: password ? bcrypt.hashSync(String(password), 10) : null,
       allowDownload: !!allowDownload,
-      allowUpload: !!allowUpload,
       maxDownloads: maxDownloads ? Number(maxDownloads) : null,
       downloads: 0,
       note: String(note || '').slice(0, 200),
@@ -71,7 +75,6 @@ shareAdminRouter.patch('/shares/:id', (req, res, next) => {
     if (b.action === 'cancel') s.canceled = true;
     if (b.expiresIn !== undefined) s.expiresAt = b.expiresIn ? Date.now() + Number(b.expiresIn) * 1000 : null;
     if (b.allowDownload !== undefined) s.allowDownload = !!b.allowDownload;
-    if (b.allowUpload !== undefined) s.allowUpload = !!b.allowUpload;
     if (b.maxDownloads !== undefined) s.maxDownloads = b.maxDownloads ? Number(b.maxDownloads) : null;
     saveDB();
     res.json({ ok: true, share: s });
@@ -105,29 +108,10 @@ sharePublicRouter.get('/share/:token/meta', (req, res, next) => {
     const s = findShare(req.params.token);
     checkPassword(s, req);
     res.json({
-      name: s.name, isDir: s.isDir, size: s.size, note: s.note,
-      expiresAt: s.expiresAt, allowDownload: s.allowDownload, allowUpload: s.allowUpload,
+      name: s.name, size: s.size, note: s.note,
+      expiresAt: s.expiresAt, allowDownload: s.allowDownload,
       requiresPassword: !!s.passwordHash,
     });
-  } catch (e) { next(e); }
-});
-
-sharePublicRouter.get('/share/:token/list', async (req, res, next) => {
-  try {
-    const s = findShare(req.params.token);
-    checkPassword(s, req);
-    if (!s.isDir) throw err(400, '该分享不是文件夹');
-    const dir = safeJoin(shareAbsDir(s), req.query.sub || '');
-    const names = await fsp.readdir(dir).catch(() => []);
-    const entries = [];
-    for (const name of names) {
-      try {
-        const st = await fsp.stat(path.join(dir, name));
-        entries.push({ name, type: st.isDirectory() ? 'dir' : 'file', size: st.size, mtimeMs: st.mtimeMs });
-      } catch { /* 忽略 */ }
-    }
-    entries.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name, 'zh') : a.type === 'dir' ? -1 : 1));
-    res.json({ entries });
   } catch (e) { next(e); }
 });
 
@@ -137,12 +121,11 @@ sharePublicRouter.get('/share/:token/file', async (req, res, next) => {
     checkPassword(s, req);
     const inline = req.query.inline === '1';
     if (!inline && !s.allowDownload) throw err(403, '该分享不允许下载', 'no_download');
-    const full = safeJoin(shareAbsDir(s), req.query.sub || '');
-    const st = await fsp.stat(full);
-    if (st.isDirectory()) throw err(400, '目录请使用打包下载');
+    // 创建后目标可能被换成目录或软链，所以每次请求都重新校验，并按 realpath 读取
+    const { real, stat: st } = await requireShareTarget(s);
 
     if (!inline) { s.downloads++; saveDB(); }
-    const name = path.basename(full);
+    const name = path.basename(real);
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Content-Type', mime.lookup(name) || 'application/octet-stream');
     const ascii = name.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
@@ -158,43 +141,10 @@ sharePublicRouter.get('/share/:token/file', async (req, res, next) => {
           return res.end();
         }
         res.status(206).setHeader('Content-Range', `bytes ${start}-${end}/${st.size}`).setHeader('Content-Length', end - start + 1);
-        return fs.createReadStream(full, { start, end }).on('error', () => res.destroy()).pipe(res);
+        return fs.createReadStream(real, { start, end }).on('error', () => res.destroy()).pipe(res);
       }
     }
     res.setHeader('Content-Length', st.size);
-    fs.createReadStream(full).on('error', () => res.destroy()).pipe(res);
-  } catch (e) { next(e); }
-});
-
-sharePublicRouter.get('/share/:token/zip', async (req, res, next) => {
-  try {
-    const s = findShare(req.params.token);
-    checkPassword(s, req);
-    if (!s.allowDownload) throw err(403, '该分享不允许下载', 'no_download');
-    const dir = safeJoin(shareAbsDir(s), req.query.sub || '');
-    const name = `${path.basename(dir)}.zip`;
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="share.zip"; filename*=UTF-8''${encodeURIComponent(name)}`);
-    s.downloads++; saveDB();
-    const archive = archiver('zip', { zlib: { level: 5 } });
-    archive.on('error', () => {});
-    res.on('close', () => archive.abort());
-    archive.pipe(res);
-    archive.directory(dir, path.basename(dir));
-    await archive.finalize();
-  } catch (e) { next(e); }
-});
-
-// 允许上传的分享：单请求投递（raw body，上限 100 MB）
-const rawBody = express.raw({ type: () => true, limit: '101mb' });
-sharePublicRouter.put('/share/:token/upload', rawBody, async (req, res, next) => {
-  try {
-    const s = findShare(req.params.token);
-    checkPassword(s, req);
-    if (!s.allowUpload) throw err(403, '该分享不允许上传');
-    if (!Buffer.isBuffer(req.body) || !req.body.length) throw err(400, '空内容');
-    const name = uniqueName(shareAbsDir(s), sanitizeName(path.basename(String(req.query.name || `投递文件-${Date.now()}`))));
-    await fsp.writeFile(path.join(shareAbsDir(s), name), req.body);
-    res.json({ ok: true, name });
+    fs.createReadStream(real).on('error', () => res.destroy()).pipe(res);
   } catch (e) { next(e); }
 });

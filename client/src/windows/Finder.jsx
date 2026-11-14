@@ -8,7 +8,7 @@ import { api } from '../api.js';
 import { addUpload, pickFiles } from '../transfers.js';
 import {
   createItem, uploadTo, copyToClipboard, cutToClipboard, pasteInto, trashItems, renameItem,
-  downloadItem, downloadItems, compressItems, extractItem, shareItem, copyPathText, isArchive,
+  downloadItem, downloadItems, compressItems, extractItem, shareItem, shareBlockReason, copyPathText, isArchive,
 } from '../fsops.js';
 import { FileIcon, IconSearch, IconChevron, IconGrid, IconList, IconRefresh, IconNewFolder, IconUpload } from '../icons.jsx';
 
@@ -135,7 +135,7 @@ export default function Finder({ win }) {
       case 'goFolder': return goToFolder();
       case 'download': if (selPaths.length === 1 && selectedEntries[0]?.type !== 'dir') downloadPath(selPaths[0]); else if (selPaths.length) downloadZip(selPaths); return;
       case 'compress': if (selPaths.length) return compressDialog(selPaths); return;
-      case 'share': if (selectedEntries[0]) return shareDialog({ path: joinPath(cwd, selectedEntries[0].name), name: selectedEntries[0].name }); return;
+      case 'share': if (selectedEntries[0]) return shareDialog({ path: joinPath(cwd, selectedEntries[0].name), name: selectedEntries[0].name, entry: selectedEntries[0] }); return;
       case 'quickLook': {
         const files = selectedEntries.filter((e) => e.type !== 'dir').map((e) => joinPath(cwd, e.name));
         if (files.length) openQuickLook(files, 0);
@@ -301,8 +301,8 @@ export default function Finder({ win }) {
     return extractItem(joinPath(cwd, entry.name), cwd);
   }
 
-  function shareDialog({ path, name }) {
-    return shareItem(path, name);
+  function shareDialog({ path, name, entry }) {
+    return shareItem(path, name, entry);
   }
 
   // ---------- 右键菜单 ----------
@@ -327,7 +327,7 @@ export default function Finder({ win }) {
       { label: '压缩…', action: () => compressDialog(sel.has(entry.name) ? [...sel].map((n) => joinPath(cwd, n)) : [paths]) },
       ...(isArchive(entry) ? [{ label: '解压到…', action: () => extractDialog(entry) }] : []),
       '-',
-      { label: '分享…', action: () => shareDialog({ path: paths, name: entry.name }) },
+      { label: shareBlockReason(entry) ? `分享…（${shareBlockReason(entry)}）` : '分享…', disabled: !!shareBlockReason(entry), action: () => shareDialog({ path: paths, name: entry.name, entry }) },
       { label: '显示简介', action: () => openWindow('info', { path: paths }) },
       { label: '复制路径', action: () => copyPathText(paths) },
       ...(entry.type === 'dir' ? [{ label: '在终端中打开', action: () => openWindow('terminal', { cwd: paths }) }] : []),
