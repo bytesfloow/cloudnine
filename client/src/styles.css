@@ -265,6 +265,19 @@ a { color: var(--accent); text-decoration: none; }
 }
 .window:not(.focused) { box-shadow: 0 10px 34px rgba(0,0,0,.18); }
 .window.minimized { display: none; }
+
+/* 桌面/窗口的界面文字不参与浏览器原生拖选。
+   双击打开文件夹时窗口在 dblclick 里同步挂载，若紧接着按住左键甩鼠标，
+   浏览器的拖选锚点会落在桌面/工具栏，终点落在窗口底部；窗口 DOM 夹在两者之间，
+   按文档顺序整段被卷入选区，看起来像「窗口内文字被全选」。
+   这里默认禁选外壳，只放行输入框与真正需要复制的内容展示区。 */
+.desktop, .window { user-select: none; -webkit-user-select: none; }
+.desktop :is(
+  input, textarea, [contenteditable],
+  table, .preview-text, .preview-pre, .preview-csv, .preview-archive, .preview-office,
+  .preview-unknown, .preview-error, .md-render, .info-window,
+  .finder-empty, .transfer-list, .shares-table-wrap
+) { user-select: text; -webkit-user-select: text; }
 .window-titlebar {
   /* 39px：扣除 1px 底边框后内容高度为偶数 38px，Windows 风格按钮可整格占满，无半像素 */
   height: 39px; flex: none; display: flex; align-items: center; padding: 0 0 0 12px;

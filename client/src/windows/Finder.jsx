@@ -192,6 +192,8 @@ export default function Finder({ win }) {
   // 橡皮筋框选
   function startMarquee(e) {
     if (e.button !== 0 || e.metaKey || e.ctrlKey || e.target.closest('.finder-item, input, button, .rename-input')) return;
+    // 空白处只做橡皮筋框选，别让浏览器同时启动原生文本拖选
+    e.preventDefault();
     const box = bodyRef.current.getBoundingClientRect();
     const sx = e.clientX, sy = e.clientY;
     const onMove = (ev) => {

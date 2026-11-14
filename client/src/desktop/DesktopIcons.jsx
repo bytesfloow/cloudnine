@@ -178,6 +178,8 @@ export default function DesktopIcons() {
   function startMarquee(e) {
     if (e.button !== 0 || e.metaKey || e.ctrlKey) return;
     if (e.target.closest('.desktop-icon, .desktop-sysicon, input, button')) return;
+    // 空白处只做橡皮筋框选，别让浏览器同时启动原生文本拖选（拖动会越过新开的窗口）
+    e.preventDefault();
     const box = layerRef.current.getBoundingClientRect();
     const sx = e.clientX, sy = e.clientY;
     const onMove = (ev) => {
