@@ -12,6 +12,12 @@ const fileConfig = (() => {
 
 const env = (k) => process.env[k];
 const num = (v, d) => (v === undefined || v === null || v === '' || Number.isNaN(Number(v)) ? d : Number(v));
+// 布尔配置：环境变量只能给字符串，直接 Boolean('false') 会得到 true，所以显式识别
+const bool = (v, d) => {
+  if (v === undefined || v === null || v === '') return d;
+  if (typeof v === 'boolean') return v;
+  return /^(1|true|yes|on)$/i.test(String(v).trim());
+};
 const isWin = process.platform === 'win32';
 
 export const config = {
@@ -28,7 +34,10 @@ export const config = {
   trashRetentionDays: num(env('TRASH_RETENTION_DAYS') ?? fileConfig.trashRetentionDays, 30),
   maxExtractMB: num(env('MAX_EXTRACT_MB') ?? fileConfig.maxExtractMB, 8192),
   auditCommands: Boolean(env('AUDIT_COMMANDS') ?? fileConfig.auditCommands ?? false),
-  trustProxy: Boolean(env('TRUST_PROXY') ?? fileConfig.trustProxy ?? true),
+  // 是否信任反向代理传来的 X-Forwarded-For / X-Forwarded-Proto。
+  // 默认 false：直连部署时客户端自己伪造这个头就能冒充任意来源 IP，登录限流的 IP 维度形同虚设。
+  // 只有确实在 nginx 等反向代理后面才设 TRUST_PROXY=1，且反代必须覆盖写（而不是追加）该头。
+  trustProxy: bool(env('TRUST_PROXY') ?? fileConfig.trustProxy, false),
   defaultShell: env('SHELL') ?? fileConfig.shell ?? (isWin ? process.env.ComSpec || 'cmd.exe' : 'bash'),
   // 终端默认工作目录：留空表示按 defaultCwd() 自动推导（见下）
   terminalCwd: String(env('TERMINAL_CWD') ?? fileConfig.terminalCwd ?? ''),

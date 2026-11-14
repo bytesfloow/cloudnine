@@ -141,7 +141,11 @@ REMEMBER_DAYS=30
 MAX_UPLOAD_MB=4096
 TRASH_RETENTION_DAYS=30
 MAX_EXTRACT_MB=8192
-TRUST_PROXY=true
+# 本机由 nginx 反向代理（scripts/nginx/cloudnine.conf）提供 80 端口，
+# 需要信任代理头才能拿到真实客户端 IP（登录限流按 IP 计数靠它）。
+# 若改成服务直连对外（无反向代理），**必须删掉这一行**，
+# 否则客户端伪造 X-Forwarded-For 就能绕过登录限流。
+TRUST_PROXY=1
 EOF
   chmod 640 /etc/cloudnine/cloudnine.env
   chown root:"$SERVICE_USER" /etc/cloudnine/cloudnine.env

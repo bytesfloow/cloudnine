@@ -11,6 +11,9 @@ Group=@SERVICE_USER@
 WorkingDirectory=@DEPLOY_DIR@/server
 ExecStart=@NODE_BIN@ src/index.js
 EnvironmentFile=-/etc/cloudnine/cloudnine.env
+# 来源 IP：应用默认不信任 X-Forwarded-For（直连部署必须如此，否则伪造该头即可绕过登录限流）。
+# 本机经 nginx 反代（scripts/nginx/cloudnine.conf）时，由 bootstrap.sh 写
+# TRUST_PROXY=1 到上面的环境文件；手工部署时请自行确认，直连部署不要设。
 Restart=always
 RestartSec=3
 

@@ -190,6 +190,8 @@ def main() -> None:
     ap.add_argument("--public-url", help="对外访问 URL（默认 http://HOST/）")
     ap.add_argument("--no-build", action="store_true", help="跳过前端构建")
     ap.add_argument("--skip-smoke", action="store_true", help="跳过部署后的冒烟测试")
+    ap.add_argument("--direct", action="store_true",
+                    help="服务直连对外（前面没有反向代理）：不写 TRUST_PROXY，忽略代理头")
     args = ap.parse_args()
 
     if not args.host:
@@ -233,6 +235,22 @@ def main() -> None:
             as_root=True,
         )
         ok("引导完成")
+
+    # ---------- 2.5 来源 IP 判定 ----------
+    # 部署模板前面有 nginx：不告诉应用它在反代后面，req.ip 会永远是 127.0.0.1，
+    # 登录限流的 IP 维度会把所有客户端算成同一个来源（已被用户名维度兑底）。
+    # 直连部署则相反，必须保持关闭，否则客户端伪造 X-Forwarded-For 即可绕过限流。
+    if args.direct:
+        info("直连部署：不写 TRUST_PROXY（忽略代理头，防止伪造 X-Forwarded-For）")
+    else:
+        info("反向代理部署：确保 TRUST_PROXY=1")
+        remote_run(
+            args,
+            "f=/etc/cloudnine/cloudnine.env; mkdir -p /etc/cloudnine; touch \"$f\"; "
+            "if grep -q '^TRUST_PROXY=' \"$f\"; then sed -i 's/^TRUST_PROXY=.*/TRUST_PROXY=1/' \"$f\"; "
+            "else echo 'TRUST_PROXY=1' >> \"$f\"; fi; grep -n '^TRUST_PROXY=' \"$f\"",
+            as_root=True,
+        )
 
     # ---------- 3. 部署 ----------
     info("执行部署")

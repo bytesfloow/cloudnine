@@ -9,26 +9,52 @@ import { err } from './util.js';
 const COOKIE = 'cloudnine_sid';
 const day = (n) => n * 24 * 3600 * 1000;
 
-// 登录限流：10 分钟窗口内失败 10 次 → 锁定 15 分钟
+// 登录限流：双层计数，任一维度超限即锁定
+// - 按用户名：15 分钟内 20 次失败 → 锁 15 分钟（防定点爆破）
+// - 按 IP：15 分钟内 60 次失败 → 锁 15 分钟（阈值放宽，只挡横扫；同一出口 IP 可能有多个人）
+// 两个维度缺一不可：只按 IP 时换个 IP 就能继续爆，只按用户名时换用户名就能横扫。
 const loginFails = new Map();
-const WINDOW = 10 * 60 * 1000;
-const MAX_FAILS = 10;
+const WINDOW_MS = 15 * 60 * 1000;
 const LOCK_MS = 15 * 60 * 1000;
+const MAX_FAILS_USER = 20;
+const MAX_FAILS_IP = 60;
 
-function recordFail(key) {
+const userKey = (username) => `u:${String(username || '').trim().slice(0, 64)}`;
+const ipKey = (req) => `ip:${req.ip || ''}`;
+
+function recordFail(key, max) {
   const now = Date.now();
   let rec = loginFails.get(key);
-  if (!rec || now - rec.firstAt > WINDOW) rec = { count: 0, firstAt: now, lockedUntil: 0 };
+  if (!rec || now - rec.firstAt > WINDOW_MS) rec = { count: 0, firstAt: now, lockedUntil: 0 };
   rec.count++;
-  if (rec.count >= MAX_FAILS) { rec.lockedUntil = now + LOCK_MS; rec.count = 0; }
+  if (rec.count >= max) { rec.lockedUntil = now + LOCK_MS; rec.count = 0; }
   loginFails.set(key, rec);
 }
+
+// 返回仍在锁定期内的那一层（{dim, rec}），未锁定返回 null
+function lockedLayer(keys) {
+  const now = Date.now();
+  for (const { key, dim } of keys) {
+    const rec = loginFails.get(key);
+    if (rec && rec.lockedUntil > now) return { dim, rec };
+  }
+  return null;
+}
+
+// 定期清理过期记录：否则 Map 会随「试过的用户名 / 来源 IP」无限增长
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, rec] of loginFails) {
+    if (rec.lockedUntil > now) continue;
+    if (now - rec.firstAt > WINDOW_MS) loginFails.delete(key);
+  }
+}, 60 * 1000).unref();
 
 const validPassword = (p) => typeof p === 'string' && p.length >= 8 && /[a-zA-Z]/.test(p) && /\d/.test(p);
 
 function cookieOpts(req) {
-  const https = req.secure || String(req.headers['x-forwarded-proto'] || '').includes('https');
-  return { httpOnly: true, sameSite: 'lax', secure: https, path: '/' };
+  // req.secure 已经考虑了 trust proxy 配置：只有信任代理时才会采信 X-Forwarded-Proto
+  return { httpOnly: true, sameSite: 'lax', secure: req.secure, path: '/' };
 }
 
 export function requireLogin(req, res, next) {
@@ -90,17 +116,24 @@ authRouter.post('/login', (req, res, next) => {
   const db = getDB();
   if (!db.account) return next(err(400, '系统尚未初始化'));
   const { username, password, remember } = req.body || {};
-  const key = `${req.ip}|${String(username || '').slice(0, 64)}`;
-  const rec = loginFails.get(key);
-  if (rec && rec.lockedUntil > Date.now()) {
-    return next(err(429, `失败次数过多，请 ${Math.ceil((rec.lockedUntil - Date.now()) / 60000)} 分钟后再试`));
+  const keys = [
+    { key: userKey(username), dim: 'user' },
+    { key: ipKey(req), dim: 'ip' },
+  ];
+  const locked = lockedLayer(keys);
+  if (locked) {
+    const mins = Math.ceil((locked.rec.lockedUntil - Date.now()) / 60000);
+    // 文案里写明是哪个维度超限，否则用户/运维不知道该换什么
+    const what = locked.dim === 'ip' ? '该 IP 登录失败次数过多' : '该用户名登录失败次数过多';
+    return next(err(429, `${what}，请 ${mins} 分钟后再试`, 'login_locked'));
   }
   const ok = typeof password === 'string' && String(username || '').trim() === db.account.username && bcrypt.compareSync(password, db.account.hash);
   if (!ok) {
-    recordFail(key);
+    recordFail(keys[0].key, MAX_FAILS_USER);
+    recordFail(keys[1].key, MAX_FAILS_IP);
     return next(err(401, '用户名或密码错误'));
   }
-  loginFails.delete(key);
+  for (const k of keys) loginFails.delete(k.key);
   const days = remember ? config.rememberDays : config.sessionDays;
   const token = createSession(req, days);
   res.cookie(COOKIE, token, { ...cookieOpts(req), maxAge: day(days) });

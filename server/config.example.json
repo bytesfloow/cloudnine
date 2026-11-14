@@ -10,6 +10,6 @@
   "trashRetentionDays": 30,
   "maxExtractMB": 8192,
   "auditCommands": false,
-  "trustProxy": true,
+  "trustProxy": false,
   "terminalCwd": ""
 }

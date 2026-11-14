@@ -14,7 +14,9 @@ ensureDirs();
 cleanOrphanTmp().catch(() => {});
 
 const app = express();
-if (config.trustProxy) app.set('trust proxy', true);
+// 只信任最近一跳（nginx）：固定跳数比 trust proxy=true 更保守，
+// 客户端伪造在 X-Forwarded-For 里塞的左侧值不会被采纳
+if (config.trustProxy) app.set('trust proxy', 1);
 
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -55,6 +57,10 @@ server.listen(config.port, config.host, async () => {
   console.log(`[${config.siteName}] 已启动: http://${config.host === '0.0.0.0' ? 'localhost' : config.host}:${config.port}`);
   console.log(`  文件根目录: ${config.fileRoot}`);
   console.log(`  数据目录:   ${config.dataDir}（废纸篓保留 ${config.trashRetentionDays} 天，启动时清理 ${n} 项）`);
+  // 运维据此确认「来源 IP」是否可信：直连部署不该把 X-Forwarded-For 当真
+  console.log(`  来源 IP:     ${config.trustProxy
+    ? '信任反向代理头（TRUST_PROXY 已开启，取 X-Forwarded-For 最近一跳）'
+    : '直连（忽略 X-Forwarded-For，用 TCP 对端地址；在 nginx 后面请设 TRUST_PROXY=1）'}`);
   if (!config.fileRoot.startsWith('/') && process.platform !== 'win32') console.warn('  ⚠ fileRoot 不是绝对路径');
 });
 
