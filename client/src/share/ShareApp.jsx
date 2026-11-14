@@ -15,20 +15,40 @@ export default function ShareApp() {
 
   const headers = () => (password ? { 'x-share-password': password } : {});
 
+  // 用密码换一个分享专属的 HttpOnly Cookie：图片/视频/PDF 由浏览器自己发请求，
+  // 带不上自定义头，靠这个 Cookie 才能预览。密码本身不进 URL（不进日志/Referer）。
+  async function unlock(pw) {
+    const r = await fetch(`/api/share/${token}/unlock`, {
+      method: 'POST',
+      headers: pw ? { 'x-share-password': pw } : {},
+    });
+    return r.ok;
+  }
+
+  async function loadMeta() {
+    const r = await fetch(`/api/share/${token}/meta`, { headers: headers() });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      if (r.status === 401 && d.code === 'need_password') { setNeedPassword(true); return; }
+      setError({ message: d.error || '链接无效', code: d.code });
+      return;
+    }
+    setNeedPassword(false);
+    setMeta(d);
+  }
+
+  // 进页先解锁（密码可能来自上次输入），再取元信息，这样密码对了就能直接预览
   useEffect(() => {
-    fetch(`/api/share/${token}/meta`, { headers: headers() })
-      .then(async (r) => {
-        const d = await r.json().catch(() => ({}));
-        if (!r.ok) {
-          if (r.status === 401 && d.code === 'need_password') { setNeedPassword(true); return; }
-          setError({ message: d.error || '链接无效', code: d.code });
-          return;
-        }
-        setMeta(d);
-        sessionStorage.setItem(`share-pw-${token}`, password);
-      })
-      .catch(() => setError({ message: '网络错误' }));
-  }, [token, password]);
+    (async () => {
+      const saved = sessionStorage.getItem(`share-pw-${token}`) || '';
+      if (saved && !(await unlock(saved))) {
+        // 上次存的密码已经不对（分享密码被改过）：清掉，让用户重新输
+        sessionStorage.removeItem(`share-pw-${token}`);
+        setPassword('');
+      }
+      try { await loadMeta(); } catch { setError({ message: '网络错误' }); }
+    })();
+  }, [token]);
 
   useEffect(() => {
     if (!meta) return;
@@ -43,10 +63,11 @@ export default function ShareApp() {
 
   async function submitPassword(e) {
     e.preventDefault();
+    // 先换 Cookie（子请求靠它），再取元信息；成功后不需要刷新，也不需要再输一次
+    if (!(await unlock(password))) { setError({ message: '密码错误', code: 'wrong_password' }); return; }
     setError('');
-    const r = await fetch(`/api/share/${token}/meta`, { headers: { 'x-share-password': password } });
-    if (r.ok) { setNeedPassword(false); setPassword(password); }
-    else setError({ message: '密码错误' });
+    sessionStorage.setItem(`share-pw-${token}`, password);
+    await loadMeta();
   }
 
   if (needPassword) {

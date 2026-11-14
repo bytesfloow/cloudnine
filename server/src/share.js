@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import mime from 'mime-types';
 import { config, toRel } from './config.js';
@@ -16,10 +17,30 @@ function findShare(token) {
   return s;
 }
 
+// 分享页解锁后的凭据 Cookie：只随该分享的请求发送（Path 精确到 token），HttpOnly
+const SHARE_COOKIE = 'cn_share_';
+const UNLOCK_MS = 12 * 3600 * 1000;
+
+// 解锁凭据 = HMAC(密码哈希, token)。不需要额外存储；密码一改哈希就变，旧凭据自动失效。
+// 用它而不是把密码拼进 URL：URL 会进访问日志、Referer 和浏览器历史。
+function unlockTicket(s) {
+  return crypto.createHmac('sha256', s.passwordHash).update(`share:${s.token}`).digest('base64url');
+}
+
+function ticketMatches(s, value) {
+  const got = Buffer.from(String(value || ''));
+  const want = Buffer.from(unlockTicket(s));
+  return got.length > 0 && got.length === want.length && crypto.timingSafeEqual(got, want);
+}
+
+// 密码校验：请求头（脚本/API 调用）或分享页换来的 HttpOnly Cookie。
+// 后者是必须的——<img>/<video>/<iframe> 由浏览器自己发请求，带不上自定义头。
 function checkPassword(s, req) {
   if (!s.passwordHash) return;
-  const pw = req.headers['x-share-password'] || req.query.pw || '';
-  if (!bcrypt.compareSync(String(pw), s.passwordHash)) throw err(401, '需要访问密码', 'need_password');
+  const pw = req.headers['x-share-password'];
+  if (typeof pw === 'string' && pw && bcrypt.compareSync(pw, s.passwordHash)) return;
+  if (ticketMatches(s, req.cookies?.[SHARE_COOKIE + s.token])) return;
+  throw err(401, '需要访问密码', 'need_password');
 }
 
 // 分享只发单个普通文件：目录、软链接、路径经过软链接一律拒绝（见 util.resolveShareTarget）
@@ -112,6 +133,27 @@ sharePublicRouter.get('/share/:token/meta', (req, res, next) => {
       expiresAt: s.expiresAt, allowDownload: s.allowDownload,
       requiresPassword: !!s.passwordHash,
     });
+  } catch (e) { next(e); }
+});
+
+// 用密码换一个分享专属的 HttpOnly Cookie，供图片/视频/PDF 等子请求自动携带。
+// 密码仍然只出现在请求头里，不进 URL。
+sharePublicRouter.post('/share/:token/unlock', (req, res, next) => {
+  try {
+    const s = findShare(req.params.token);
+    if (!s.passwordHash) return res.json({ ok: true, requiresPassword: false });
+    const pw = req.headers['x-share-password'] ?? req.body?.password;
+    if (typeof pw !== 'string' || !pw || !bcrypt.compareSync(pw, s.passwordHash)) {
+      return next(err(401, '密码错误', 'wrong_password'));
+    }
+    res.cookie(SHARE_COOKIE + s.token, unlockTicket(s), {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: req.secure,
+      path: `/api/share/${s.token}`,
+      maxAge: UNLOCK_MS,
+    });
+    res.json({ ok: true });
   } catch (e) { next(e); }
 });
 

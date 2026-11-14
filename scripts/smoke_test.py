@@ -384,6 +384,29 @@ def main() -> int:
             st4, body4, _ = c.get(f"/api/share/{ptoken}/meta",
                                   headers={"x-share-password": "wrong"})
             check("带密码分享：错误密码被拒 401", st4 == 401, f"status={st4} {body4}")
+
+            # 分享页预览靠解锁 Cookie：图片/视频/PDF 是浏览器自己发的子请求，带不上自定义头
+            st5, body5, _ = c.post(f"/api/share/{ptoken}/unlock",
+                                  headers={"x-share-password": "wrong"})
+            check("POST /share/<token>/unlock 密码错误被拒 401", st5 == 401, f"status={st5} {body5}")
+
+            st6, body6, hdrs6 = c.post(f"/api/share/{ptoken}/unlock",
+                                      headers={"x-share-password": "share-pass-123"})
+            set_cookie = str(hdrs6.get("Set-Cookie") or hdrs6.get("set-cookie") or "")
+            check("POST /share/<token>/unlock 正确密码拿到 HttpOnly 预览凭据",
+                  st6 == 200 and "HttpOnly" in set_cookie and f"Path=/api/share/{ptoken}" in set_cookie,
+                  f"status={st6} set-cookie={set_cookie[:120]}")
+
+            # 不再带密码头，只靠 Cookie 取文件（浏览器子请求的真实形态）
+            st7, raw7, _ = c.get(f"/api/share/{ptoken}/file?inline=1", expect_json=False)
+            check("仅凭解锁 Cookie 可以预览（不带密码头）",
+                  st7 == 200 and raw7 == up_content, f"status={st7} len={len(raw7)}")
+
+            # 别人的浏览器没有该 Cookie → 依旧拿不到内容
+            c2 = Client(args.url)
+            st8, _, _ = c2.get(f"/api/share/{ptoken}/file?inline=1", expect_json=False)
+            check("无密码无 Cookie 的访客仍拿不到内容", st8 == 401, f"status={st8}")
+
             created_shares.append(body["share"]["id"])
 
     # ---------- 6. 废纸篓 ----------
