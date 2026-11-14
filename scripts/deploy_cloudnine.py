@@ -5,7 +5,7 @@
   1. 可选：把本地已提交的改动推送到 GitHub
   2. SSH 到目标服务器，拉取代码 → 安装依赖 → 构建 → 重启 → 健康检查
   3. 首次部署时自动走 bootstrap.sh（装 Node/nginx、建账号、配 systemd）
-  4. 部署完成后在本地跑一遍 API 冒烟测试
+  4. 部署完成后在服务器本机跑一遍 API 冒烟测试（传入实际 FILE_ROOT，含软链用例）
 
 用法：
   # 首次部署
@@ -47,8 +47,14 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SECRETS_DIR = REPO_ROOT / ".secrets"
+# 服务端部署目录（与 scripts/deploy_remote.sh 的 DEPLOY_DIR 保持同默认值，可用环境变量覆盖）
+DEPLOY_DIR = os.environ.get("CN_DEPLOY_DIR", "/opt/cloudnine")
+# 服务端运行参数文件（systemd 的 EnvironmentFile，也是 FILE_ROOT / TRUST_PROXY 的唯一来源）
+ENV_FILE = "/etc/cloudnine/cloudnine.env"
 
-GREEN, RED, YELLOW, CYAN, DIM, RESET = "\033[32m", "\033[31m", "\033[33m", "\033[36m", "\033[2m", "\033[0m"
+GREEN, RED, YELLOW, CYAN, DIM, BOLD, RESET = (
+    "\033[32m", "\033[31m", "\033[33m", "\033[36m", "\033[2m", "\033[1m", "\033[0m",
+)
 
 
 def load_secrets() -> list[str]:
@@ -149,6 +155,51 @@ def remote_run(args: argparse.Namespace, remote_cmd: str, *, as_root: bool = Fal
     return run(cmd, env=env)
 
 
+def read_remote_file_root(args: argparse.Namespace) -> str | None:
+    """读该次部署实际生效的 FILE_ROOT（与服务端 systemd EnvironmentFile 同源，不硬编码）。
+
+    优先级跟 server/src/config.js 一致：/etc/cloudnine/cloudnine.env > server/config.json。
+    只有路径在服务器上确实存在且可读才返回，否则返回 None（由调用方大声告警，不静默跳过）。
+    """
+    read_json = "import json,sys;print(json.load(open(sys.argv[1])).get('fileRoot') or '')"
+    probe = (
+        f"f={shlex.quote(ENV_FILE)}; v=''; "
+        "if [ -f \"$f\" ]; then v=$(grep -E '^FILE_ROOT=' \"$f\" | tail -1 | cut -d= -f2-); fi; "
+        f"if [ -z \"$v\" ] && [ -f {DEPLOY_DIR}/server/config.json ]; then "
+        f"v=$(python3 -c {shlex.quote(read_json)} {DEPLOY_DIR}/server/config.json 2>/dev/null); fi; "
+        "if [ -n \"$v\" ] && [ -e \"$v\" ] && [ -r \"$v\" ]; then printf '%s' \"$v\"; fi; true"
+    )
+    proc = remote_run(args, probe, as_root=True)
+    return (proc.stdout or "").strip().splitlines()[-1].strip() if (proc.stdout or "").strip() else None
+
+
+def smoke_command(file_root: str | None) -> str:
+    """服务器本机执行的冒烟测试命令（只有服务器上才访问得到 FILE_ROOT）。"""
+    parts = ["python3", "scripts/smoke_test.py", "--url", "http://127.0.0.1:8480/"]
+    if file_root:
+        parts += ["--file-root", file_root]
+    return f"cd {shlex.quote(DEPLOY_DIR)} && " + " ".join(shlex.quote(p) for p in parts)
+
+
+def warn_all(lines: list[str]) -> None:
+    """成块黄色告警：覆盖缺口必须一眼看到，不能混在一堆日志里。"""
+    for line in lines:
+        print(f"{YELLOW}{BOLD}  ⚠ {line}{RESET}", flush=True)
+
+
+def warn_smoke_without_file_root() -> None:
+    """读不到 FILE_ROOT 时把「哪几条用例没跑」明确说清楚，而不是静默跳过。"""
+    warn_all([
+        "读不到服务端的 FILE_ROOT（env 文件里没有 FILE_ROOT=，或路径不存在/不可读）",
+        "本次冒烟测试【未覆盖】这 3 条安全用例：",
+        "  1) 软链接文件不能分享（share_symlink）",
+        "  2) 路径经过软链不能分享（share_path_unsupported）",
+        "  3) 分享后文件被替换成软链 → /file 拒绝",
+        "补齐办法：在服务器上确认 FILE_ROOT，然后执行：",
+        "  python3 scripts/smoke_test.py --url http://127.0.0.1:8480/ --file-root <FILE_ROOT>",
+    ])
+
+
 def health_check(url: str, retries: int = 12, interval: float = 2.0) -> dict | None:
     for i in range(1, retries + 1):
         try:
@@ -246,7 +297,7 @@ def main() -> None:
         info("反向代理部署：确保 TRUST_PROXY=1")
         remote_run(
             args,
-            "f=/etc/cloudnine/cloudnine.env; mkdir -p /etc/cloudnine; touch \"$f\"; "
+            f"f={shlex.quote(ENV_FILE)}; mkdir -p \"$(dirname \"$f\")\"; touch \"$f\"; "
             "if grep -q '^TRUST_PROXY=' \"$f\"; then sed -i 's/^TRUST_PROXY=.*/TRUST_PROXY=1/' \"$f\"; "
             "else echo 'TRUST_PROXY=1' >> \"$f\"; fi; grep -n '^TRUST_PROXY=' \"$f\"",
             as_root=True,
@@ -257,7 +308,7 @@ def main() -> None:
     flags = " --no-build" if args.no_build else ""
     remote_run(
         args,
-        f"cd /opt/cloudnine && bash scripts/deploy_remote.sh{flags}",
+        f"cd {DEPLOY_DIR} && bash scripts/deploy_remote.sh{flags}",
     )
 
     # ---------- 4. 健康检查 ----------
@@ -270,11 +321,15 @@ def main() -> None:
 
     # ---------- 5. 冒烟测试 ----------
     if not args.skip_smoke:
-        info("运行 API 冒烟测试")
-        smoke = subprocess.run(
-            [sys.executable, str(REPO_ROOT / "scripts" / "smoke_test.py"), "--url", public_url],
-            cwd=REPO_ROOT, text=True,
-        )
+        # 在服务器本机跑：软链用例要直接在 FILE_ROOT 里造软链，开发机访问不到该路径。
+        # FILE_ROOT 从本次部署实际生效的配置里读（env 文件 > server/config.json），不硬编码。
+        info("运行 API 冒烟测试（服务器本机，经 127.0.0.1:8480）")
+        file_root = read_remote_file_root(args)
+        if file_root:
+            ok(f"FILE_ROOT = {file_root}（3 条软链用例会真的执行）")
+        else:
+            warn_smoke_without_file_root()
+        smoke = remote_run(args, smoke_command(file_root), as_root=True)
         if smoke.returncode != 0:
             err("冒烟测试未通过")
             raise SystemExit(1)

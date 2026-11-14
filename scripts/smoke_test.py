@@ -29,6 +29,7 @@ GREEN, RED, YELLOW, CYAN, DIM, BOLD, RESET = (
 
 PASSED: list[str] = []
 FAILED: list[tuple[str, str]] = []
+SKIPPED: list[str] = []   # 未执行（环境/参数不满足）的用例，汇总时显式提醒，避免「全绿」误导
 
 
 class Client:
@@ -105,6 +106,11 @@ def check(name: str, cond: bool, detail: str = "") -> bool:
     return bool(cond)
 
 
+def skip(group: str, why: str) -> None:
+    SKIPPED.append(f"{group}（{why}）")
+    print(f"{YELLOW}  ⚠ 未执行{RESET} {group}  {DIM}{why}{RESET}")
+
+
 def section(title: str) -> None:
     print(f"\n{BOLD}{CYAN}▸ {title}{RESET}")
 
@@ -121,7 +127,8 @@ def main() -> int:
     ap.add_argument("--keep", action="store_true", help="保留测试产生的文件")
     ap.add_argument("--save-creds", help="把新建的测试账号写入该文件")
     ap.add_argument("--session", help="直接使用已有会话 token（跳过登录，用于测试已部署实例）")
-    ap.add_argument("--file-root", help="服务端 FILE_ROOT 的本地路径（仅本地测试时提供，用于构造软链用例）")
+    ap.add_argument("--file-root", help="服务端 FILE_ROOT 的本地路径；只有传了才会跑 3 条软链接相关用例，"
+                                         "部署脚本会自动把服务端的真实值传进来")
     args = ap.parse_args()
 
     c = Client(args.url)
@@ -316,7 +323,10 @@ def main() -> int:
 
         # 负向用例 2 / 3：软链与路径经过软链（需要在服务器本地造软链）
         if not args.file_root:
-            print(f"{DIM}    ! 未提供 --file-root，跳过软链分享用例（本地测试时传入即可）{RESET}")
+            skip("3 条软链接相关用例（软链文件 / 路径经过软链 / 分享后被替换成软链）",
+                 "未提供 --file-root，本次没有覆盖这部分加固")
+            print(f"{YELLOW}{BOLD}⚠ 缺少 --file-root：「分享不能穿越软链」的三条关键用例本次未执行。{RESET}{DIM}")
+            print(f"   加固后的真实环境中请加：--file-root <服务端 FILE_ROOT>{RESET}")
         else:
             root = Path(args.file_root).resolve()
             base = root / test_dir
@@ -355,7 +365,8 @@ def main() -> int:
                 else:
                     check("分享后文件被替换成软链 → /file 拒绝", False, f"无法创建 swap 分享: {st} {body}")
             except (OSError, NotImplementedError) as e:
-                print(f"{DIM}    ! 当前环境无法创建软链，跳过软链用例：{e}{RESET}")
+                skip("3 条软链接相关用例（软链文件 / 路径经过软链 / 分享后被替换成软链）",
+                     f"当前环境无法创建软链：{e}")
 
         # 带密码的分享：无密码必须被拒，正确密码才放行
         st, body, _ = c.post("/api/shares", {"path": share_target, "password": "share-pass-123"})
@@ -417,12 +428,17 @@ def main() -> int:
     # ---------- 汇总 ----------
     total = len(PASSED) + len(FAILED)
     print()
+    if SKIPPED:
+        print(f"{YELLOW}{BOLD}⚠ {len(SKIPPED)} 组用例未执行，覆盖面不完整：{RESET}")
+        for s in SKIPPED:
+            print(f"  {YELLOW}⚠{RESET} {s}")
     if FAILED:
         print(f"{RED}{BOLD}失败 {len(FAILED)}/{total}{RESET}")
         for name, detail in FAILED:
             print(f"  {RED}✗{RESET} {name}  {DIM}{detail}{RESET}")
         return 1
-    print(f"{GREEN}{BOLD}全部通过 {total}/{total}{RESET}")
+    tail = f"{YELLOW}（另有 {len(SKIPPED)} 组未执行）{RESET}" if SKIPPED else ""
+    print(f"{GREEN}{BOLD}全部通过 {total}/{total}{RESET}{tail}")
     return 0
 
 
