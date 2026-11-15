@@ -4,7 +4,7 @@ import {
   basename, dirname, joinPath, fmtSize, fmtTime, fmtSpeed, TEXT_EDITABLE, openFile,
 } from '../store.js';
 import { api } from '../api.js';
-import { shareBlockReason } from '../fsops.js';
+import { shareBlockReason, reportTrashFailed } from '../fsops.js';
 import { addUpload, pauseUpload, resumeUpload, cancelUpload, clearFinishedUploads, fmtProgress, fmtUploaded } from '../transfers.js';
 import { refreshDisk } from '../App.jsx';
 import { TerminalView } from '../windows/Terminal.jsx';
@@ -249,7 +249,8 @@ function FinderMobile({ dir, setDir, openFile }) {
       '-',
       { label: '移入废纸篓', danger: true, action: async () => {
         if (!await confirmDialog({ title: '移入废纸篓', message: `“${entry.name}”将移入废纸篓。`, okText: '移入' })) return;
-        await api.trash([joinPath(dir, entry.name)]);
+        const trashed = await api.trash([joinPath(dir, entry.name)]);
+        reportTrashFailed(trashed); // 字段不存在时无动作，兼容旧服务端
         bus.emit('fs:changed', dir); bus.emit('fs:changed', '__trash__');
       } },
     ];

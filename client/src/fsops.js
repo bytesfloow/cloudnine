@@ -62,6 +62,23 @@ export async function pasteInto(cwd) {
 
 // ---------- 删除 / 重命名 ----------
 
+/**
+ * 汇总报告「移入废纸篓」的部分失败（服务端返回 failed:[{path,error}]）。
+ * - 字段不存在或为空（旧服务端 / 全部成功）→ 什么也不做，保持原有行为；
+ * - 有失败 → 只弹一条汇总提示，按原因去重合并（不要一个文件一条）。
+ */
+export function reportTrashFailed(result) {
+  const failed = Array.isArray(result?.failed) ? result.failed : [];
+  if (!failed.length) return;
+  const reasons = [...new Set(failed.map((f) => String(f?.error || '').trim()).filter(Boolean))];
+  const unit = failed.length === 1 ? '该文件' : `${failed.length} 个文件`;
+  notify({
+    type: 'error',
+    title: failed.length === 1 ? '未能移入废纸篓' : '部分文件未能移入废纸篓',
+    body: `${unit}未能移入废纸篓${reasons.length ? `：${reasons.join('；')}` : ''}`,
+  });
+}
+
 // 移入废纸篓（paths 与 names 一一对应，names 只用于确认文案）
 export async function trashItems(paths, names) {
   if (!paths.length) return false;
@@ -74,7 +91,8 @@ export async function trashItems(paths, names) {
   });
   if (!ok) return false;
   try {
-    await api.trash(paths);
+    const r = await api.trash(paths);
+    reportTrashFailed(r);
     bus.emit('fs:changed', dirname(paths[0]));
     bus.emit('fs:changed', '__trash__');
     return true;
