@@ -9,9 +9,41 @@ import { mediaRouter, cleanOrphanTmp } from './media.js';
 import { shareAdminRouter, sharePublicRouter } from './share.js';
 import { setupTerminal } from './terminal.js';
 import { serveStatic } from './static.js';
+import { saveDB } from './db.js';
+
+// ================= 进程级兜底 =================
+// 注意：这里只兜「漏网的」异常，不是正常错误路径。流/路由里的错误必须在原地处理
+// （media.js 的 writeEntry、fs.js 的 try/catch），挂了全局兜底也不能拿它当挡箭牌。
+//
+// 已经有 server.on('error')，但它只管 http server 自己的错误（端口占用等），
+// 接不到定时器/流回调/异步链里抛出的东西。
+process.on('uncaughtException', (e, origin) => {
+  // 未捕获异常意味着进程状态已不可信（可能某个函数半途中断、锁没释放），
+  // 继续跑只会把问题放大：记完整堆栈 + 上下文，尽最大努力把待落盘数据写下去，
+  // 然后退出，交给 systemd 重启（scripts/systemd/cloudnine.service 是 Restart=always）。
+  console.error(`[fatal] uncaughtException（来源 ${origin || 'uncaughtException'}），进程即将退出`);
+  console.error(e?.stack || e);
+  try {
+    // db 的写盘本身不会抛（内部已捕获），这里再包一层以防万一
+    if (!saveDB(true)) console.error('[fatal] 退出前写盘未成功，最后几百毫秒的内存改动会丢失');
+  } catch (e2) {
+    console.error('[fatal] 退出前写盘抛出异常:', e2?.stack || e2);
+  }
+  // 略等一下让日志落盘（日志可能被重定向到文件，写入是异步的），然后退出
+  setTimeout(() => process.exit(1), 100);
+});
+
+process.on('unhandledRejection', (reason) => {
+  // 这类错误通常是某条异步链漏了 catch / await。
+  // 选择「记录但不退出」：单用户自托管场景下，为了一个后台任务的疏忽反复重启整个服务，
+  // 对使用者而言比留下一条醒目的日志更糟。但日志必须带完整堆栈，否则无从排查。
+  console.error('[fatal] unhandledRejection（未处理的 Promise 拒绝，代码漏了 catch/await）');
+  console.error(reason?.stack || reason);
+});
 
 ensureDirs();
-cleanOrphanTmp().catch(() => {});
+// 启动清理失败不能静默：否则遗留的 .cloudnine-tmp 会一直堆着没人知道
+cleanOrphanTmp().catch((e) => console.error('[media] 启动时清理遗留临时文件失败:', e.message));
 
 const app = express();
 // 只信任最近一跳（nginx）：固定跳数比 trust proxy=true 更保守，
@@ -52,8 +84,9 @@ const server = http.createServer(app);
 setupTerminal(server);
 
 server.listen(config.port, config.host, async () => {
-  const n = await cleanTrash().catch(() => 0);
-  setInterval(() => cleanTrash().catch(() => {}), 3600 * 1000).unref();
+  const n = await cleanTrash().catch((e) => { console.error('[trash] 启动时清理废纸篓失败:', e.message); return 0; });
+  // 定时清理也不能静默吞错（cleanTrash 内部会记清单损坏的情况，这里兜真正意外的异常）
+  setInterval(() => cleanTrash().catch((e) => console.error('[trash] 定时回收异常:', e.message)), 3600 * 1000).unref();
   console.log(`[${config.siteName}] 已启动: http://${config.host === '0.0.0.0' ? 'localhost' : config.host}:${config.port}`);
   console.log(`  文件根目录: ${config.fileRoot}`);
   console.log(`  数据目录:   ${config.dataDir}（废纸篓保留 ${config.trashRetentionDays} 天，启动时清理 ${n} 项）`);
@@ -65,6 +98,8 @@ server.listen(config.port, config.host, async () => {
 });
 
 server.on('error', (e) => {
-  console.error('服务启动失败:', e.message);
+  // 端口被占用、绑定地址不可用等：这类错误没救，直接退出让 systemd/pm2 处理
+  console.error('[fatal] 服务启动失败:', e.code ? `${e.code}: ` : '', e.message);
+  if (e.stack) console.error(e.stack);
   process.exit(1);
 });

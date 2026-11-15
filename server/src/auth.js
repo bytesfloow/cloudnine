@@ -2,7 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'node:crypto';
 import os from 'node:os';
-import { getDB, saveDB } from './db.js';
+import { getDB, saveDB, dbStatus, markInitialized } from './db.js';
 import { config } from './config.js';
 import { err } from './util.js';
 
@@ -88,17 +88,33 @@ function createSession(req, days) {
 
 export const authRouter = Router();
 
+// 库损坏时的统一文案：说清「发生了什么 + 已做了什么保护 + 怎么办」
+function dbDamagedError() {
+  const st = dbStatus();
+  const copy = st.corruptCopy ? `（已保留为 ${String(st.corruptCopy).split(/[\\/]/).pop()}）` : '';
+  return err(500, `数据库文件 db.json 加载失败${copy}：${st.error}。为免用空库覆盖已有数据，服务器已进入只读降级模式并拒绝此操作；请用备份恢复 db.json 后重启服务。`, 'db_damaged');
+}
+
 authRouter.get('/state', (req, res) => {
   const db = getDB();
+  const st = dbStatus();
+  // initialized 仍然只表达「是否已有账号」，字段结构不变；
+  // 库损坏时额外附带 dbDamaged / dbError，供前端提示和运维排查（新增字段，老前端忽略即可）
   res.json({
     initialized: !!db.account,
     siteName: config.siteName,
     version: config.version,
     user: db.account && req.cookies?.[COOKIE] && db.sessions[req.cookies[COOKIE]]?.expiresAt > Date.now() ? db.account.username : null,
+    dbDamaged: st.damaged,
+    dbError: st.damaged ? st.error : null,
   });
 });
 
 authRouter.post('/init', (req, res, next) => {
+  // 初始化守卫从 fail-open 改成 fail-closed：
+  // 以前只判 `db.account`，库损坏 → 空库 → 守卫失效 → 任何先打开站点的人都能建号接管。
+  // 现在先看库有没有成功加载过：加载失败就一律拒绝，哪怕 account 是空的。
+  if (dbStatus().damaged) return next(dbDamagedError());
   const db = getDB();
   if (db.account) return next(err(403, '系统已初始化，不能重复创建账号'));
   const { username, password, siteName } = req.body || {};
@@ -106,14 +122,24 @@ authRouter.post('/init', (req, res, next) => {
   if (!validPassword(password)) return next(err(400, '密码至少 8 位，且需包含字母与数字'));
   if (siteName) config.siteName = String(siteName).trim().slice(0, 50) || config.siteName;
   db.account = { username: String(username).trim(), hash: bcrypt.hashSync(password, 10), createdAt: Date.now() };
-  saveDB(true);
+  // 写盘失败时不能报成功：否则用户以为建好了号，重启后又回到「未初始化」，
+  // 而那一刻的 POST /api/init 又对任何人敞开
+  if (!saveDB(true)) {
+    db.account = null;
+    return next(err(500, '无法写入数据库文件 db.json（磁盘已满、只读或权限不足），账号未创建；请检查磁盘后重试。', 'db_write_failed'));
+  }
   const token = createSession(req, config.sessionDays);
+  // 初始化成功就落一个「曾经初始化过」的标记：以后 db.json 被删掉，也不会被当成全新安装
+  // （写失败只在 db.js 里记日志，不影响本次初始化）
+  markInitialized('init');
   res.cookie(COOKIE, token, { ...cookieOpts(req), maxAge: day(config.sessionDays) });
   res.json({ ok: true, user: db.account.username });
 });
 
 authRouter.post('/login', (req, res, next) => {
   const db = getDB();
+  // 库损坏时这里说「系统尚未初始化」会误导（用户会以为要重新初始化），给出真正的原因
+  if (dbStatus().damaged) return next(dbDamagedError());
   if (!db.account) return next(err(400, '系统尚未初始化'));
   const { username, password, remember } = req.body || {};
   const keys = [

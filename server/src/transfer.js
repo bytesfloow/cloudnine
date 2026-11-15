@@ -12,6 +12,40 @@ import { requireLogin } from './auth.js';
 export const transferRouter = Router();
 transferRouter.use(requireLogin);
 
+// ================= 流错误处理 =================
+// 裸 pipe 不转发错误：没人监听 'error' 时 Node 会让整个进程退出（这些链路跑在流回调里，
+// index.js 的 next(e) 接不到）。下面两个函数的职责：两端都挂 'error'，并且失败时
+// 该返回 JSON 就返回 JSON，已经发了数据就直接断开连接。
+function onceError(fn) {
+  let called = false;
+  return (e) => { if (called) return; called = true; fn(e); };
+}
+
+/**
+ * 文件流 → 响应（单文件下载，含 Range 请求）。
+ * - 源流报错（文件被删、磁盘读错）：头还没发出去就交给 express 返回中文错误；
+ *   已经在传了（headersSent）就 res.destroy()，不能挂着一个永远传不完的响应。
+ * - 客户端中途断开（关标签页/取消下载）：销毁读流，别继续白读磁盘。
+ */
+function pipeFileToResponse(stream, res, next) {
+  const fail = onceError((e) => {
+    stream.destroy();
+    console.error('[transfer] 下载流出错:', e?.code || e?.message || e);
+    if (res.headersSent || res.writableEnded) return res.destroy();
+    // 头还没发出去：撤掉与文件相关的响应头，否则 Content-Length 是文件大小、
+    // 实际要返回 JSON 错误，客户端会一直等剩余字节
+    res.removeHeader('Content-Length');
+    res.removeHeader('Content-Range');
+    res.removeHeader('Content-Type');
+    res.removeHeader('Content-Disposition');
+    next(err(500, '读取文件失败，下载已中断（文件可能已被移动或删除）'));
+  });
+  stream.on('error', fail);
+  res.on('error', fail);
+  res.on('close', () => { if (!res.writableEnded) stream.destroy(); });
+  stream.pipe(res);
+}
+
 // ================= 分片上传 =================
 // init → PUT chunk*（顺序追加）→ finish；断点续传：init 传 uploadId 续传 .part
 const uploads = new Map(); // id -> {destDir, finalName, partPath, received, size}
@@ -127,15 +161,15 @@ transferRouter.get('/download', async (req, res, next) => {
         res.setHeader('Content-Range', `bytes ${start}-${end}/${st.size}`);
         res.setHeader('Content-Length', end - start + 1);
         const stream = fs.createReadStream(full, { start, end });
-        stream.on('error', () => res.destroy());
-        return stream.pipe(res);
+        pipeFileToResponse(stream, res, next);
+        return;
       }
     }
     res.setHeader('Content-Length', st.size);
     if (req.method === 'HEAD') return res.end();
     const stream = fs.createReadStream(full);
-    stream.on('error', () => res.destroy());
-    stream.pipe(res);
+    // 源流错误 / 客户端断开都由 pipeFileToResponse 处理
+    pipeFileToResponse(stream, res, next);
   } catch (e) { next(e); }
 });
 
@@ -153,8 +187,21 @@ transferRouter.get('/download/zip', async (req, res, next) => {
     res.setHeader('Content-Disposition', `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(zipName)}`);
 
     const archive = archiver('zip', { zlib: { level: 5 } });
-    archive.on('error', (e) => { next(e); });
-    res.on('close', () => archive.abort());
+    // 打包出错（源文件读不到、压缩失败）与客户端中途断开都要有出口：
+    // 以前 archive.on('error', next) 在头已经发出去后调 next，是挂着一个半截响应
+    const fail = onceError((e) => {
+      console.error('[transfer] 打包下载失败:', e?.code || e?.message || e);
+      try { archive.abort(); } catch { /* 已经结束 */ }
+      if (res.headersSent || res.writableEnded) return res.destroy(); // 已经开传：只能断
+      res.removeHeader('Content-Length');
+      res.removeHeader('Content-Type');
+      res.removeHeader('Content-Disposition');
+      next(e?.status ? e : err(500, `打包下载失败：${e?.message || '压缩过程中出错'}`));
+    });
+    archive.on('error', fail);
+    res.on('error', fail);
+    // 客户端断开（关标签页 / 取消下载）：中止打包，别继续读盘
+    res.on('close', () => { if (!res.writableEnded) archive.abort(); });
     archive.pipe(res);
     for (const rel of paths) {
       const full = safeJoin(config.fileRoot, rel);
@@ -163,6 +210,6 @@ transferRouter.get('/download/zip', async (req, res, next) => {
       if (st.isDirectory()) archive.directory(full, path.basename(full));
       else if (st.isFile()) archive.file(full, { name: path.basename(full) });
     }
-    await archive.finalize();
+    await archive.finalize().catch(fail);
   } catch (e) { next(e); }
 });
