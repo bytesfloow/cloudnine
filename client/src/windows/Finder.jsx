@@ -96,13 +96,22 @@ export default function Finder({ win }) {
   }), [cwd, searchMode, recentMode, load]);
 
   // 菜单动作
+  // 这里不能只依赖 win.id：Finder 导航时组件不重挂载，固定依赖会让 act 闭包
+  // 永远拿到打开窗口时的 cwd，导致菜单“粘贴”把文件放回复制时的源目录。
   useEffect(() => bus.on('win-action', ({ windowId, action, arg }) => {
     if (windowId !== win.id) return;
     act(action, arg);
-  }), [win.id]);
+  }));
 
-  // 选择状态上报（空格快速预览）
-  useEffect(() => { setFinderSel(win.id, [...sel]); }, [sel, win.id]);
+  // 选择状态上报（空格快速预览）：上报完整相对路径而不是裸文件名，
+  // 否则在子文件夹按空格会请求 /api/fs/stat?path=1.jpg 这类不存在的路径。
+  useEffect(() => {
+    const paths = [...sel]
+      .map((name) => entries?.find((e) => e.name === name))
+      .filter((e) => e && e.type !== 'dir' && !e.trashId)
+      .map((e) => e.path || joinPath(cwd, e.name));
+    setFinderSel(win.id, paths);
+  }, [sel, entries, cwd, win.id]);
 
   function visibleNames() { return visible().map((e) => e.name); }
 

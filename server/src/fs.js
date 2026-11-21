@@ -3,6 +3,10 @@ import fsp from 'node:fs/promises';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 import { config, dirs, toAbs, toRel } from './config.js';
 import { safeJoin, sanitizeName, modeStr, uid, err, uniqueName, existsSync } from './util.js';
 import { getDB, saveDB } from './db.js';
@@ -128,8 +132,43 @@ export async function cleanTrash() {
   return keep.length;
 }
 
+// ---------- Windows 隐藏/系统属性 ----------
+// Node 的 Stats.mode 在 Windows 上只有 S_IFREG/S_IFDIR + 权限位，拿不到
+// FILE_ATTRIBUTE_HIDDEN/SYSTEM，所以列目录时一次性向 PowerShell 查询整个目录。
+// 查询失败不阻断浏览，退回常见隐藏文件名规则。
+const WIN_HIDDEN_SCRIPT = `
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+$dir = $env:CLOUDNINE_LIST_DIR
+$hidden = Get-ChildItem -LiteralPath $dir -Force -ErrorAction Stop | Where-Object {
+  ($_.Attributes -band [IO.FileAttributes]::Hidden) -ne 0 -or
+  ($_.Attributes -band [IO.FileAttributes]::System) -ne 0
+} | ForEach-Object { $_.Name }
+[Console]::Out.Write(($hidden -join [char]0))
+`;
+const WIN_HIDDEN_NAME = /^(?:desktop\.ini|thumbs\.db|ntuser\..*|pagefile\.sys|hiberfil\.sys|swapfile\.sys|bootmgr(?:\.efi)?|bootnxt|config\.msi|\$recycle\.bin|system volume information|programdata|appdata|documents and settings|\$winreagent|recovery)$/i;
+const winHiddenByName = (name) => WIN_HIDDEN_NAME.test(name) || /^~\$/.test(name);
+const hiddenNameCache = new Map(); // dir -> { at, names }
+
+async function winHiddenNames(dir) {
+  if (process.platform !== 'win32') return new Set();
+  const at = Date.now();
+  const cached = hiddenNameCache.get(dir);
+  if (cached && at - cached.at < 3000) return cached.names;
+  try {
+    const { stdout } = await execFileAsync('powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', WIN_HIDDEN_SCRIPT],
+      { env: { ...process.env, CLOUDNINE_LIST_DIR: dir }, windowsHide: true, timeout: 8000, maxBuffer: 8 * 1024 * 1024 });
+    const names = new Set(String(stdout).split('\0').filter(Boolean));
+    hiddenNameCache.set(dir, { at, names });
+    return names;
+  } catch {
+    return null; // 调用方用文件名规则兜底
+  }
+}
+
 // ---------- 条目信息 ----------
-async function statEntry(full, name) {
+async function statEntry(full, name, hiddenHint) {
   const st = await fsp.lstat(full);
   let type = st.isDirectory() ? 'dir' : st.isSymbolicLink() ? 'symlink' : 'file';
   let size = st.size, mtimeMs = st.mtimeMs, target = null;
@@ -146,7 +185,8 @@ async function statEntry(full, name) {
     birthtimeMs: st.birthtimeMs, atimeMs: st.atimeMs,
     mode: st.mode & 0o7777, modeStr: modeStr(st.mode),
     uid: st.uid, gid: st.gid,
-    hidden: name.startsWith('.'), target,
+    hidden: name.startsWith('.') || (process.platform === 'win32' &&
+      (hiddenHint == null ? winHiddenByName(name) : hiddenHint)), target,
   };
 }
 
@@ -160,9 +200,10 @@ fsRouter.get('/fs/list', async (req, res, next) => {
       if (e.code === 'ENOTDIR') throw err(400, '不是目录');
       throw e;
     });
+    const hiddenNames = await winHiddenNames(dir);
     const entries = [];
     for (const name of names) {
-      try { entries.push(await statEntry(path.join(dir, name), name)); } catch { /* 单个条目失败不影响整体 */ }
+      try { entries.push(await statEntry(path.join(dir, name), name, hiddenNames?.has(name))); } catch { /* 单个条目失败不影响整体 */ }
     }
     let free = null, total = null;
     try { const s = await fsp.statfs(dir); free = s.bsize * s.bavail; total = s.bsize * s.blocks; } catch { /* 忽略 */ }
@@ -173,7 +214,9 @@ fsRouter.get('/fs/list', async (req, res, next) => {
 fsRouter.get('/fs/stat', async (req, res, next) => {
   try {
     const full = safeJoin(R(), req.query.path);
-    const st = await statEntry(full, path.basename(full));
+    const cached = hiddenNameCache.get(path.dirname(full));
+    const hiddenHint = process.platform === 'win32' && cached ? cached.names.has(path.basename(full)) : undefined;
+    const st = await statEntry(full, path.basename(full), hiddenHint);
     res.json({ ...st, path: toRel(full), dir: toRel(path.dirname(full)) });
   } catch (e) { next(e); }
 });

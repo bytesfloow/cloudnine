@@ -199,9 +199,15 @@ export const promptDialog = ({ title, message, fields = [], okText = '好', dang
 
 // ---------- 右键菜单 ----------
 export function openContextMenu(x, y, items) {
-  setState({ contextMenu: { x, y, items } });
+  // 同一时刻只允许一层弹出层：打开右键菜单时先收起菜单栏下拉/通知面板
+  setState({ contextMenu: { x, y, items }, popover: null });
 }
 export const closeContextMenu = () => setState({ contextMenu: null });
+
+// 菜单栏下拉与右侧面板共用同一个全局槽位，Esc、右键、点击外部统一收口
+export const openPopover = (kind) =>
+  setState({ popover: kind ? { kind } : null, contextMenu: null });
+export const closePopover = () => setState({ popover: null });
 
 // ---------- 快速预览 ----------
 export function openQuickLook(paths, index = 0) {

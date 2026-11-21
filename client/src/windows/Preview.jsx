@@ -66,9 +66,9 @@ export function PreviewContent({ path, compact = false, onEdit, view, onDownload
           <div className="preview-toolbar">
             <ZoomTools view={v} onDownload={onDownload} />
             <span className="preview-hint">
-              <span className="hint-fine">滚轮缩放 · </span>拖动平移 ·{' '}
-              <span className="hint-fine">双击复位</span>
-              <span className="hint-coarse">双指缩放 · 双击复位</span>
+              <span className="hint-fine">滚轮缩放 · </span>
+              <span className="hint-coarse">双指缩放 · </span>
+              拖动平移 · 双击复位
             </span>
           </div>
         )}

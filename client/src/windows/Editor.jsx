@@ -16,8 +16,14 @@ import { go } from '@codemirror/lang-go';
 import { php } from '@codemirror/lang-php';
 import { rust } from '@codemirror/lang-rust';
 import beautify from 'js-beautify';
-import { useStore, bus, getState, setWindowTitle, updateWindowProps, markDirty, confirmDialog, promptDialog, notify, basename, joinPath, fmtSize, extname } from '../store.js';
+import { useStore, bus, getState, setWindowTitle, updateWindowProps, markDirty, confirmDialog, promptDialog, notify, basename, dirname, joinPath, fmtSize, extname } from '../store.js';
 import { api } from '../api.js';
+
+// 文件写盘成功后通知同页其它视图刷新；格式切换/另存为可能同时影响旧、新两个目录
+function notifyFileChanged(...paths) {
+  const dirs = new Set(paths.filter((p) => p != null).map((p) => dirname(String(p))));
+  dirs.forEach((dir) => bus.emit('fs:changed', dir));
+}
 
 // langExtension：入参为扩展名（格式切换后即为目标格式的扩展名）
 function langExtension(e) {
@@ -157,6 +163,7 @@ export default function EditorWindow({ win }) {
         setSavedDoc(docRef.current);
         setMeta((m) => ({ ...m, mtimeMs: r.mtimeMs, size: r.size }));
         setSavedFlash(true);
+        notifyFileChanged(path, target);
         return true;
       } catch (e) {
         // 已重命名但写入失败：编辑器跟随新文件，避免指向已不存在的旧路径
@@ -242,6 +249,7 @@ export default function EditorWindow({ win }) {
       followTarget(target, basename(target));
       setSavedDoc(docRef.current);
       setSavedFlash(true);
+      notifyFileChanged(path, target);
       return true;
     } catch (e) { notify({ type: 'error', title: '另存为失败', body: e.message }); return false; }
   }

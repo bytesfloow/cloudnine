@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { useStore, bus, openWindow, closeWindow, focusWindow, closeContextMenu, openQuickLook, getState, minimizeWindow, showDialog } from '../store.js';
+import { useStore, bus, openWindow, closeWindow, focusWindow, closeContextMenu, closePopover, openQuickLook, getState, minimizeWindow, showDialog } from '../store.js';
 import { installPasteUpload } from '../pasteUpload.js';
 import WindowFrame from './WindowFrame.jsx';
 import MenuBar from './MenuBar.jsx';
@@ -19,7 +19,9 @@ export default function Desktop() {
       const inEditable = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable || t.closest('.xterm'));
       const meta = e.metaKey || e.ctrlKey;
       if (e.key === 'Escape') {
-        if (getState().contextMenu) return closeContextMenu();
+        const st = getState();
+        if (st.contextMenu) return closeContextMenu();
+        if (st.popover) return closePopover();
         return;
       }
       if (inEditable) return;
@@ -41,6 +43,8 @@ export default function Desktop() {
       else if (meta && e.key.toLowerCase() === 'n' && !e.shiftKey) { e.preventDefault(); openWindow('finder'); }
       else if (meta && e.key.toLowerCase() === 'm' && focus) { e.preventDefault(); minimizeWindow(focus.id); }
       else if (meta && e.key.toLowerCase() === 'a' && focus.type === 'finder') { e.preventDefault(); bus.emit('win-action', { windowId: focus.id, action: 'selectAll' }); }
+      else if (meta && !e.shiftKey && e.key.toLowerCase() === 'c' && focus.type === 'finder') { e.preventDefault(); bus.emit('win-action', { windowId: focus.id, action: 'copy' }); }
+      else if (meta && !e.shiftKey && e.key.toLowerCase() === 'x' && focus.type === 'finder') { e.preventDefault(); bus.emit('win-action', { windowId: focus.id, action: 'cut' }); }
       else if (e.key === ' ' && focus?.type === 'finder') {
         const sel = getState().finderSel[focus.id] || [];
         if (sel.length) { e.preventDefault(); openQuickLook(sel, 0); }

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useStore, bus, getState, setState, setTheme, setClipboard, showDialog, confirmDialog, notify, openWindow, activateNotification, extname } from '../store.js';
+import { useStore, bus, getState, setState, setTheme, setClipboard, showDialog, confirmDialog, notify, openWindow, activateNotification, extname, openPopover, closePopover } from '../store.js';
 import { api } from '../api.js';
 import { uploadStats } from '../transfers.js';
 import { refreshDisk } from '../App.jsx';
@@ -91,7 +91,7 @@ function appMenus(type, w) {
 
 export default function MenuBar() {
   const s = useStore();
-  const [openMenu, setOpenMenu] = useState(null); // index of opened menu
+  const openKind = s.popover?.kind || null;
   const [now, setNow] = useState(new Date());
   const focusWin = s.windows.find((w) => w.id === s.focusId);
   const menus = appMenus(focusWin?.type, focusWin);
@@ -100,17 +100,22 @@ export default function MenuBar() {
     const t = setInterval(() => setNow(new Date()), 20 * 1000);
     return () => clearInterval(t);
   }, []);
+  // 点击菜单栏以外任何位置都收起弹出层；菜单栏按钮/面板内容自己 stopPropagation
   useEffect(() => {
-    const close = () => setOpenMenu(null);
+    const close = (e) => {
+      if (getState().popover && !e.target?.closest?.('.menubar')) closePopover();
+    };
     document.addEventListener('click', close);
     return () => document.removeEventListener('click', close);
   }, []);
+  // 焦点窗口切换后菜单项会变化，旧的下标不再有意义
+  useEffect(() => { closePopover(); }, [s.focusId]);
   useEffect(() => { refreshDisk(); }, []);
 
   const stats = uploadStats();
 
   function runItem(item) {
-    setOpenMenu(null);
+    closePopover();
     if (item.action.startsWith('__')) {
       if (item.action === '__about') showDialog({ kind: 'about' });
       else if (item.action === '__newFinder') openWindow('finder');
@@ -129,12 +134,15 @@ export default function MenuBar() {
       <button className="mb-site" onClick={() => showDialog({ kind: 'about' })}>{s.siteName}</button>
       {menus.map((m, i) => (
         <div key={m.label} className="mb-menu-wrap">
+          {(() => {
+            const menuKey = `menu:${focusWin?.id || 'desktop'}:${i}`;
+            return <>
           <button
-            className={`mb-menu-btn${openMenu === i ? ' open' : ''}`}
-            onClick={(e) => { e.stopPropagation(); setOpenMenu(openMenu === i ? null : i); }}
-            onMouseEnter={() => openMenu !== null && setOpenMenu(i)}
+            className={`mb-menu-btn${openKind === menuKey ? ' open' : ''}`}
+            onClick={(e) => { e.stopPropagation(); openPopover(openKind === menuKey ? null : menuKey); }}
+            onMouseEnter={() => openKind?.startsWith('menu:') && openKind !== menuKey && openPopover(menuKey)}
           >{m.label}</button>
-          {openMenu === i && (
+          {openKind === menuKey && (
             <div className="dropdown" onClick={(e) => e.stopPropagation()}>
               {m.items.map((item, j) => item === '-'
                 ? <div key={j} className="dropdown-sep" />
@@ -147,6 +155,8 @@ export default function MenuBar() {
                 ))}
             </div>
           )}
+            </>;
+          })()}
         </div>
       ))}
 
@@ -173,6 +183,7 @@ function DiskIndicator() {
   const level = worst.usePct > 95 ? 'danger' : worst.usePct > 85 ? 'warn' : worst.usePct > 70 ? 'notice' : 'ok';
   return (
     <Popover
+      kind="disk"
       wide
       button={<span className={`disk-indicator di-${level}`}>💽 {worst.usePct}%</span>}
     >
@@ -194,7 +205,7 @@ function DiskIndicator() {
 function NotifBell() {
   const s = useStore();
   return (
-    <Popover button={<span className="bell"><IconBell />{s.notifications.length > 0 && <i className="dot" />}</span>}>
+    <Popover kind="notifications" button={<span className="bell"><IconBell />{s.notifications.length > 0 && <i className="dot" />}</span>}>
       {(close) => (
         <div className="notif-popover">
           {s.notifications.length === 0 && <div className="popover-empty">暂无通知</div>}
@@ -218,7 +229,7 @@ function NotifBell() {
 function AccountMenu() {
   const s = useStore();
   return (
-    <Popover wide button={<span className="avatar-btn">{(s.user || '?').slice(0, 1).toUpperCase()}</span>}>
+    <Popover kind="account" wide button={<span className="avatar-btn">{(s.user || '?').slice(0, 1).toUpperCase()}</span>}>
       {(close) => (
         <div className="account-popover">
           <div className="popover-header">{s.user}</div>
@@ -260,18 +271,13 @@ export async function changePasswordFlow() {
   }
 }
 
-export function Popover({ button, children, align = 'right', wide = false }) {
-  const [open, setOpen] = useState(false);
-  useEffect(() => {
-    if (!open) return;
-    const close = () => setOpen(false);
-    const t = setTimeout(() => document.addEventListener('click', close), 0);
-    return () => { clearTimeout(t); document.removeEventListener('click', close); };
-  }, [open]);
+export function Popover({ kind, button, children, align = 'right', wide = false }) {
+  const s = useStore();
+  const open = s.popover?.kind === kind;
   return (
     <div className="popover-wrap">
-      <button className="popover-btn" onClick={(e) => { e.stopPropagation(); setOpen(!open); }}>{button}</button>
-      {open && <div className={`popover ${align}${wide ? ' wide' : ''}`} onClick={(e) => e.stopPropagation()}>{children(() => setOpen(false))}</div>}
+      <button className="popover-btn" onClick={(e) => { e.stopPropagation(); openPopover(open ? null : kind); }}>{button}</button>
+      {open && <div className={`popover ${align}${wide ? ' wide' : ''}`} onClick={(e) => e.stopPropagation()}>{children(closePopover)}</div>}
     </div>
   );
 }

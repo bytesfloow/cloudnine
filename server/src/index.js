@@ -34,6 +34,14 @@ process.on('uncaughtException', (e, origin) => {
 });
 
 process.on('unhandledRejection', (reason) => {
+  // node-pty 1.1.0 的 ConPTY 回退清理路径在 console-list agent 失败时会对
+  // undefined 调 forEach；PTY 已按幂等流程关闭，只忽略这一条已知库内噪声。
+  const message = String(reason?.message || reason || '');
+  const stack = String(reason?.stack || '');
+  if (/windowsPtyAgent\.js/.test(stack) && /forEach/.test(message) && /undefined/.test(message)) {
+    console.warn('[terminal] 忽略 node-pty 关闭 ConPTY 时的已知清理异常');
+    return;
+  }
   // 这类错误通常是某条异步链漏了 catch / await。
   // 选择「记录但不退出」：单用户自托管场景下，为了一个后台任务的疏忽反复重启整个服务，
   // 对使用者而言比留下一条醒目的日志更糟。但日志必须带完整堆栈，否则无从排查。
