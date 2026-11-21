@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   useStore, getState, bus, openWindow, openContextMenu, openQuickLook, openFile,
   promptDialog, confirmDialog, notify, setClipboard, setWindowTitle, updateWindowProps,
-  setState, setFinderSel, basename, dirname, joinPath, fmtSize, fmtTime, fileCat, TEXT_EDITABLE,
+  setState, setFinderSel, basename, dirname, joinPath, fmtSize, fileCat, TEXT_EDITABLE,
 } from '../store.js';
 import { api } from '../api.js';
 import { addUpload, pickFiles } from '../transfers.js';
@@ -10,7 +10,11 @@ import {
   createItem, uploadTo, copyToClipboard, cutToClipboard, pasteInto, trashItems, renameItem,
   downloadItem, downloadItems, compressItems, extractItem, shareItem, shareBlockReason, copyPathText, isArchive,
 } from '../fsops.js';
-import { FileIcon, IconSearch, IconChevron, IconGrid, IconList, IconRefresh, IconNewFolder, IconUpload } from '../icons.jsx';
+import { IconChevron } from '../icons.jsx';
+import FinderToolbar from './finder/FinderToolbar.jsx';
+import FinderSidebar from './finder/FinderSidebar.jsx';
+import FinderIconView from './finder/FinderIconView.jsx';
+import FinderListView from './finder/FinderListView.jsx';
 
 export default function Finder({ win }) {
   const winIsTrash = !!win.props.trash;
@@ -425,45 +429,34 @@ export default function Finder({ win }) {
 
   return (
     <div className="finder" ref={containerRef} onContextMenu={blankMenu}>
-      <div className="finder-toolbar">
-        <button className="tb-btn" disabled={hIdx === 0} onClick={back} title="后退"><IconChevron dir="left" /></button>
-        <button className="tb-btn" disabled={hIdx >= history.length - 1} onClick={fwd} title="前进"><IconChevron /></button>
-        {!isTrash && (
-          <>
-            <button className="tb-btn" onClick={() => newItem('dir')} title="新建文件夹"><IconNewFolder /></button>
-            <button className="tb-btn" onClick={() => pickUpload(false)} title="上传文件"><IconUpload /></button>
-          </>
-        )}
-        <div className="tb-view">
-          <button className={`tb-btn${view === 'icon' ? ' active' : ''}`} onClick={() => setView('icon')} title="图标视图"><IconGrid /></button>
-          <button className={`tb-btn${view === 'list' ? ' active' : ''}`} onClick={() => setView('list')} title="列表视图"><IconList /></button>
-        </div>
-        <div className="finder-search">
-          <IconSearch />
-          <input
-            value={query}
-            placeholder={isTrash ? '过滤废纸篓' : '搜索（回车递归搜索）'}
-            onChange={(e) => { if (!searchMode) setQuery(e.target.value); }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') runSearch(e.target.value);
-              if (e.key === 'Escape') runSearch('');
-            }}
-          />
-          {query && <button className="clear-btn" onMouseDown={(e) => { e.preventDefault(); runSearch(''); }}>×</button>}
-        </div>
-        <button className="tb-btn" onClick={() => load()} title="刷新"><IconRefresh /></button>
-        <button className="tb-btn" onClick={(e) => sortMenu(e)} title="排序方式">⇅</button>
-      </div>
+      <FinderToolbar
+        hIdx={hIdx}
+        history={history}
+        back={back}
+        fwd={fwd}
+        isTrash={isTrash}
+        newItem={newItem}
+        pickUpload={pickUpload}
+        view={view}
+        setView={setView}
+        query={query}
+        searchMode={searchMode}
+        setQuery={setQuery}
+        runSearch={runSearch}
+        load={load}
+        sortMenu={sortMenu}
+      />
 
       <div className="finder-main">
-        <div className="finder-sidebar">
-          <div className="sb-group">个人收藏</div>
-          <SideItem label="主目录" onClick={() => navigate(getState().homeRel || '')} dropdir={getState().homeRel || ''} active={cwd === getState().homeRel && !isTrash && !recentMode} />
-          {/* 主目录与根目录重合（homeRel 为空）时不重复显示根目录 */}
-          {getState().homeRel && <SideItem label="根目录" onClick={() => navigate('')} dropdir="" active={cwd === '' && !isTrash && !recentMode} />}
-          <SideItem label="最近" onClick={() => { setRecentMode(true); setCwd(''); setSel(new Set()); }} active={recentMode} />
-          <SideItem label="废纸篓" onClick={() => navigate('__trash__')} active={isTrash} />
-        </div>
+        <FinderSidebar
+          cwd={cwd}
+          isTrash={isTrash}
+          recentMode={recentMode}
+          navigate={navigate}
+          setRecentMode={setRecentMode}
+          setCwd={setCwd}
+          setSel={setSel}
+        />
 
         <div className="finder-content" ref={bodyRef} onMouseDown={startMarquee}
           onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }}
@@ -498,67 +491,35 @@ export default function Finder({ win }) {
               <p>{searchMode ? '没有找到匹配的项目' : isTrash ? '废纸篓是空的' : recentMode ? '最近没有打开过文件' : '此文件夹是空的'}</p>
             </div>
           ) : view === 'icon' ? (
-            <div className="icon-grid">
-              {shown.map((entry, idx) => (
-                <div
-                  key={entry.name + (entry.path || '')}
-                  data-name={entry.name}
-                  className={`finder-item icon-item${sel.has(entry.name) ? ' selected' : ''}`}
-                  onClick={(e) => clickItem(e, entry, idx)}
-                  onDoubleClick={() => openEntry(entry)}
-                  onContextMenu={(e) => itemMenu(e, entry)}
-                  draggable={!renaming}
-                  onDragStart={(e) => !entry.trashId && onItemDragStart(e, entry)}
-                  onDragOver={(e) => { if (entry.type === 'dir' && !entry.isRecent) { e.preventDefault(); e.stopPropagation(); } }}
-                  onDrop={(e) => { if (entry.type === 'dir' && !entry.isRecent) onDropToDir(e, joinPath(cwd, entry.name)); }}
-                  title={entry.name}
-                >
-                  <FileIcon name={entry.name} type={entry.type} size={52} />
-                  {renaming === entry.name ? (
-                    <RenameInput value={entry.name} onSubmit={(v) => submitRename(entry.name, v)} onCancel={() => setRenaming(null)} />
-                  ) : (
-                    <span className="item-name">{entry.name}</span>
-                  )}
-                </div>
-              ))}
-            </div>
+            <FinderIconView
+              shown={shown}
+              sel={sel}
+              renaming={renaming}
+              cwd={cwd}
+              clickItem={clickItem}
+              openEntry={openEntry}
+              itemMenu={itemMenu}
+              onItemDragStart={onItemDragStart}
+              onDropToDir={onDropToDir}
+              submitRename={submitRename}
+              setRenaming={setRenaming}
+            />
           ) : (
-            <div className="list-view">
-              <div className="list-header">
-                <span className="col-name" onClick={() => setSort((s) => ({ key: 'name', asc: s.key === 'name' ? !s.asc : true }))}>名称{sort.key === 'name' ? (sort.asc ? ' ↑' : ' ↓') : ''}</span>
-                <span className="col-size" onClick={() => setSort((s) => ({ key: 'size', asc: s.key === 'size' ? !s.asc : true }))}>大小{sort.key === 'size' ? (sort.asc ? ' ↑' : ' ↓') : ''}</span>
-                <span className="col-mtime" onClick={() => setSort((s) => ({ key: 'mtime', asc: s.key === 'mtime' ? !s.asc : true }))}>修改时间{sort.key === 'mtime' ? (sort.asc ? ' ↑' : ' ↓') : ''}</span>
-                <span className="col-mode">权限</span>
-                <span className="col-owner">所有者</span>
-              </div>
-              <div className="list-body">
-                {shown.map((entry, idx) => (
-                  <div
-                    key={entry.name + (entry.path || '')}
-                    data-name={entry.name}
-                    className={`finder-item list-item${sel.has(entry.name) ? ' selected' : ''}`}
-                    onClick={(e) => clickItem(e, entry, idx)}
-                    onDoubleClick={() => openEntry(entry)}
-                    onContextMenu={(e) => itemMenu(e, entry)}
-                    draggable={!renaming}
-                    onDragStart={(e) => !entry.trashId && onItemDragStart(e, entry)}
-                    onDragOver={(e) => { if (entry.type === 'dir' && !entry.isRecent) { e.preventDefault(); e.stopPropagation(); } }}
-                    onDrop={(e) => { if (entry.type === 'dir' && !entry.isRecent) onDropToDir(e, joinPath(cwd, entry.name)); }}
-                  >
-                    <span className="col-name item-file">
-                      <FileIcon name={entry.name} type={entry.type} size={20} />
-                      {renaming === entry.name
-                        ? <RenameInput value={entry.name} onSubmit={(v) => submitRename(entry.name, v)} onCancel={() => setRenaming(null)} />
-                        : <span className="item-name">{entry.name}</span>}
-                    </span>
-                    <span className="col-size">{entry.type === 'dir' ? '—' : fmtSize(entry.size)}</span>
-                    <span className="col-mtime">{fmtTime(entry.mtimeMs)}</span>
-                    <span className="col-mode mono">{entry.modeStr || '—'}</span>
-                    <span className="col-owner mono">{entry.uid != null ? `${entry.uid}:${entry.gid}` : '—'}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <FinderListView
+              shown={shown}
+              sel={sel}
+              renaming={renaming}
+              cwd={cwd}
+              clickItem={clickItem}
+              openEntry={openEntry}
+              itemMenu={itemMenu}
+              onItemDragStart={onItemDragStart}
+              onDropToDir={onDropToDir}
+              submitRename={submitRename}
+              setRenaming={setRenaming}
+              sort={sort}
+              setSort={setSort}
+            />
           )}
 
           {marquee && <div className="marquee" style={{ left: marquee.left, top: marquee.top, width: marquee.w, height: marquee.h }} />}
@@ -572,54 +533,5 @@ export default function Finder({ win }) {
         {isTrash && entries?.length > 0 && <button className="btn btn-small" onClick={emptyTrash}>清倒…</button>}
       </div>
     </div>
-  );
-}
-
-function SideItem({ label, onClick, active, dropdir }) {
-  return (
-    <button
-      className={`sb-item${active ? ' active' : ''}`}
-      onClick={onClick}
-      data-dropdir={dropdir}
-      onDragOver={(e) => { if (dropdir != null) e.preventDefault(); }}
-      onDrop={(e) => {
-        if (dropdir == null) return;
-        const raw = e.dataTransfer.getData('application/x-cloudnine');
-        if (!raw) return;
-        const { paths } = JSON.parse(raw);
-        api.move(paths, dropdir).then(() => bus.emit('fs:changed', dropdir)).catch((e2) => notify({ type: 'error', title: '移动失败', body: e2.message }));
-      }}
-    >
-      {label}
-    </button>
-  );
-}
-
-function RenameInput({ value, onSubmit, onCancel }) {
-  const [v, setV] = useState(value);
-  const ref = useRef(null);
-  useEffect(() => {
-    const input = ref.current;
-    input?.focus();
-    const dot = value.lastIndexOf('.');
-    input?.setSelectionRange(0, dot > 0 ? dot : value.length);
-  }, []);
-  return (
-    <input
-      ref={ref}
-      className="rename-input"
-      value={v}
-      onChange={(e) => setV(e.target.value)}
-      onClick={(e) => e.stopPropagation()}
-      onDoubleClick={(e) => e.stopPropagation()}
-      onKeyDown={(e) => {
-        e.stopPropagation();
-        if (e.key === 'Enter') onSubmit(v);
-        if (e.key === 'Escape') onCancel();
-      }}
-      onBlur={() => onSubmit(v)}
-      draggable
-      onDragStart={(e) => e.preventDefault()}
-    />
   );
 }
