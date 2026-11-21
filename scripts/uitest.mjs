@@ -21,7 +21,7 @@
  */
 
 import { createRequire } from 'node:module';
-import { mkdirSync, writeFileSync, readdirSync, rmSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
@@ -88,6 +88,23 @@ function check(name, cond, detail = '') {
 }
 function section(t) { console.log(`\n${BOLD}${CYAN}▸ ${t}${RESET}`); }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// 等一个真实下载落到磁盘：跳过 Chrome 的 .crdownload / .tmp 中间文件，
+// 并要求两次取样大小一致且非空（避免半截文件被当成“下载成功”）
+async function waitDownloadFile(dir, ms = 10000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    const done = readdirSync(dir).filter((n) => !n.endsWith('.crdownload') && !n.endsWith('.tmp'));
+    if (done.length) {
+      const p = join(dir, done[0]);
+      const s1 = statSync(p).size;
+      await sleep(250);
+      if (s1 > 0 && statSync(p).size === s1) return p;
+    }
+    await sleep(200);
+  }
+  return null;
+}
 
 // ---------- 截图目录滚动清理：只保留最近 KEEP_SHOTS 次运行，避免 shots/ 无限膨胀 ----------
 const KEEP_SHOTS = Math.max(1, Number(arg('keep-shots', 3)));
@@ -535,6 +552,11 @@ try {
   const tbDirName = `uitest-tb-dir-${Date.now()}`;
   // 开始菜单「最近使用的文件」用例的预置文件（带内容，点击后要真的在记事本里打开）
   const smRecentName = `uitest-start-recent-${Date.now()}.md`;
+  // 窗口内菜单（T7）：终端/记事本/预览三个窗口的菜单用例产物
+  const wmBase = `uitest-winmenu-${Date.now()}`;
+  const wmTextName = `${wmBase}-text.txt`;
+  const wmSaveName = `${wmBase}-saved.json`;
+  const wmSaveAsName = `${wmBase}-copy.json`;
   if (!MOBILE) {
   // ---------- 桌面直览：主目录里的真实文件直接铺在桌面上 ----------
   section('桌面直览（主目录）');
@@ -2583,6 +2605,347 @@ try {
       check('锁定后可用原账号重新登录', !!(await page.$('.taskbar')), '未回到桌面');
     }
   }
+
+  // ---------- 5.9 窗口内菜单：终端 / 记事本 / 预览（规格 §1.6 / §2.1.3-§2.1.5 / R4）----------
+  section('窗口内菜单（终端 / 记事本 / 预览）');
+  {
+    const wmSid = await loginViaApi();
+    const cookie = `cloudnine_sid=${wmSid}`;
+    const wmTextPath = homeRel ? `${homeRel}/${wmTextName}` : wmTextName;
+    const wmSavePath = homeRel ? `${homeRel}/${wmSaveName}` : wmSaveName;
+    const wmSaveAsPath = homeRel ? `${homeRel}/${wmSaveAsName}` : wmSaveAsName;
+    await apiFetch('POST', '/api/fs/write', { path: wmTextPath, content: '用编辑器打开自测\n' }, cookie);
+    // 重新载入：清空窗口，并让桌面图标列表包含刚预置的文本文件
+    await page.reload({ waitUntil: 'networkidle2', timeout: 45000 });
+    await page.waitForSelector('.taskbar', { timeout: 15000 });
+    await sleep(1200);
+
+    const openWinMenu = async (sel) => {
+      const ok = await page.evaluate((s) => {
+        const b = document.querySelector(s);
+        if (!b) return false;
+        b.click();
+        return true;
+      }, sel);
+      await sleep(350);
+      return ok;
+    };
+    const winMenuLabels = () => ctxLabels(0);
+
+    // ----- ① 终端：标签栏 ∨ 下拉 -----
+    await page.click('.tb-app[title="终端"]');
+    await page.waitForSelector('.terminal-window .xterm', { timeout: 15000 });
+    await sleep(1800);
+    check('终端标签栏右侧有 ∨ 下拉', !!(await page.$('.terminal-window .term-tab-menu')));
+    await openWinMenu('.terminal-window .term-tab-menu');
+    const termMenu = await winMenuLabels();
+    check('终端下拉五项齐备（新建/关闭标签/清屏/重置/关闭窗口）',
+      JSON.stringify(termMenu) === JSON.stringify(['新建标签页', '关闭当前标签', '清屏', '重置终端', '关闭窗口']),
+      termMenu.join(','));
+    await shot('终端标签页菜单');
+
+    const tabCount = () => page.$$eval('.terminal-window .term-tab', (els) => els.length);
+    const visibleTermText = () => page.evaluate(() => {
+      const hosts = [...document.querySelectorAll('.terminal-window .term-host')];
+      const host = hosts.find((h) => h.getBoundingClientRect().width > 0) || hosts[0];
+      return host ? host.innerText : '';
+    });
+    const typeInTerm = async (text) => {
+      const idx = await page.evaluate(() => [...document.querySelectorAll('.terminal-window .term-host')]
+        .findIndex((h) => h.getBoundingClientRect().width > 0));
+      const hosts = await page.$$('.terminal-window .term-host');
+      if (!hosts[idx]) return false;
+      await hosts[idx].click();
+      await sleep(250);
+      await page.keyboard.type(text);
+      await page.keyboard.press('Enter');
+      await sleep(1000);
+      return true;
+    };
+
+    await ctxClick(0, '新建标签页');
+    await sleep(1800);
+    const afterNewTab = await tabCount();
+    check('终端「新建标签页」真的多出一个标签', afterNewTab === 2, `标签数 ${afterNewTab}`);
+    const termMarker = `MENU_TERM_${Date.now()}`;
+    const typedInNewTab = await typeInTerm(`echo ${termMarker}`);
+    await sleep(600);
+    const newTabText = await visibleTermText();
+    check('新建的标签能输入（PTY 回显命中）', typedInNewTab && newTabText.includes(termMarker), newTabText.slice(-120));
+    await shot('终端新建标签输入');
+
+    await openWinMenu('.terminal-window .term-tab-menu');
+    await ctxClick(0, '清屏');
+    await sleep(600);
+    const afterClear = await visibleTermText();
+    check('终端「清屏」真的清空画面', !afterClear.includes(termMarker), afterClear.slice(0, 120));
+
+    const resetMarker = `MENU_RESET_${Date.now()}`;
+    await typeInTerm(`echo ${resetMarker}`);
+    await sleep(700);
+    const beforeReset = (await visibleTermText()).includes(resetMarker);
+    await openWinMenu('.terminal-window .term-tab-menu');
+    await ctxClick(0, '重置终端');
+    await sleep(600);
+    const afterReset = (await visibleTermText()).includes(resetMarker);
+    check('终端「重置终端」清空画面（不再只是走 clear）', beforeReset && !afterReset,
+      `before=${beforeReset} after=${afterReset}`);
+    const typedAfterReset = await typeInTerm(`echo ${resetMarker}_2`);
+    await sleep(600);
+    check('重置后终端仍可输入（PTY 会话未断）',
+      typedAfterReset && (await visibleTermText()).includes(`${resetMarker}_2`), (await visibleTermText()).slice(-100));
+
+    await openWinMenu('.terminal-window .term-tab-menu');
+    await ctxClick(0, '关闭当前标签');
+    await sleep(600);
+    check('终端「关闭当前标签」关掉一个标签', (await tabCount()) === 1, `标签数 ${await tabCount()}`);
+
+    // 快捷键（规格 §2.1.3，非必选但一并接上）
+    await page.keyboard.down('Control'); await page.keyboard.down('Shift');
+    await page.keyboard.press('KeyT');
+    await page.keyboard.up('Shift'); await page.keyboard.up('Control');
+    await sleep(1800);
+    const afterShortcutT = await tabCount();
+    await page.keyboard.down('Control'); await page.keyboard.down('Shift');
+    await page.keyboard.press('KeyW');
+    await page.keyboard.up('Shift'); await page.keyboard.up('Control');
+    await sleep(700);
+    check('Ctrl+Shift+T 新建标签 / Ctrl+Shift+W 关闭标签', afterShortcutT === 2 && (await tabCount()) === 1,
+      `${afterShortcutT} → ${await tabCount()}`);
+
+    // 只剩一个标签时再「关闭当前标签」= 关闭窗口（Windows Terminal 语义，不留死入口）
+    await openWinMenu('.terminal-window .term-tab-menu');
+    await ctxClick(0, '关闭当前标签');
+    await sleep(800);
+    check('最后一标签「关闭当前标签」按 Windows Terminal 语义关窗', !(await page.$('.terminal-window')));
+
+    await page.click('.tb-app[title="终端"]');
+    await page.waitForSelector('.terminal-window .xterm', { timeout: 15000 });
+    await sleep(1600);
+    await openWinMenu('.terminal-window .term-tab-menu');
+    await ctxClick(0, '关闭窗口');
+    await sleep(800);
+    check('终端「关闭窗口」真的关窗', !(await page.$('.terminal-window')));
+
+    // ----- ② 记事本：标题栏下方 文件 / 编辑 -----
+    await page.click('.tb-app[title="记事本"]');
+    await page.waitForSelector('.editor-window .editor-menubar', { timeout: 15000 });
+    await sleep(1600);
+    const editorMenus = await page.$$eval('.editor-window .editor-menubar .winmenu-btn', (els) => els.map((e) => e.dataset.menu));
+    check('记事本标题栏下方有 文件 / 编辑 菜单', JSON.stringify(editorMenus) === JSON.stringify(['文件', '编辑']), editorMenus.join(','));
+
+    await openWinMenu('.editor-window .editor-menubar [data-menu="文件"]');
+    const fileMenu = await winMenuLabels();
+    check('记事本「文件」菜单三项齐全（保存/另存为/关闭窗口）',
+      JSON.stringify(fileMenu) === JSON.stringify(['保存', '另存为…', '关闭窗口']), fileMenu.join(','));
+    const saveHint = await page.evaluate(() => {
+      const b = [...document.querySelectorAll('.context-menu .dropdown-item')].find((x) => x.dataset.label === '保存');
+      return b?.querySelector('.di-hint')?.innerText.trim() || '';
+    });
+    check('记事本「保存」提示固定为 Ctrl+S（无 ⌘）', saveHint === 'Ctrl+S', saveHint);
+    await shot('记事本窗口菜单-文件');
+    await page.keyboard.press('Escape');
+    await sleep(250);
+
+    // 顶栏仍在（T8 才删），但 R4 的 macOS 残留应同步清掉
+    await page.evaluate(() => [...document.querySelectorAll('.mb-menu-btn')].find((b) => b.innerText.trim() === '文件')?.click());
+    await sleep(350);
+    const barSaveHint = await page.evaluate(() => {
+      const b = [...document.querySelectorAll('.menubar .dropdown .dropdown-item')].find((x) => x.innerText.trim().startsWith('保存'));
+      return b?.querySelector('.di-hint')?.innerText.trim() || '';
+    });
+    check('顶栏「保存」提示也是 Ctrl+S（isMac 判断已删）', barSaveHint === 'Ctrl+S', barSaveHint);
+    await page.keyboard.press('Escape');
+    await sleep(250);
+
+    // 未命名文档默认 md：编辑菜单里不应出现格式化
+    await openWinMenu('.editor-window .editor-menubar [data-menu="编辑"]');
+    const mdEditMenu = await winMenuLabels();
+    check('Markdown 文档的「编辑」菜单不含格式化', JSON.stringify(mdEditMenu) === JSON.stringify(['查找…']), mdEditMenu.join(','));
+    const findClicked = await ctxClick(0, '查找…');
+    await sleep(500);
+    const findTitle = await page.evaluate(() => {
+      const n = [...document.querySelectorAll('.notification .n-title')].pop();
+      return n ? n.innerText.trim() : '';
+    });
+    check('「查找…」仍按原行为提示 Ctrl + F（文案已去掉 Cmd）',
+      findClicked && /Ctrl \+ F/.test(findTitle) && !/Cmd/.test(findTitle), findTitle);
+    await shot('记事本-查找提示');
+
+    // 切到 JSON：编辑菜单应出现格式化
+    await page.evaluate(() => document.querySelector('.editor-window .editor-fmt-chip')?.click());
+    await sleep(250);
+    const jsonChosen = await page.evaluate(() => {
+      const b = [...document.querySelectorAll('.editor-fmt-menu .editor-fmt-item')].find((x) => x.innerText.includes('JSON'));
+      if (!b) return false;
+      b.click();
+      return true;
+    });
+    await sleep(350);
+    await openWinMenu('.editor-window .editor-menubar [data-menu="编辑"]');
+    const jsonEditMenu = await winMenuLabels();
+    check('JSON 文档的「编辑」菜单出现「格式化」',
+      jsonChosen && JSON.stringify(jsonEditMenu) === JSON.stringify(['格式化', '查找…']), jsonEditMenu.join(','));
+    await page.keyboard.press('Escape');
+    await sleep(250);
+
+    // 格式化真的重排
+    const cm = await page.$('.editor-window .cm-content');
+    if (cm) await cm.click();
+    await sleep(250);
+    await page.keyboard.down('Control'); await page.keyboard.press('KeyA'); await page.keyboard.up('Control');
+    await page.keyboard.press('Backspace');
+    await page.keyboard.type('{"b":[2,3],"a":1}');
+    await sleep(400);
+    await openWinMenu('.editor-window .editor-menubar [data-menu="编辑"]');
+    await ctxClick(0, '格式化');
+    // CodeMirror 的受控 value 有「正在输入」闩锁（@uiw/react-codemirror typingLatch），
+    // 刚输入完的外部改值会晚一点落地，这里等它真的重排完再断言（而不是死等固定时长）
+    const formatApplied = await page.waitForFunction(
+      () => /"b": \[\n/.test(document.querySelector('.editor-window .cm-content')?.innerText || ''),
+      { timeout: 8000 },
+    ).then(() => true).catch(() => false);
+    const formattedText = await page.evaluate(() => document.querySelector('.editor-window .cm-content')?.innerText || '');
+    check('「格式化」真的重排了 JSON（缩进 + 换行）',
+      formatApplied && /"a": 1/.test(formattedText), JSON.stringify(formattedText.slice(0, 80)));
+
+    // 保存（未命名 → 另存为对话框）
+    await openWinMenu('.editor-window .editor-menubar [data-menu="文件"]');
+    await ctxClick(0, '保存');
+    await sleep(600);
+    let saveDlg = await page.$('.dialog input');
+    check('未命名文档「保存」弹出另存为对话框', !!saveDlg);
+    if (saveDlg) {
+      await saveDlg.click();
+      await page.keyboard.down('Control'); await page.keyboard.press('KeyA'); await page.keyboard.up('Control');
+      await page.keyboard.press('Backspace');
+      await page.keyboard.type(wmSavePath);
+      await sleep(200);
+      await page.evaluate(() => document.querySelector('.dialog-actions .btn-primary')?.click());
+      await sleep(2200);
+    }
+    const savedFile = await apiFetch('GET', `/api/fs/read?path=${encodeURIComponent(wmSavePath)}`, undefined, cookie);
+    const savedContent = savedFile.json?.content || '';
+    let savedJson = null;
+    try { savedJson = JSON.parse(savedContent); } catch { /* 保持 null */ }
+    check('记事本「保存」落盘内容正确（重排后的 JSON）',
+      savedFile.status === 200 && JSON.stringify(savedJson) === '{"b":[2,3],"a":1}' && savedContent.includes('\n'),
+      `status=${savedFile.status} ${JSON.stringify(savedContent.slice(0, 60))}`);
+
+    // 另存为…
+    await openWinMenu('.editor-window .editor-menubar [data-menu="文件"]');
+    await ctxClick(0, '另存为…');
+    await sleep(600);
+    saveDlg = await page.$('.dialog input');
+    check('「另存为…」弹出对话框', !!saveDlg);
+    if (saveDlg) {
+      await saveDlg.click();
+      await page.keyboard.down('Control'); await page.keyboard.press('KeyA'); await page.keyboard.up('Control');
+      await page.keyboard.press('Backspace');
+      await page.keyboard.type(wmSaveAsPath);
+      await sleep(200);
+      await page.evaluate(() => document.querySelector('.dialog-actions .btn-primary')?.click());
+      await sleep(2200);
+    }
+    const copiedFile = await apiFetch('GET', `/api/fs/read?path=${encodeURIComponent(wmSaveAsPath)}`, undefined, cookie);
+    check('「另存为…」生成新文件且内容一致',
+      copiedFile.status === 200 && copiedFile.json?.content === savedContent, `status=${copiedFile.status}`);
+
+    await openWinMenu('.editor-window .editor-menubar [data-menu="文件"]');
+    await ctxClick(0, '关闭窗口');
+    await sleep(800);
+    check('记事本「关闭窗口」真的关窗', !(await page.$('.editor-window')));
+
+    // ----- ③ 预览：底部操作条真实可用（R4 的死 action 由窗口内按钮承担）-----
+    const dblDesktopIcon = async (n) => {
+      const ok = await page.evaluate((name) => {
+        const el = document.querySelector(`.desktop-icon[data-entry="${name}"]`);
+        if (!el) return false;
+        el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+        return true;
+      }, n);
+      await sleep(1800);
+      return ok;
+    };
+    check('桌面显示本轮预置的文本文件图标', !!(await page.$(`.desktop-icon[data-entry="${wmTextName}"]`)));
+    const imgOpened = await dblDesktopIcon(imgName);
+    await page.waitForSelector('.preview-window', { timeout: 10000 }).catch(() => {});
+    check('双击图片打开预览窗口', imgOpened && !!(await page.$('.preview-window .preview-stage img')));
+    const imgActionLabels = await page.$$eval('.preview-window .preview-actions .btn', (els) => els.map((b) => b.innerText.trim()));
+    check('图片视图底部有「用编辑器打开」（本轮新增）', imgActionLabels.includes('用编辑器打开'), imgActionLabels.join(','));
+
+    // 下载：真实点一次，等文件落盘，再与源文件逐字节比对
+    const dlDir = join(OUT_DIR, 'downloads');
+    mkdirSync(dlDir, { recursive: true });
+    let dlSetting = 'ok';
+    try {
+      const bs = await browser.target().createCDPSession();
+      await bs.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: dlDir, eventsEnabled: true });
+    } catch (e) { dlSetting = `失败: ${e.message}`; }
+    const dlBtn = await page.evaluateHandle(() => [...document.querySelectorAll('.preview-window .preview-actions .btn')]
+      .find((b) => b.innerText.trim() === '下载'));
+    check('预览底部「下载」按钮存在', !!dlBtn.asElement());
+    if (dlBtn.asElement()) await dlBtn.asElement().click();
+    const dlPath = await waitDownloadFile(dlDir, 12000);
+    for (const p of await browser.pages()) if (p !== page) await p.close().catch(() => {});
+
+    const imgHits = await apiFetch('GET', `/api/fs/search?path=/&q=${encodeURIComponent(imgName)}`, undefined, cookie);
+    const imgHit = (imgHits.json?.results || []).find((x) => x.name === imgName);
+    let sameBytes = false;
+    let bytesInfo = '';
+    if (dlPath && imgHit) {
+      const srcRes = await fetch(`${URL_BASE}/api/download?path=${encodeURIComponent(imgHit.rel)}`, { headers: { Cookie: cookie } });
+      const srcBuf = Buffer.from(await srcRes.arrayBuffer());
+      const dlBuf = readFileSync(dlPath);
+      sameBytes = srcRes.status === 200 && dlBuf.length === srcBuf.length && dlBuf.equals(srcBuf);
+      bytesInfo = `${dlBuf.length}/${srcBuf.length}`;
+    }
+    check('预览「下载」实测得到文件（与源文件逐字节一致）',
+      !!dlPath && sameBytes,
+      `CDP=${dlSetting} 文件=${dlPath ? dlPath.split(/[\\/]/).pop() : '无'} 字节=${bytesInfo}`);
+    await shot('预览-下载后');
+
+    const imgEditBtn = await page.evaluateHandle(() => [...document.querySelectorAll('.preview-window .preview-actions .btn')]
+      .find((b) => b.innerText.trim() === '用编辑器打开'));
+    if (imgEditBtn.asElement()) await imgEditBtn.asElement().click();
+    await page.waitForSelector('.editor-window', { timeout: 10000 }).catch(() => {});
+    await sleep(1400);
+    const imgEditTitle = await page.evaluate(() =>
+      document.querySelector('.editor-window')?.closest('.window')?.querySelector('.window-title')?.innerText.trim() || '');
+    check('图片视图「用编辑器打开」跳到编辑器（标题为图片名）', imgEditTitle === imgName, imgEditTitle);
+    await page.evaluate(() => document.querySelector('.editor-window')?.closest('.window')?.querySelector('.tc-close')?.click());
+    await sleep(800);
+
+    // 文本视图：桌面文件右键 → 打开方式 › 用预览打开（文件窗口侧没有这一项，属于桌面右键）
+    const txtCtx = await page.evaluate((n) => {
+      const el = document.querySelector(`.desktop-icon[data-entry="${n}"]`);
+      if (!el) return false;
+      el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 320, clientY: 320 }));
+      return true;
+    }, wmTextName);
+    await sleep(400);
+    const openWithHovered = await ctxHover(0, '打开方式');
+    const openWithItems = await ctxLabels(1);
+    check('桌面文件右键「打开方式」子菜单可展开',
+      txtCtx && openWithHovered && JSON.stringify(openWithItems) === JSON.stringify(['用编辑器打开', '用预览打开']), openWithItems.join(','));
+    await ctxClick(1, '用预览打开');
+    await sleep(1800);
+    const txtToolbar = !!(await page.$('.preview-window .preview-text .preview-toolbar'));
+    check('文本文件在预览窗口打开（文本视图）', txtToolbar);
+    const txtEditBtn = await page.evaluateHandle(() => [...document.querySelectorAll('.preview-window .preview-text .preview-toolbar .btn')]
+      .find((b) => b.innerText.trim() === '用编辑器打开'));
+    check('文本视图有「用编辑器打开」', !!txtEditBtn.asElement());
+    if (txtEditBtn.asElement()) await txtEditBtn.asElement().click();
+    await page.waitForSelector('.editor-window', { timeout: 10000 }).catch(() => {});
+    await sleep(1400);
+    const txtEditTitle = await page.evaluate(() =>
+      document.querySelector('.editor-window')?.closest('.window')?.querySelector('.window-title')?.innerText.trim() || '');
+    check('文本视图「用编辑器打开」跳到编辑器（标题为文件名）', txtEditTitle === wmTextName, txtEditTitle);
+    await shot('窗口内菜单-预览跳编辑器');
+
+    await page.evaluate(() => document.querySelectorAll('.window .tc-close').forEach((b) => b.click()));
+    await sleep(600);
+  }
   } // end !MOBILE
 
   // ---------- 6. 控制台错误 ----------
@@ -2597,7 +2960,7 @@ try {
   if (!flag('keep')) {
     section('清理测试产物');
     const sid2 = await loginViaApi();
-    const names = [proofName, editName, pasteName, notifyName, btnUploadName, imgName, deskName, dirName, zipName, probeName, newDirName, dropName, tbDirName, smRecentName, ...badgeNames].filter(Boolean);
+    const names = [proofName, editName, pasteName, notifyName, btnUploadName, imgName, deskName, dirName, zipName, probeName, newDirName, dropName, tbDirName, smRecentName, wmTextName, wmSaveName, wmSaveAsName, ...badgeNames].filter(Boolean);
     for (const n of names) {
       const r = await apiFetch('GET', `/api/fs/search?path=/&q=${encodeURIComponent(n)}`, undefined, `cloudnine_sid=${sid2}`);
       const hit = (r.json?.results || []).find((x) => x.name === n);

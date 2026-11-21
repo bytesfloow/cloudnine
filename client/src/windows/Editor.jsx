@@ -18,6 +18,7 @@ import { rust } from '@codemirror/lang-rust';
 import beautify from 'js-beautify';
 import { useStore, bus, getState, setWindowTitle, updateWindowProps, markDirty, confirmDialog, promptDialog, notify, basename, dirname, joinPath, fmtSize, extname } from '../store.js';
 import { api } from '../api.js';
+import WindowMenu from './WindowMenu.jsx';
 
 // 文件写盘成功后通知同页其它视图刷新；格式切换/另存为可能同时影响旧、新两个目录
 function notifyFileChanged(...paths) {
@@ -186,17 +187,20 @@ export default function EditorWindow({ win }) {
     }
   }
 
-  // Ctrl/Cmd + S 保存：捕获阶段拦截，编辑器内输入时同样生效，并阻止浏览器默认保存对话框
+  // Ctrl+S 保存 / Ctrl+Shift+S 另存为：捕获阶段拦截，编辑器内输入时同样生效，并阻止浏览器默认保存对话框
   const saveRef = useRef(() => {});
   saveRef.current = save;
+  const saveAsRef = useRef(() => {});
+  saveAsRef.current = saveAs;
   useEffect(() => {
     function onKey(e) {
-      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && String(e.key).toLowerCase() === 's') {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && String(e.key).toLowerCase() === 's') {
         const st = getState();
         if (st.focusId && st.focusId !== win.id) return; // 仅当前焦点窗口响应
         e.preventDefault();
         e.stopPropagation();
-        saveRef.current();
+        if (e.shiftKey) saveAsRef.current();
+        else saveRef.current();
       }
     }
     document.addEventListener('keydown', onKey, true);
@@ -231,7 +235,7 @@ export default function EditorWindow({ win }) {
     if (action === 'save') save();
     else if (action === 'saveAs') saveAs();
     else if (action === 'format') formatDoc();
-    else if (action === 'find') notify({ type: 'info', title: '使用 Ctrl/Cmd + F 打开查找替换' });
+    else if (action === 'find') notify({ type: 'info', title: '使用 Ctrl + F 打开查找替换' });
   }), [win.id, meta.mtimeMs, path, name, fmt]);
 
   // 另存为。返回 true=已保存 / false=取消或失败
@@ -259,9 +263,29 @@ export default function EditorWindow({ win }) {
 
   const dark = s.theme === 'dark' || (s.theme === 'auto' && document.documentElement.dataset.theme === 'dark');
 
+  // 窗口内菜单（§1.6 / §2.1.4）：与顶栏菜单走同一条 win-action 通道，不另写业务逻辑
+  const act = (action) => bus.emit('win-action', { windowId: win.id, action });
+  const fileMenu = [
+    { label: '保存', hint: 'Ctrl+S', action: () => act('save') },
+    { label: '另存为…', hint: 'Ctrl+Shift+S', action: () => act('saveAs') },
+    '-',
+    { label: '关闭窗口', hint: 'Ctrl+W', action: () => act('closeWin') },
+  ];
+  // 格式化只对 json / html 出现（与状态栏按钮同一条件）；截断的只读预览没有意义
+  const editMenu = [
+    ...(fmt === 'json' || fmt === 'html'
+      ? [{ label: '格式化', disabled: !!meta.truncated, action: () => act('format') }, '-']
+      : []),
+    { label: '查找…', hint: 'Ctrl+F', action: () => act('find') },
+  ];
+
   return (
     <div className="editor-window">
       {meta.truncated && <div className="editor-banner">文件较大，仅显示前一部分（只读预览）。请下载后查看完整内容。</div>}
+      <div className="editor-menubar" role="menubar" aria-label="记事本菜单">
+        <WindowMenu label="文件" title="文件" items={fileMenu} />
+        <WindowMenu label="编辑" title="编辑" items={editMenu} />
+      </div>
       <div className="editor-cm">
         <CodeMirror
           value={doc}

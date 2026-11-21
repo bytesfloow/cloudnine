@@ -80,6 +80,17 @@
 .rh-sw { bottom: -4px; left: -4px; width: 14px; height: 14px; cursor: nesw-resize; }
 .win-missing { padding: 30px; color: var(--text-2); }
 
+/* ============ 窗口内菜单（规格 §1.6） ============ */
+/* 终端标签栏 ∨ / 记事本 文件·编辑：按钮只摆下拉，弹层与样式复用全局 ContextMenu */
+.winmenu-btn {
+  height: 24px; padding: 0 9px; border-radius: 5px; display: inline-flex; align-items: center;
+  gap: 4px; color: var(--text); font-size: 12.5px; white-space: nowrap; flex: none;
+}
+.winmenu-btn:hover { background: var(--hover); }
+.winmenu-btn:active { background: var(--active); }
+.winmenu-icon { display: inline-flex; align-items: center; opacity: .7; }
+.winmenu-btn:hover .winmenu-icon { opacity: 1; }
+
 /* ============ 错误兜底（窗口级 / 整页级） ============ */
 .win-error {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;

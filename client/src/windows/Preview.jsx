@@ -220,6 +220,8 @@ export default function PreviewWindow({ win }) {
   };
 
   const isImage = fileCat(path, 'file') === 'image';
+  // 「用编辑器打开」只有一条路径：文本/Markdown 视图与图片视图共用
+  const openInEditor = () => openWindow('editor', { path, name: basename(path) });
 
   return (
     <div className="preview-window">
@@ -234,13 +236,14 @@ export default function PreviewWindow({ win }) {
         <PreviewContent
           path={path}
           view={view}
-          onEdit={() => openWindow('editor', { path, name: basename(path) })}
+          onEdit={openInEditor}
         />
       </div>
       {/* 统一操作条：缩放/旋转 与 下载/复制路径 收拢在一起（文件名只在窗口标题栏出现一次） */}
       <div className="preview-actions">
         {isImage && <ZoomTools view={view} />}
         {isImage && <span className="preview-sep" />}
+        {isImage && <button className="btn btn-small" onClick={openInEditor}>用编辑器打开</button>}
         <button className="btn btn-small" onClick={() => window.open(api.downloadUrl(path))}>下载</button>
         <button className="btn btn-small" onClick={() => navigator.clipboard?.writeText('/' + path).then(() => notify({ title: '路径已复制' }))}>复制路径</button>
       </div>

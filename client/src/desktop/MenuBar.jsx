@@ -65,9 +65,9 @@ function appMenus(type, w) {
     menus.push({ label: 'Shell', items: [A('newTab', '新建标签页'), A('closeTab', '关闭当前标签'), '-', A('closeWin', '关闭窗口')] });
     menus.push({ label: '显示', items: [A('clear', '清屏'), A('clear', '重置终端', { arg: 'reset' })] });
   } else if (type === 'editor') {
-    const isMac = /Mac/i.test(navigator.platform || '');
     const eFmt = w?.props?.fmt || (() => { const e = extname(w?.props?.name || ''); return (e === 'htm' || e === 'xhtml') ? 'html' : e; })();
-    menus.push({ label: '文件', items: [A('save', '保存', { hint: isMac ? '⌘S' : 'Ctrl+S' }), A('saveAs', '另存为…'), '-', A('closeWin', '关闭窗口')] });
+    // 快捷键提示固定为 Windows 语义（R4：去掉 isMac 判断，不再出现 ⌘S）
+    menus.push({ label: '文件', items: [A('save', '保存', { hint: 'Ctrl+S' }), A('saveAs', '另存为…'), '-', A('closeWin', '关闭窗口')] });
     menus.push({ label: '编辑', items: [
       ...(['json', 'html'].includes(eFmt) ? [A('format', '格式化'), '-'] : []),
       A('find', '查找…'),

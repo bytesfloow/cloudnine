@@ -2,6 +2,11 @@
 .editor-window { display: flex; flex-direction: column; height: 100%; }
 .editor-window.loading { align-items: center; justify-content: center; }
 .editor-banner { flex: none; background: #f0883a22; color: #f0883a; padding: 6px 12px; font-size: 12px; border-bottom: 1px solid var(--line); }
+/* 标题栏下方的窗口内菜单（规格 §1.6 / §2.1.4）：文件 / 编辑 */
+.editor-menubar {
+  flex: none; display: flex; align-items: center; gap: 2px; padding: 3px 8px;
+  border-bottom: 1px solid var(--line); background: var(--bar-bg);
+}
 .editor-cm { flex: 1; min-height: 0; overflow: hidden; }
 .editor-cm .cm-theme, .editor-cm .cm-editor { height: 100%; }
 .editor-statusbar {

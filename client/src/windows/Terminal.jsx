@@ -2,7 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import { useStore, bus, getState, nextId, basename } from '../store.js';
+import { useStore, bus, getState, nextId } from '../store.js';
+import { IconChevron } from '../icons.jsx';
+import WindowMenu from './WindowMenu.jsx';
 
 const utf8ToB64 = (s) => btoa(unescape(encodeURIComponent(s)));
 // 流式 UTF-8 解码：多字节字符被输出块边界切开时（跨 WebSocket 消息）也能正确解码
@@ -141,7 +143,10 @@ export default function TerminalWindow({ win }) {
   const [active, setActive] = useState(tabs[0].id);
   const s = useStore();
 
-  useEffect(() => bus.on('win-action', ({ windowId, action }) => {
+  // 标签栏 ∨ 下拉与顶栏菜单走同一条 win-action 通道，避免两套平行业务逻辑
+  const act = (action, arg) => bus.emit('win-action', { windowId: win.id, action, arg });
+
+  useEffect(() => bus.on('win-action', ({ windowId, action, arg }) => {
     if (windowId !== win.id) return;
     if (action === 'newTab') {
       const t = { id: nextId(), label: `shell ${tabs.length + 1}` };
@@ -152,11 +157,41 @@ export default function TerminalWindow({ win }) {
         const rest = tabs.filter((t) => t.id !== active);
         setTabs(rest);
         setActive(rest[rest.length - 1].id);
+      } else {
+        // Windows Terminal 语义：最后一个标签被关闭 = 关闭窗口（否则这一项是死入口）
+        bus.emit('win-action', { windowId: win.id, action: 'closeWin' });
       }
-    } else if (action === 'clear' || action === 'reset') {
-      bus.emit('term-action', { filter: active, action });
+    } else if (action === 'clear') {
+      // 顶栏把「重置终端」表达为 clear + arg:'reset'，这里按 arg 分流
+      bus.emit('term-action', { filter: active, action: arg === 'reset' ? 'reset' : 'clear' });
     }
   }), [win.id, tabs, active]);
+
+  // Ctrl+Shift+T / Ctrl+Shift+W（捕获阶段：先于 Desktop 的全局 Ctrl+W 关窗逻辑）
+  useEffect(() => {
+    function onKey(e) {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || !e.shiftKey) return;
+      const k = String(e.key).toLowerCase();
+      if (k !== 't' && k !== 'w') return;
+      if (getState().focusId !== win.id) return; // 仅当前焦点窗口响应
+      e.preventDefault();
+      e.stopPropagation();
+      act(k === 't' ? 'newTab' : 'closeTab');
+    }
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [win.id]);
+
+  const tabMenu = [
+    { label: '新建标签页', hint: 'Ctrl+Shift+T', action: () => act('newTab') },
+    { label: '关闭当前标签', hint: 'Ctrl+Shift+W', action: () => act('closeTab') },
+    '-',
+    { label: '清屏', action: () => act('clear') },
+    { label: '重置终端', action: () => act('clear', 'reset') },
+    '-',
+    { label: '关闭窗口', action: () => act('closeWin') },
+  ];
 
   return (
     <div className="terminal-window">
@@ -179,6 +214,12 @@ export default function TerminalWindow({ win }) {
           setTabs((ts) => [...ts, t]);
           setActive(t.id);
         }}>＋</button>
+        <WindowMenu
+          className="term-tab-menu"
+          icon={<IconChevron dir="down" size={9} />}
+          title="标签页菜单"
+          items={tabMenu}
+        />
       </div>
       {tabs.map((t) => (
         <div key={t.id} style={{ display: t.id === active ? 'flex' : 'none', flex: 1, minHeight: 0 }}>
