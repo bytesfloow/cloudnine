@@ -4,7 +4,7 @@ import React from 'react';
  * 错误边界：捕获子树渲染/生命周期抛出的异常。
  *
  * 背景：此前预览窗口里有一个未定义变量（compact），双击文件即触发 ReferenceError，
- * React 会卸载整棵树 —— 整个桌面直接白屏，访达、菜单栏、Dock 全部消失。
+ * React 会卸载整棵树 —— 整个桌面直接白屏，任务栏、桌面图标全部消失。
  * 加上边界后，单个窗口出错只会让该窗口显示错误提示，其余界面照常可用。
  */
 export default class ErrorBoundary extends React.Component {

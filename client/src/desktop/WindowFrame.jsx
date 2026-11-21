@@ -1,7 +1,8 @@
 import React, { useRef } from 'react';
-import { useStore, focusWindow, closeWindow, minimizeWindow, toggleMaxWindow, commitRect, setState, getState } from '../store.js';
+import { useStore, focusWindow, closeWindow, minimizeWindow, toggleMaxWindow, commitRect, setState, getState, SHELL_TOP_H, SHELL_BOTTOM_H, TITLEBAR_MIN_VISIBLE } from '../store.js';
 
-const MENUBAR_H = 28;
+// 顶部外壳（旧菜单栏）高度已归零：窗口可以拖到 y = 0（docs §7 R12）。
+// 底部让位给任务栏，拖动 / 缩放 / 最大化三处用同一组常量。
 
 export default function WindowFrame({ win, focused, children }) {
   const ref = useRef(null);
@@ -17,7 +18,7 @@ export default function WindowFrame({ win, focused, children }) {
     const { x: ox, y: oy } = rect;
     const onMove = (ev) => {
       const nx = Math.min(Math.max(ox + ev.clientX - startX, -(rect.w - 120)), window.innerWidth - 120);
-      const ny = Math.min(Math.max(oy + ev.clientY - startY, MENUBAR_H), window.innerHeight - 44);
+      const ny = Math.min(Math.max(oy + ev.clientY - startY, SHELL_TOP_H), window.innerHeight - SHELL_BOTTOM_H - TITLEBAR_MIN_VISIBLE);
       el.style.left = `${nx}px`;
       el.style.top = `${ny}px`;
       el._drag = { x: nx, y: ny };
@@ -50,7 +51,7 @@ export default function WindowFrame({ win, focused, children }) {
       if (dir.includes('e')) w = Math.max(minW, o.w + dx);
       if (dir.includes('s')) h = Math.max(minH, o.h + dy);
       if (dir.includes('w')) { w = Math.max(minW, o.w - dx); x = o.x + (o.w - w); }
-      if (dir.includes('n')) { h = Math.max(minH, o.h - dy); y = Math.max(MENUBAR_H, o.y + (o.h - h)); }
+      if (dir.includes('n')) { h = Math.max(minH, o.h - dy); y = Math.max(SHELL_TOP_H, o.y + (o.h - h)); }
       apply(w, h, x, y);
     };
     const onUp = () => {
@@ -63,7 +64,7 @@ export default function WindowFrame({ win, focused, children }) {
   }
 
   const style = rect.max
-    ? { left: 0, top: MENUBAR_H, width: '100vw', height: `calc(100vh - ${MENUBAR_H}px)`, zIndex: win.z }
+    ? { left: 0, top: SHELL_TOP_H, width: '100vw', height: `calc(100vh - ${SHELL_BOTTOM_H}px)`, zIndex: win.z }
     : { left: rect.x, top: rect.y, width: rect.w, height: rect.h, zIndex: win.z };
 
   return (

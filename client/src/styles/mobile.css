@@ -226,7 +226,7 @@
 .m-ql-body { flex: 1; min-height: 0; display: flex; }
 .m-ql-body > * { flex: 1; }
 /* 窗口内菜单属于桌面外壳（§1.6）：移动端编辑器沿用顶部工具条 + 状态栏，不显示这排菜单 */
-.m-quicklook .editor-menubar { display: none; }
+.m-quicklook .editor-winmenu { display: none; }
 
 /* 移动端快速预览：底部缩放工具收拢成居中的胶囊条 —— 按钮不再贴屏幕左边缘、也不再散落一排 */
 .m-quicklook .preview-image { padding: 0 0 calc(12px + env(safe-area-inset-bottom, 0px)); gap: 8px; }

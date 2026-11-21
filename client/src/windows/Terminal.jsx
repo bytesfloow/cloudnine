@@ -143,7 +143,7 @@ export default function TerminalWindow({ win }) {
   const [active, setActive] = useState(tabs[0].id);
   const s = useStore();
 
-  // 标签栏 ∨ 下拉与顶栏菜单走同一条 win-action 通道，避免两套平行业务逻辑
+  // 标签栏 ∨ 下拉与文件命令栏走同一条 win-action 通道，避免两套平行业务逻辑
   const act = (action, arg) => bus.emit('win-action', { windowId: win.id, action, arg });
 
   useEffect(() => bus.on('win-action', ({ windowId, action, arg }) => {
@@ -162,7 +162,7 @@ export default function TerminalWindow({ win }) {
         bus.emit('win-action', { windowId: win.id, action: 'closeWin' });
       }
     } else if (action === 'clear') {
-      // 顶栏把「重置终端」表达为 clear + arg:'reset'，这里按 arg 分流
+      // 终端菜单把「重置终端」表达为 clear + arg:'reset'，这里按 arg 分流
       bus.emit('term-action', { filter: active, action: arg === 'reset' ? 'reset' : 'clear' });
     }
   }), [win.id, tabs, active]);

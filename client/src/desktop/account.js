@@ -2,7 +2,7 @@ import { api } from '../api.js';
 import { showDialog, notify, confirmDialog, setState } from '../store.js';
 
 // 账户动作：任务栏托盘与（阶段 1 · T4 的）开始菜单底部账户区共用。
-// 从 MenuBar.jsx 原样迁出：删掉顶栏右侧账户菜单时，「修改密码」不能再跟着消失（docs §7 R2）。
+// 从顶栏账户菜单原样迁出：删掉顶栏右侧账户区时，「修改密码」不能再跟着消失（docs §7 R2）。
 
 export async function changePasswordFlow() {
   const values = await showDialog({

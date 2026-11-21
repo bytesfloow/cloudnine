@@ -263,7 +263,7 @@ export default function EditorWindow({ win }) {
 
   const dark = s.theme === 'dark' || (s.theme === 'auto' && document.documentElement.dataset.theme === 'dark');
 
-  // 窗口内菜单（§1.6 / §2.1.4）：与顶栏菜单走同一条 win-action 通道，不另写业务逻辑
+  // 窗口内菜单（§1.6 / §2.1.4）：与文件命令栏 / 终端标签菜单走同一条 win-action 通道
   const act = (action) => bus.emit('win-action', { windowId: win.id, action });
   const fileMenu = [
     { label: '保存', hint: 'Ctrl+S', action: () => act('save') },
@@ -282,7 +282,7 @@ export default function EditorWindow({ win }) {
   return (
     <div className="editor-window">
       {meta.truncated && <div className="editor-banner">文件较大，仅显示前一部分（只读预览）。请下载后查看完整内容。</div>}
-      <div className="editor-menubar" role="menubar" aria-label="记事本菜单">
+      <div className="editor-winmenu" role="group" aria-label="记事本菜单">
         <WindowMenu label="文件" title="文件" items={fileMenu} />
         <WindowMenu label="编辑" title="编辑" items={editMenu} />
       </div>

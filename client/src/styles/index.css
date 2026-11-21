@@ -14,8 +14,8 @@
      外壳
        auth.css        89-136   启动屏、登录 / 初始化向导卡片
        desktop.css     137-184  桌面底图、桌面图标网格、提示语
-       menubar.css     185-258  顶部菜单栏、下拉菜单、弹出面板
-       taskbar.css     367-383  任务栏（原 Dock）
+       taskbar.css     367-383  任务栏（原 Dock）+ 托盘面板
+       （原顶部菜单栏样式文件已随顶栏删除：下拉项并入 overlays.css，托盘内容并入 taskbar.css）
        startmenu.css   ——       开始菜单（阶段 1 · T4 新增，纯色材质）
        overlays.css    384-458  右键菜单、对话框、快速预览外壳、通知
      窗口
@@ -33,7 +33,6 @@
 @import './base.css';
 @import './auth.css';
 @import './desktop.css';
-@import './menubar.css';
 @import './window.css';
 @import './taskbar.css';
 @import './startmenu.css';

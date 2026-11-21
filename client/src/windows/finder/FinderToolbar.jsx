@@ -6,7 +6,7 @@ import { IconSearch, IconChevron } from '../../icons.jsx';
 //   [←] [→] [↑]  本机 › 用户 › docs   [搜索框]
 //
 // 后退/前进走本地历史栈；「↑」直接 act('goParent')，点地址栏空白处 act('goFolder')，
-// 后退/前进之外的动作全部经 act()，与菜单栏 / 命令栏共用同一条执行路径。
+// 后退/前进之外的动作全部经 act()，与命令栏共用同一条执行路径。
 //
 // ⚠️ R5：`.finder-search input` 这个选择器必须保留——`act('focus-search')` 靠它做
 // DOM 查询（Ctrl+F / F3），改类名会让快捷键静默失效。

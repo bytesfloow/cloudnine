@@ -90,7 +90,7 @@ export default function Finder({ win }) {
   // 侧边栏数据
   useEffect(() => {
     api.recents().then((r) => setRecents(r.items)).catch(() => {});
-    // 磁盘信息喂给菜单栏/磁盘窗口，侧边栏不再展示挂载点（「位置」分组已移除）
+    // 磁盘信息喂给任务栏托盘/磁盘窗口，侧边栏不再展示挂载点（「位置」分组已移除）
     api.disk().then((d) => setState({ disk: d.mounts })).catch(() => {});
   }, []);
 
@@ -151,7 +151,7 @@ export default function Finder({ win }) {
       case 'paste': return paste();
       // 命令栏「粘贴 ▾ › 粘贴为副本」：复制模式下的内部剪贴板再复制一份
       case 'pasteCopy': return pasteCopy();
-      // 命令栏「粘贴 ▾ › 清空剪贴板」：原 MenuBar 的 __clearClipboard 在这里的落点
+      // 命令栏「粘贴 ▾ › 清空剪贴板」：原顶栏「编辑」菜单的 __clearClipboard 在这里的落点
       case 'clearClipboard': return setClipboard(null);
       case 'selectAll': return setSel(new Set(visibleNames()));
       case 'rename': if (selectedEntries[0]) setRenaming(selectedEntries[0].name); return;
@@ -404,7 +404,7 @@ export default function Finder({ win }) {
       ] },
       '-',
       { label: cb ? (cb.mode === 'copy' ? '粘贴项目' : '移动项目到此处') : '粘贴', disabled: !cb, action: paste },
-      // 「粘贴为副本」只存在于文件窗口空白右键（菜单栏里没有），搬动时最容易漏：
+      // 「粘贴为副本」只存在于文件窗口空白右键（命令栏里没有），搬动时最容易漏：
       // 命令栏「粘贴 ▾」也调用同一个 pasteCopy()
       { label: '粘贴为副本', disabled: !cb || cb.mode !== 'copy', action: pasteCopy },
       '-',

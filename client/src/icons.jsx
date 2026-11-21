@@ -51,7 +51,7 @@ export const FileIcon = ({ name, type, size = 48 }) => {
   );
 };
 
-// 功能图标（菜单栏 / Dock / 按钮）
+// 功能图标（任务栏 / 按钮）
 const G = ({ size = 20, d, fill = 'currentColor', ...rest }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} xmlns="http://www.w3.org/2000/svg" {...rest}><path d={d} /></svg>
 );

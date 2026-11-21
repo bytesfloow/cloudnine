@@ -24,7 +24,7 @@
 .startmenu {
   position: absolute; left: 6px; bottom: calc(100% + 8px);
   width: 580px; max-width: calc(100vw - 12px);
-  height: min(620px, calc(100vh - var(--taskbar-h) - var(--menubar-h) - 28px));
+  height: min(620px, calc(100vh - var(--taskbar-h) - 28px));
   display: flex; flex-direction: column; overflow: hidden;
   background: var(--sm-bg); color: var(--text);
   border: 1px solid var(--line); border-radius: 11px;

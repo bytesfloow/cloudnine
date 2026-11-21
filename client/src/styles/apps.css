@@ -76,6 +76,11 @@
 .dc-mount { font-weight: 700; font-size: 12.5px; }
 .dc-pct { font-weight: 700; font-variant-numeric: tabular-nums; }
 .dc-pct.warn { color: #f0883a; } .dc-pct.danger { color: var(--danger); } .dc-pct.notice { color: #c78f1c; }
+/* 磁盘占用条：磁盘窗口（.big）与任务栏磁盘面板、移动端共用同一份基础样式 */
+.disk-bar { flex: 1.2; height: 5px; border-radius: 3px; background: var(--active); overflow: hidden; min-width: 50px; }
+.disk-bar i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+.disk-bar i.warn { background: #f0883a; }
+.disk-bar i.danger { background: var(--danger); }
 .disk-bar.big { height: 8px; border-radius: 4px; }
 .dc-detail { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-2); margin-top: 7px; }
 .dc-sub { color: var(--text-2); font-size: 10.5px; margin-top: 6px; opacity: .8; }

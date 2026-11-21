@@ -18,7 +18,7 @@ const PINNED = [
   { type: 'transfers', label: '传输', Icon: IconTransfer },
 ];
 
-// 托盘弹层与菜单栏下拉共用 store.popover 这个全局槽位（一次只开一层），
+// 托盘弹层与开始菜单共用 store.popover 这个全局槽位（一次只开一层），
 // 但各自的 kind 互不重叠，关闭逻辑才能各扫门前雪。
 const TRAY_KINDS = ['disk', 'notifications', 'clock', 'account'];
 
@@ -32,7 +32,7 @@ export default function Taskbar() {
     return () => clearInterval(t);
   }, []);
 
-  // 点击任务栏以外收起托盘弹层；菜单栏那边只负责自己的 menu:* 弹层
+  // 点击任务栏以外收起托盘弹层；开始菜单由 StartMenu 自己负责关闭
   useEffect(() => {
     const close = (e) => {
       const kind = getState().popover?.kind;
@@ -42,7 +42,7 @@ export default function Taskbar() {
     return () => document.removeEventListener('click', close);
   }, []);
 
-  // 焦点切换后旧的托盘弹层不再有意义（与旧顶栏托盘的行为一致）
+  // 焦点切换后旧的托盘弹层不再有意义（与任务栏托盘的既有行为一致）
   useEffect(() => {
     if (TRAY_KINDS.includes(getState().popover?.kind)) closePopover();
   }, [s.focusId]);
@@ -210,7 +210,7 @@ export default function Taskbar() {
   );
 }
 
-// 托盘弹层：统一从任务栏向上弹（旧顶栏的 Popover 是向下弹的，样式复用内容类，位置单独写）
+// 托盘弹层：统一从任务栏向上弹（样式复用内容类，位置单独写）
 function TrayPopover({ kind, className = '', title, wide = false, button, children }) {
   const s = useStore();
   const open = s.popover?.kind === kind;

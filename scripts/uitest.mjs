@@ -529,7 +529,7 @@ try {
     }
   } else {
     const hasTaskbar = await page.$('.taskbar');
-    const hasMenu = await page.$('.menubar, .menu-bar, .desktop');
+    const hasMenu = await page.$('.desktop');
     check('桌面根节点渲染', !!hasMenu, '未找到 .desktop');
     check('任务栏渲染', !!hasTaskbar, '未找到 .taskbar');
     await shot('桌面');
@@ -1257,9 +1257,20 @@ try {
   check('确认「清空回收站」后回收站归零', trashLeft.json?.count === 0, JSON.stringify(trashLeft.json));
   check('清空后桌面回收站徽标消失', !(await page.$('.desktop-badge')));
 
-  // 焦点在桌面时，菜单栏切换为桌面菜单
-  const menuLabels = await page.evaluate(() => [...document.querySelectorAll('.mb-menu-btn')].map((b) => b.innerText.trim()));
-  check('桌面态菜单栏含「编辑」「显示」', menuLabels.includes('编辑') && menuLabels.includes('显示'), menuLabels.join(','));
+  // T8：顶栏删除后的桌面布局（docs §1.1 / R11 / R13）
+  const deskLayout = await page.evaluate(() => {
+    const icons = document.querySelector('.desktop-icons')?.getBoundingClientRect();
+    const tb = document.querySelector('.taskbar')?.getBoundingClientRect();
+    return {
+      menubar: !!document.querySelector('.menubar'),
+      iconsTop: icons ? Math.round(icons.top) : null,
+      iconsBottom: icons ? Math.round(icons.bottom) : null,
+      tbTop: tb ? Math.round(tb.top) : null,
+    };
+  });
+  check('顶部菜单栏已从 DOM 移除（T8）', deskLayout.menubar === false, JSON.stringify(deskLayout));
+  check('桌面图标区从屏幕最顶（y = 0）开始', deskLayout.iconsTop === 0, `top=${deskLayout.iconsTop}`);
+  check('桌面图标区底部仍为任务栏让位', deskLayout.iconsBottom <= deskLayout.tbTop, JSON.stringify(deskLayout));
 
 
   section('文件窗口（Finder）');
@@ -1484,6 +1495,15 @@ try {
     await page.keyboard.up('Control');
     await sleep(400);
     check('Ctrl+F 仍能聚焦文件窗口搜索框（.finder-search input 选择器未变）', await activeIsSearch());
+    // R15：Ctrl+F 必须 preventDefault，否则 Chrome 会同时弹出自己的查找框抢走焦点
+    const ctrlFPrevented = await page.evaluate(() => {
+      document.activeElement?.blur?.();
+      const ev = new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true, cancelable: true });
+      document.body.dispatchEvent(ev);
+      return ev.defaultPrevented;
+    });
+    await sleep(350);
+    check('Ctrl+F 阻止浏览器默认查找框并聚焦搜索框（R15）', ctrlFPrevented && await activeIsSearch(), `prevented=${ctrlFPrevented}`);
     await page.evaluate(() => document.activeElement?.blur?.());
     await page.keyboard.press('F3');
     await sleep(400);
@@ -1690,24 +1710,22 @@ try {
     }
     await shot('粘贴上传');
 
-    // 内部剪贴板优先：两者并存时给二选一；「编辑」菜单显示并可清空内部剪贴板
-    const openedEdit = await page.evaluate(() => {
+    // 内部剪贴板优先：两者并存时给二选一；复制走文件命令栏（旧「编辑」菜单的落点）
+    const selectedOne = await page.evaluate(() => {
       const items = document.querySelectorAll('.finder-item');
-      if (items.length) items[items.length - 1].click();
-      const btn = [...document.querySelectorAll('.mb-menu-btn')].find((b) => b.innerText.trim() === '编辑');
-      if (!btn) return false;
+      if (!items.length) return false;
+      items[items.length - 1].click();
+      return true;
+    });
+    await sleep(350);
+    const copied = await page.evaluate(() => {
+      const btn = document.querySelector('.finder-cmdbar [data-cmd="复制"]');
+      if (!btn || btn.disabled) return false;
       btn.click();
       return true;
     });
     await sleep(300);
-    const copied = await page.evaluate(() => {
-      const it = [...document.querySelectorAll('.dropdown-item')].find((b) => b.innerText.trim() === '复制');
-      if (!it) return false;
-      it.click();
-      return true;
-    });
-    await sleep(300);
-    check('「编辑」菜单可写出内部剪贴板', openedEdit && copied, `openedEdit=${openedEdit} copied=${copied}`);
+    check('文件命令栏「复制」可写出内部剪贴板', selectedOne && copied, `selected=${selectedOne} copied=${copied}`);
 
     await page.evaluate(() => {
       const dt = new DataTransfer();
@@ -1724,30 +1742,21 @@ try {
     const conflictQ = await apiFetch('GET', `/api/fs/search?path=/&q=uitest-conflict.txt`, undefined, `cloudnine_sid=${sid}`);
     check('二选一取消后不产生上传', !(conflictQ.json?.results || []).length, JSON.stringify(conflictQ.json?.results || []).slice(0, 100));
 
+    // 关掉文件窗口回桌面：剪贴板状态由「桌面空白右键›剪贴板▸」承担（docs §2.1.1）
+    await page.evaluate(() => document.querySelector('.window.focused .tc-close')?.click());
+    await sleep(700);
     const readClipLabel = async () => {
-      await page.evaluate(() => {
-        const btn = [...document.querySelectorAll('.mb-menu-btn')].find((b) => b.innerText.trim() === '编辑');
-        btn?.click();
-      });
-      await sleep(250);
-      return page.evaluate(() => {
-        const it = [...document.querySelectorAll('.dropdown-item')].find((b) => b.innerText.includes('剪贴板：'));
-        return it ? it.innerText.trim() : '(未找到)';
-      });
+      await ctxOpenBlank(700, 500);
+      await ctxClick(0, '剪贴板');
+      const labels = await ctxLabels(1);
+      return labels.find((t) => t.startsWith('剪贴板：')) || '(未找到)';
     };
     const clipLabel = await readClipLabel();
-    check('「编辑」菜单显示内部剪贴板状态', /剪贴板：复制 1 项/.test(clipLabel), clipLabel);
-    await page.evaluate(() => {
-      const it = [...document.querySelectorAll('.dropdown-item')].find((b) => b.innerText.trim() === '清空剪贴板');
-      it?.click();
-    });
-    await sleep(250);
+    check('桌面「剪贴板」子菜单显示内部剪贴板状态', /剪贴板：复制 1 项/.test(clipLabel), clipLabel);
+    await ctxClick(1, '清空剪贴板');
     const emptyLabel = await readClipLabel();
     check('清空剪贴板后状态回到「空」', /剪贴板：空/.test(emptyLabel), emptyLabel);
-    await page.evaluate(() => {
-      const btn = [...document.querySelectorAll('.mb-menu-btn')].find((b) => b.innerText.trim() === '编辑');
-      btn?.click();
-    });
+    await dismissMenus();
   }
 
   // ---------- 5.6 上传通知：点击「开始上传」自动打开传输窗口 ----------
@@ -1756,7 +1765,7 @@ try {
   section('上传通知（点击打开传输窗口）');
   if (sid) {
     await page.reload({ waitUntil: 'networkidle2', timeout: 45000 });
-    await page.waitForSelector('.menubar', { timeout: 15000 });
+    await page.waitForSelector('.desktop', { timeout: 15000 });
     await sleep(1000);
     const fb = await page.$('.tb-app[title="文件资源管理器"]');
     if (fb) await fb.click();
@@ -1796,6 +1805,14 @@ try {
       { timeout: 8000 }, beforeA);
     const infoA = await lastStartInfo();
     check('粘贴上传「开始上传」通知带可点击提示', !!infoA?.actionable && !!infoA?.hasHint, JSON.stringify(infoA));
+    // R11：通知弹层不再为 28px 顶栏留白，直接贴视口右上角
+    const notifPos = await page.evaluate(() => {
+      const el = document.querySelector('.notification-stack');
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { top: Math.round(r.top), right: Math.round(innerWidth - r.right), z: getComputedStyle(el).zIndex };
+    });
+    check('通知弹层贴视口右上角（top 8 / right 12）', !!notifPos && notifPos.top === 8 && notifPos.right === 12, JSON.stringify(notifPos));
     check('需求1：点击前传输窗口未打开', !(await hasTransfers()));
     await clickLastStart();
     await page.waitForSelector('.transfers-window', { timeout: 8000 });
@@ -2053,14 +2070,15 @@ try {
     }
     check('逐个从任务栏还原：全部可见 + 几何不变 + 最后还原者置顶', bad.length === 0, bad.join('；'));
 
-    // DoD：菜单栏里现有的「窗口 › 最小化全部窗口」同样不能把窗口变成孤儿（R7）
+    // R7：新载体（任务栏空白右键）再执行一次「最小化全部窗口」，几何与按钮都不能丢
+    const geoBefore = snap.map((x) => x.geo);
     await page.evaluate(() => {
-      [...document.querySelectorAll('.mb-menu-btn')].find((b) => b.innerText.trim() === '窗口')?.click();
+      document.querySelector('.taskbar').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 700, clientY: 880 }));
     });
-    await sleep(300);
+    await sleep(350);
     const minAllClicked = await page.evaluate(() => {
-      const it = [...document.querySelectorAll('.dropdown .dropdown-item')].find((b) => b.innerText.includes('最小化全部窗口'));
-      if (!it) return false;
+      const it = [...document.querySelectorAll('.context-menu .dropdown-item')].find((b) => b.innerText.trim() === '最小化全部窗口');
+      if (!it || it.disabled) return false;
       it.click();
       return true;
     });
@@ -2069,9 +2087,11 @@ try {
       total: document.querySelectorAll('.window').length,
       hidden: [...document.querySelectorAll('.window')].filter((w) => w.classList.contains('minimized')).length,
       buttons: document.querySelectorAll('.tb-win').length,
+      geo: [...document.querySelectorAll('.window')].map((w) => [w.style.left, w.style.top, w.style.width, w.style.height].join(',')),
     }));
-    check('菜单栏「最小化全部窗口」后每个窗口仍有任务栏按钮（R7）',
-      minAllClicked && mini2.hidden === mini2.total && mini2.buttons === mini2.total, JSON.stringify(mini2));
+    check('任务栏「最小化全部窗口」后几何不变、每个窗口仍有任务栏按钮（R7）',
+      minAllClicked && mini2.hidden === mini2.total && mini2.buttons === mini2.total
+        && JSON.stringify(mini2.geo) === JSON.stringify(geoBefore), JSON.stringify(mini2));
 
     await page.evaluate(() => {
       document.querySelector('.taskbar').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 700, clientY: 880 }));
@@ -2127,6 +2147,43 @@ try {
       await page.evaluate((idx) => document.querySelectorAll('.window')[idx].classList.contains('minimized'), last));
     await page.evaluate((idx) => document.querySelectorAll('.tb-win')[idx]?.click(), last);
     await sleep(300);
+
+    // R12：窗口能拖到 y = 0；最大化顶到屏幕最上沿、底部不压住任务栏
+    const winGeom = () => page.evaluate(() => {
+      const w = document.querySelector('.window.focused');
+      if (!w) return null;
+      const r = w.getBoundingClientRect();
+      const tb = document.querySelector('.taskbar').getBoundingClientRect();
+      return {
+        top: Math.round(r.top), bottom: Math.round(r.bottom), left: Math.round(r.left),
+        tbTop: Math.round(tb.top), max: w.classList.contains('maximized'),
+      };
+    });
+    const geoBeforeMax = await winGeom();
+    await page.click('.window.focused .tc-max');
+    await sleep(450);
+    const maxGeo = await winGeom();
+    check('最大化后顶部无 28px 缝隙（top = 0）', !!maxGeo && maxGeo.max && maxGeo.top === 0, JSON.stringify(maxGeo));
+    check('最大化后底部停在任务栏上沿（不压任务栏）', !!maxGeo && maxGeo.bottom === maxGeo.tbTop, JSON.stringify(maxGeo));
+    await page.click('.window.focused .tc-max');
+    await sleep(400);
+    const restoredGeo = await winGeom();
+    check('还原后回到最大化前的几何', !!restoredGeo && !restoredGeo.max
+      && restoredGeo.top === geoBeforeMax.top && restoredGeo.left === geoBeforeMax.left,
+      `${JSON.stringify(geoBeforeMax)} → ${JSON.stringify(restoredGeo)}`);
+
+    const titleBox = await (await page.$('.window.focused .window-titlebar')).boundingBox();
+    await page.mouse.move(titleBox.x + 80, titleBox.y + titleBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(titleBox.x + 80, 0, { steps: 6 });
+    await page.mouse.up();
+    await sleep(350);
+    const dragged = await page.evaluate(() => {
+      const w = document.querySelector('.window.focused');
+      return { styleTop: w?.style.top, top: Math.round(w.getBoundingClientRect().top) };
+    });
+    check('窗口可拖到 y = 0（不再被 28px 顶栏挡住）',
+      dragged.top === 0 && dragged.styleTop === '0px', JSON.stringify(dragged));
     await shot('任务栏与多窗口');
   }
 
@@ -2729,12 +2786,12 @@ try {
 
     // ----- ② 记事本：标题栏下方 文件 / 编辑 -----
     await page.click('.tb-app[title="记事本"]');
-    await page.waitForSelector('.editor-window .editor-menubar', { timeout: 15000 });
+    await page.waitForSelector('.editor-window .editor-winmenu', { timeout: 15000 });
     await sleep(1600);
-    const editorMenus = await page.$$eval('.editor-window .editor-menubar .winmenu-btn', (els) => els.map((e) => e.dataset.menu));
+    const editorMenus = await page.$$eval('.editor-window .editor-winmenu .winmenu-btn', (els) => els.map((e) => e.dataset.menu));
     check('记事本标题栏下方有 文件 / 编辑 菜单', JSON.stringify(editorMenus) === JSON.stringify(['文件', '编辑']), editorMenus.join(','));
 
-    await openWinMenu('.editor-window .editor-menubar [data-menu="文件"]');
+    await openWinMenu('.editor-window .editor-winmenu [data-menu="文件"]');
     const fileMenu = await winMenuLabels();
     check('记事本「文件」菜单三项齐全（保存/另存为/关闭窗口）',
       JSON.stringify(fileMenu) === JSON.stringify(['保存', '另存为…', '关闭窗口']), fileMenu.join(','));
@@ -2747,19 +2804,13 @@ try {
     await page.keyboard.press('Escape');
     await sleep(250);
 
-    // 顶栏仍在（T8 才删），但 R4 的 macOS 残留应同步清掉
-    await page.evaluate(() => [...document.querySelectorAll('.mb-menu-btn')].find((b) => b.innerText.trim() === '文件')?.click());
-    await sleep(350);
-    const barSaveHint = await page.evaluate(() => {
-      const b = [...document.querySelectorAll('.menubar .dropdown .dropdown-item')].find((x) => x.innerText.trim().startsWith('保存'));
-      return b?.querySelector('.di-hint')?.innerText.trim() || '';
-    });
-    check('顶栏「保存」提示也是 Ctrl+S（isMac 判断已删）', barSaveHint === 'Ctrl+S', barSaveHint);
-    await page.keyboard.press('Escape');
-    await sleep(250);
+    // R4：顶栏已删除，但 macOS 的 ⌘ 语义不能借尸还魂——整个界面不得再出现 ⌘
+    const cmdGlyph = await page.evaluate(() => (document.body.innerText.match(/⌘/g) || []).length);
+    check('界面不再出现 macOS ⌘ 快捷键符号（R4）', cmdGlyph === 0, `⌘ ×${cmdGlyph}`);
+    await sleep(150);
 
     // 未命名文档默认 md：编辑菜单里不应出现格式化
-    await openWinMenu('.editor-window .editor-menubar [data-menu="编辑"]');
+    await openWinMenu('.editor-window .editor-winmenu [data-menu="编辑"]');
     const mdEditMenu = await winMenuLabels();
     check('Markdown 文档的「编辑」菜单不含格式化', JSON.stringify(mdEditMenu) === JSON.stringify(['查找…']), mdEditMenu.join(','));
     const findClicked = await ctxClick(0, '查找…');
@@ -2782,7 +2833,7 @@ try {
       return true;
     });
     await sleep(350);
-    await openWinMenu('.editor-window .editor-menubar [data-menu="编辑"]');
+    await openWinMenu('.editor-window .editor-winmenu [data-menu="编辑"]');
     const jsonEditMenu = await winMenuLabels();
     check('JSON 文档的「编辑」菜单出现「格式化」',
       jsonChosen && JSON.stringify(jsonEditMenu) === JSON.stringify(['格式化', '查找…']), jsonEditMenu.join(','));
@@ -2797,7 +2848,7 @@ try {
     await page.keyboard.press('Backspace');
     await page.keyboard.type('{"b":[2,3],"a":1}');
     await sleep(400);
-    await openWinMenu('.editor-window .editor-menubar [data-menu="编辑"]');
+    await openWinMenu('.editor-window .editor-winmenu [data-menu="编辑"]');
     await ctxClick(0, '格式化');
     // CodeMirror 的受控 value 有「正在输入」闩锁（@uiw/react-codemirror typingLatch），
     // 刚输入完的外部改值会晚一点落地，这里等它真的重排完再断言（而不是死等固定时长）
@@ -2810,7 +2861,7 @@ try {
       formatApplied && /"a": 1/.test(formattedText), JSON.stringify(formattedText.slice(0, 80)));
 
     // 保存（未命名 → 另存为对话框）
-    await openWinMenu('.editor-window .editor-menubar [data-menu="文件"]');
+    await openWinMenu('.editor-window .editor-winmenu [data-menu="文件"]');
     await ctxClick(0, '保存');
     await sleep(600);
     let saveDlg = await page.$('.dialog input');
@@ -2833,7 +2884,7 @@ try {
       `status=${savedFile.status} ${JSON.stringify(savedContent.slice(0, 60))}`);
 
     // 另存为…
-    await openWinMenu('.editor-window .editor-menubar [data-menu="文件"]');
+    await openWinMenu('.editor-window .editor-winmenu [data-menu="文件"]');
     await ctxClick(0, '另存为…');
     await sleep(600);
     saveDlg = await page.$('.dialog input');
@@ -2851,7 +2902,7 @@ try {
     check('「另存为…」生成新文件且内容一致',
       copiedFile.status === 200 && copiedFile.json?.content === savedContent, `status=${copiedFile.status}`);
 
-    await openWinMenu('.editor-window .editor-menubar [data-menu="文件"]');
+    await openWinMenu('.editor-window .editor-winmenu [data-menu="文件"]');
     await ctxClick(0, '关闭窗口');
     await sleep(800);
     check('记事本「关闭窗口」真的关窗', !(await page.$('.editor-window')));
@@ -2942,6 +2993,26 @@ try {
       document.querySelector('.editor-window')?.closest('.window')?.querySelector('.window-title')?.innerText.trim() || '');
     check('文本视图「用编辑器打开」跳到编辑器（标题为文件名）', txtEditTitle === wmTextName, txtEditTitle);
     await shot('窗口内菜单-预览跳编辑器');
+
+    // R15：Ctrl+W 在编辑器输入态关闭当前窗口；必须 preventDefault，否则浏览器会关掉自己的标签页
+    await page.click('.window:has(.editor-window) .window-titlebar');
+    const editorFocused = await page.evaluate(() => {
+      const el = document.querySelector('.window.focused .editor-window .cm-content');
+      if (!el) return false;
+      el.focus();
+      return !!document.activeElement?.closest?.('.cm-content');
+    });
+    const winsBeforeW = (await page.$$('.window')).length;
+    const ctrlW = await page.evaluate(() => {
+      const ev = new KeyboardEvent('keydown', { key: 'w', ctrlKey: true, bubbles: true, cancelable: true });
+      (document.activeElement || document.body).dispatchEvent(ev);
+      return ev.defaultPrevented;
+    });
+    await sleep(600);
+    const winsAfterW = (await page.$$('.window')).length;
+    check('Ctrl+W 在编辑器输入态关窗且阻止浏览器默认行为（R15）',
+      ctrlW && editorFocused && winsAfterW === winsBeforeW - 1 && !(await page.$('.editor-window')),
+      `prevented=${ctrlW} focused=${editorFocused} ${winsBeforeW}→${winsAfterW}`);
 
     await page.evaluate(() => document.querySelectorAll('.window .tc-close').forEach((b) => b.click()));
     await sleep(600);

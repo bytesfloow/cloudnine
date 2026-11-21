@@ -163,7 +163,7 @@ export default function DesktopIcons() {
   // ---------- 选择 ----------
   function clickItem(e, entry, idx) {
     setSysSel(null); // 选中文件时取消系统图标的选中态
-    setState({ focusId: null }); // 点桌面图标：焦点回到桌面，菜单栏切到桌面菜单
+    setState({ focusId: null }); // 点桌面图标：焦点回到桌面
     if (e.metaKey || e.ctrlKey) {
       setDesktopSel((prev) => (prev.includes(entry.name) ? prev.filter((n) => n !== entry.name) : [...prev, entry.name]));
       setAnchor(idx);
@@ -380,7 +380,7 @@ export default function DesktopIcons() {
     if (e.dataTransfer.files.length) uploadDropped(cwd, e.dataTransfer.files);
   }
 
-  // ---------- 菜单栏 / 快捷键动作 ----------
+  // ---------- 桌面动作 / 快捷键动作 ----------
   useEffect(() => bus.on('desktop-action', ({ action }) => {
     switch (action) {
       case 'newFolder': return doCreate('dir');
@@ -433,7 +433,7 @@ export default function DesktopIcons() {
           if (sel.length) setDesktopSel([]);
           setSysSel(null);
           setAnchor(null);
-          setState({ focusId: null }); // 焦点回到桌面：菜单栏切换为桌面菜单
+          setState({ focusId: null }); // 焦点回到桌面
         }}
         onDragOver={(e) => {
           // 内部拖拽不接管：落到空白处等于原地放下

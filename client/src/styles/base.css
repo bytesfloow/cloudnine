@@ -5,7 +5,6 @@
   --danger: #ff5f57;
   --radius-win: 11px;
   --radius-ctl: 8px;
-  --menubar-h: 28px;
   /* 底部任务栏高度：外壳与桌面图标区的留白都以它为准（docs §1.1 / R13） */
   --taskbar-h: 40px;
   --font: system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;

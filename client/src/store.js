@@ -25,6 +25,14 @@ function loadDesktopView() {
 
 const dv = loadDesktopView();
 
+// ---------- 外壳几何 ----------
+// 顶部全局菜单栏已删除（docs §7 R11 / R12）：窗口可以拖到 y = 0，最大化后顶到屏幕最上沿。
+// 底部是通栏任务栏；SHELL_BOTTOM_H 必须与 styles/base.css 的 --taskbar-h 保持一致。
+export const SHELL_TOP_H = 0;
+export const SHELL_BOTTOM_H = 40;
+// 拖动 / 恢复几何时，标题栏至少要露出这么多（标题栏 39px + 1px 余量），不能被任务栏吃掉
+export const TITLEBAR_MIN_VISIBLE = 44;
+
 // ---------- 极简全局状态 ----------
 let state = {
   booted: false,
@@ -51,7 +59,7 @@ let state = {
   dialog: null,        // 当前模态对话框（队列首）
   contextMenu: null,   // {x,y,items,id}
   quickLook: null,     // {paths:[], index}
-  popover: null,       // 菜单栏弹出面板 {kind, anchor}
+  popover: null,       // 外壳弹层（开始菜单 / 任务栏托盘）{kind, anchor}
 
   transfers: [],       // 上传项
   jobs: [],
@@ -199,13 +207,13 @@ export const promptDialog = ({ title, message, fields = [], okText = '好', dang
 
 // ---------- 右键菜单 ----------
 export function openContextMenu(x, y, items) {
-  // 同一时刻只允许一层弹出层：打开右键菜单时先收起菜单栏下拉/通知面板
+  // 同一时刻只允许一层弹出层：打开右键菜单时先收起开始菜单/任务栏托盘
   // id 用于让 ContextMenu 在「菜单已打开时换一份 items」也能重置展开的层级
   setState({ contextMenu: { x, y, items, id: nextId() }, popover: null });
 }
 export const closeContextMenu = () => setState({ contextMenu: null });
 
-// 菜单栏下拉与右侧面板共用同一个全局槽位，Esc、右键、点击外部统一收口
+// 开始菜单与任务栏托盘共用同一个全局槽位，Esc、右键、点击外部统一收口
 export const openPopover = (kind) =>
   setState({ popover: kind ? { kind } : null, contextMenu: null });
 export const closePopover = () => setState({ popover: null });
@@ -271,14 +279,15 @@ export function openWindow(type, props = {}) {
   if (saved) {
     // 恢复上次手动调整的几何；视口可能已变化，先收敛尺寸再保证窗口可见、可拖回
     w = Math.max(def.minW, Math.min(saved.w, vw - 40));
-    h = Math.max(def.minH, Math.min(saved.h, vh - 110));
+    h = Math.max(def.minH, Math.min(saved.h, vh - SHELL_BOTTOM_H - 14));
     x = Math.min(Math.max(saved.x, -(w - 120)), vw - 120); // 边界与 WindowFrame 拖动限制一致
-    y = Math.min(Math.max(saved.y, 28), vh - 44);
+    y = Math.min(Math.max(saved.y, SHELL_TOP_H), vh - SHELL_BOTTOM_H - TITLEBAR_MIN_VISIBLE);
   } else {
     w = Math.min(def.w, vw - 40);
-    h = Math.min(def.h, vh - 110);
+    h = Math.min(def.h, vh - SHELL_BOTTOM_H - 14);
     x = Math.max(10, Math.min((vw - w) / 2 + ((n % 6) - 2.5) * 32, vw - w - 10));
-    y = Math.max(38, Math.min(52 + ((n % 6) - 2) * 28, vh - h - 80));
+    // 窗口从屏幕顶部下方 10px 起层叠，不越过任务栏，也不再为顶栏留 38px
+    y = Math.max(SHELL_TOP_H + 10, Math.min(24 + ((n % 6) - 2) * 28, vh - h - SHELL_BOTTOM_H - 8));
   }
   const win = {
     id: nextId(),
@@ -361,7 +370,7 @@ export async function closeWindow(id) {
 export const minimizeWindow = (id) => setState((s) => {
   if (!s.windows.some((w) => w.id === id)) return null;
   // 焦点交接：交给剩余窗口中最上层者，而不是直接置 null。
-  // （置 null 等于"焦点消失"，菜单栏会立刻退回桌面态，剩下的窗口也失去激活语义）
+  // （置 null 等于"焦点消失"，剩下的窗口会失去激活语义）
   const rest = s.windows.filter((w) => w.id !== id);
   const next = s.focusId === id ? rest.filter((w) => !w.minimized).sort((a, b) => b.z - a.z)[0] : null;
   return {
