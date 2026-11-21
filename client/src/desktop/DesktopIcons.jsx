@@ -23,7 +23,8 @@ const MAX_ICONS = 400;
 // 图标网格：纵向填充（先从上到下填满一列，再向右开新列）
 const CELL_W = 102;      // 列宽（含列间距）
 const ROW_H = 88;        // 行高
-const DOCK_RESERVE = 96; // 底部给 Dock 留出的空间
+// 底部给任务栏留的空间由 .desktop-icons 的 bottom: calc(var(--taskbar-h) + 6px) 负责，
+// 容器高度已经是任务栏以上的可用高度，这里不再重复扣（旧 DOCK_RESERVE = 96 会双重留白）
 
 export default function DesktopIcons() {
   const s = useStore();
@@ -112,7 +113,7 @@ export default function DesktopIcons() {
       const g = gridRef.current;
       if (!c || !g) return;
       const top = g.offsetTop || 0;
-      const avail = c.clientHeight - top - DOCK_RESERVE;
+      const avail = c.clientHeight - top;
       setRows(Math.max(1, Math.floor(avail / ROW_H)));
     };
     measure();

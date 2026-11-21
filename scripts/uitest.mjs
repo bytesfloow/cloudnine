@@ -491,10 +491,10 @@ try {
       check('底部工具栏含「终端」入口', false, '未找到 .m-dock .m-appitem[aria-label=终端]');
     }
   } else {
-    const hasDock = await page.$('.dock, .dock-item');
+    const hasTaskbar = await page.$('.taskbar');
     const hasMenu = await page.$('.menubar, .menu-bar, .desktop');
     check('桌面根节点渲染', !!hasMenu, '未找到 .desktop');
-    check('Dock 渲染', !!hasDock, '未找到 .dock');
+    check('任务栏渲染', !!hasTaskbar, '未找到 .taskbar');
     await shot('桌面');
   }
 
@@ -507,6 +507,11 @@ try {
   const btnUploadName = `uitest-btnupload-${Date.now()}.txt`;
   const deskName = `uitest-desktop-${Date.now()}.txt`;
   const dirName = `uitest-desktop-dir-${Date.now()}`;
+  // 任务栏托盘自测用的大文件（传输徽标 / 通知）；文件名带时间戳，便于清理阶段逐个删除
+  const badgeBase = `uitest-badge-${Date.now()}`;
+  const badgeNames = [`${badgeBase}-a.bin`, `${badgeBase}-b.bin`];
+  const dropName = `uitest-drop-${Date.now()}.txt`;
+  const tbDirName = `uitest-tb-dir-${Date.now()}`;
   if (!MOBILE) {
   // ---------- 桌面直览：主目录里的真实文件直接铺在桌面上 ----------
   section('桌面直览（主目录）');
@@ -722,10 +727,10 @@ try {
 
 
   section('文件窗口（Finder）');
-  const dockItems = await page.$$('.dock-item');
-  check(`Dock 应用数量 ≥ 5`, dockItems.length >= 5, `实际 ${dockItems.length}`);
+  const pinnedApps = await page.$$('.tb-app');
+  check('任务栏固定应用数量 ≥ 4', pinnedApps.length >= 4, `实际 ${pinnedApps.length}`);
 
-  const finderBtn = await page.$('.dock-item[title="文件"]');
+  const finderBtn = await page.$('.tb-app[title="文件资源管理器"]');
   if (finderBtn) {
     await finderBtn.click();
     await sleep(1500);
@@ -734,7 +739,7 @@ try {
     check('文件窗口打开', /文件|Finder/i.test(titleText) || !!winTitle, `title=${titleText}`);
     await shot('文件窗口');
   } else {
-    check('Dock 中存在「文件」入口', false, '未找到 .dock-item[title=文件]');
+    check('任务栏存在「文件资源管理器」入口', false, '未找到 .tb-app[title=文件资源管理器]');
   }
 
   // ---------- 4. 终端（真实 PTY） ----------
@@ -742,7 +747,7 @@ try {
   const sid = await loginViaApi();
   check('API 侧登录成功（用于反查）', !!sid, '未取到会话 Cookie');
 
-  const termBtn = await page.$('.dock-item[title="终端"]');
+  const termBtn = await page.$('.tb-app[title="终端"]');
 
   if (termBtn && sid) {
     await termBtn.click();
@@ -770,12 +775,12 @@ try {
       check('终端 xterm 挂载', false, '未找到 .xterm');
     }
   } else {
-    check('Dock 中存在「终端」入口', false, '未找到 .dock-item[title=终端]');
+    check('任务栏存在「终端」入口', false, '未找到 .tb-app[title=终端]');
   }
 
   // ---------- 5. 文本编辑：新建 → 输入 → Ctrl+S → 磁盘核对 ----------
   section('文本编辑（Ctrl+S 保存）');
-  const editorBtn = await page.$('.dock-item[title="文本编辑"]');
+  const editorBtn = await page.$('.tb-app[title="记事本"]');
   if (editorBtn && sid) {
     await editorBtn.click();
     await sleep(1800);
@@ -843,7 +848,7 @@ try {
       check('编辑器挂载', false, '未找到 CodeMirror');
     }
   } else {
-    check('Dock 中存在「文本编辑」入口', false, '未找到 .dock-item[title=文本编辑]');
+    check('任务栏存在「记事本」入口', false, '未找到 .tb-app[title=记事本]');
   }
 
   // ---------- 5.5 粘贴上传（合成 ClipboardEvent，不依赖真实系统剪贴板）----------
@@ -851,7 +856,7 @@ try {
   section('粘贴上传（Ctrl+V）');
   if (sid) {
     // 打开并激活一个文件窗口：此前焦点在编辑器窗口，非文件窗口按设计不接管粘贴
-    const fb = await page.$('.dock-item[title="文件"]');
+    const fb = await page.$('.tb-app[title="文件资源管理器"]');
     if (fb) await fb.click();
     await sleep(1500);
 
@@ -942,7 +947,7 @@ try {
     await page.reload({ waitUntil: 'networkidle2', timeout: 45000 });
     await page.waitForSelector('.menubar', { timeout: 15000 });
     await sleep(1000);
-    const fb = await page.$('.dock-item[title="文件"]');
+    const fb = await page.$('.tb-app[title="文件资源管理器"]');
     if (fb) await fb.click();
     await page.waitForSelector('.finder', { timeout: 15000 });
     await sleep(500);
@@ -1084,6 +1089,392 @@ try {
       await shot('图片预览缩放平移');
     }
   }
+  // ---------- 5.8 任务栏：每窗口一个按钮 / 最小化 → 还原 / 跳转列表 ----------
+  section('任务栏（最小化 → 还原）');
+  if (sid) {
+    // 同类型多开用：桌面上一个真实文件夹 → 双击再开一个文件窗口
+    await apiFetch('POST', '/api/fs/mkdir', { path: homeRel ? `${homeRel}/${tbDirName}` : tbDirName }, `cloudnine_sid=${sid}`);
+    await page.reload({ waitUntil: 'networkidle2', timeout: 45000 });
+    await page.waitForSelector('.taskbar', { timeout: 15000 });
+    await sleep(900);
+    check('Dock 已移除（.dock 不存在）', !(await page.$('.dock')), '仍存在 .dock');
+    check('开始按钮位置已留出', !!(await page.$('.taskbar .tb-start')), '未找到 .tb-start');
+
+    const trayParts = await page.evaluate(() => ({
+      disk: !!document.querySelector('.tray-disk'),
+      transfers: !!document.querySelector('.tray-transfers'),
+      bell: !!document.querySelector('.tray-bell'),
+      clock: !!document.querySelector('.tray-clock'),
+      account: !!document.querySelector('.tray-account'),
+    }));
+    check('托盘五项齐备（磁盘/传输/通知/时钟/账户）', Object.values(trayParts).every(Boolean), JSON.stringify(trayParts));
+
+    const clickPinned = async (label) => {
+      const el = await page.$(`.tb-app[title="${label}"]`);
+      if (!el) return false;
+      await el.click();
+      return true;
+    };
+    const dblClickItem = async (name) => {
+      const ok = await page.evaluate((n) => {
+        const el = [...document.querySelectorAll('.finder-item')].find((x) => x.textContent.includes(n));
+        if (!el) return false;
+        el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+        return true;
+      }, name);
+      await sleep(1800);
+      return ok;
+    };
+
+    // 五个 multi:true 类型各开一个窗口（记事本开两个，用来验证「每窗口一个按钮」）
+    check('固定项打开文件资源管理器', await clickPinned('文件资源管理器'));
+    await page.waitForSelector('.finder', { timeout: 15000 });
+    await sleep(600);
+    // 固定项单击语义：已聚焦 → 最小化；再点 → 经 activateOrOpen 还原最上层的那个
+    await page.click('.tb-app[title="文件资源管理器"]');
+    await sleep(500);
+    check('固定项：窗口已聚焦时再点 → 最小化',
+      await page.evaluate(() => { const w = document.querySelector('.window'); return !!w && w.classList.contains('minimized'); }), '未最小化');
+    await page.click('.tb-app[title="文件资源管理器"]');
+    await sleep(500);
+    check('固定项：再点 → 还原（activateOrOpen）',
+      await page.evaluate(() => { const w = document.querySelector('.window'); return !!w && !w.classList.contains('minimized'); }), '仍最小化');
+
+    // 同类型再开一个：双击桌面文件夹 → 第二个文件窗口
+    const dirOpened = await page.evaluate((n) => {
+      const el = [...document.querySelectorAll('.desktop-icon[data-entry]')].find((x) => x.dataset.entry === n);
+      if (!el) return false;
+      el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+      return true;
+    }, tbDirName);
+    await sleep(1600);
+    check('双击桌面文件夹开第二个文件窗口（同类型多开）', dirOpened && (await page.$$('.window .finder')).length === 2,
+      `文件窗口 ${(await page.$$('.window .finder')).length}`);
+
+    check('固定项打开终端', await clickPinned('终端'));
+    await sleep(1600);
+    check('双击文本文件打开记事本（第 1 个）', await dblClickItem(btnUploadName));
+    check('双击另一个文本文件打开记事本（第 2 个）', await dblClickItem(pasteName));
+    check('双击图片打开预览', await dblClickItem(imgName));
+
+    // 「显示简介」窗口：文件窗口条目右键 → 显示简介
+    const ctxOpened = await page.evaluate((n) => {
+      const el = [...document.querySelectorAll('.finder-item')].find((x) => x.textContent.includes(n));
+      if (!el) return false;
+      el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 300, clientY: 260 }));
+      return true;
+    }, imgName);
+    await sleep(400);
+    const infoClicked = await page.evaluate(() => {
+      const it = [...document.querySelectorAll('.context-menu .dropdown-item')].find((b) => b.innerText.trim() === '显示简介');
+      if (!it) return false;
+      it.click();
+      return true;
+    });
+    await sleep(1600);
+    check('条目右键「显示简介」打开简介窗口', ctxOpened && infoClicked && !!(await page.$('.info-window')),
+      `ctx=${ctxOpened} click=${infoClicked}`);
+
+    const typeCount = await page.evaluate(() => ({
+      finder: document.querySelectorAll('.window .finder').length,
+      terminal: document.querySelectorAll('.window .terminal-window').length,
+      editor: document.querySelectorAll('.window .editor-window').length,
+      preview: document.querySelectorAll('.window .preview-window').length,
+      info: document.querySelectorAll('.window .info-window').length,
+    }));
+    check('五个 multi:true 类型均已开窗（文件/记事本各两个）',
+      typeCount.finder === 2 && typeCount.terminal === 1 && typeCount.editor === 2 && typeCount.preview === 1 && typeCount.info === 1,
+      JSON.stringify(typeCount));
+
+    const counts = await page.evaluate(() => ({
+      wins: document.querySelectorAll('.window').length,
+      btns: document.querySelectorAll('.tb-win').length,
+      winTitles: [...document.querySelectorAll('.window .window-title')].map((e) => e.innerText.trim()),
+      btnTitles: [...document.querySelectorAll('.tb-win-label')].map((e) => e.innerText.trim()),
+    }));
+    check('任务栏窗口按钮数 = 窗口数（每窗口一个按钮）', counts.btns === counts.wins && counts.wins === 7,
+      `按钮 ${counts.btns} / 窗口 ${counts.wins}（按类型去重会得到 5 个）`);
+    check('窗口按钮标题与窗口标题一一对应',
+      JSON.stringify(counts.winTitles) === JSON.stringify(counts.btnTitles),
+      `${counts.winTitles.join('|')} vs ${counts.btnTitles.join('|')}`);
+
+    const snap = await page.evaluate(() => [...document.querySelectorAll('.window')].map((w) => ({
+      title: w.querySelector('.window-title')?.innerText.trim() || '',
+      geo: [w.style.left, w.style.top, w.style.width, w.style.height].join(','),
+    })));
+
+    // 菜单栏「窗口›最小化全部窗口」的等价入口：任务栏空白处右键（也是 R7 的修复点）
+    await page.evaluate(() => {
+      document.querySelector('.taskbar').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 700, clientY: 880 }));
+    });
+    await sleep(400);
+    const barMenu = await page.$$eval('.context-menu .dropdown-item', (els) => els.map((e) => e.innerText.trim()));
+    check('任务栏空白右键含「最小化全部窗口」', barMenu.includes('最小化全部窗口'), barMenu.join(','));
+    await page.evaluate(() => {
+      [...document.querySelectorAll('.context-menu .dropdown-item')].find((b) => b.innerText.trim() === '最小化全部窗口')?.click();
+    });
+    await sleep(600);
+    const mini = await page.evaluate(() => ({
+      total: document.querySelectorAll('.window').length,
+      hidden: [...document.querySelectorAll('.window')].filter((w) => w.classList.contains('minimized') && w.offsetParent === null).length,
+      buttons: document.querySelectorAll('.tb-win').length,
+      focused: document.querySelectorAll('.window.focused').length,
+    }));
+    check('「最小化全部」后所有窗口隐藏、按钮仍在、焦点回到桌面',
+      mini.hidden === mini.total && mini.buttons === mini.total && mini.focused === 0 && mini.total === snap.length,
+      JSON.stringify(mini));
+
+    const bad = [];
+    for (let i = 0; i < snap.length; i++) {
+      await page.evaluate((idx) => document.querySelectorAll('.tb-win')[idx]?.click(), i);
+      await sleep(320);
+      const st = await page.evaluate((idx) => {
+        const w = document.querySelectorAll('.window')[idx];
+        return {
+          hidden: w.classList.contains('minimized') || w.offsetParent === null,
+          geo: [w.style.left, w.style.top, w.style.width, w.style.height].join(','),
+          focused: w.classList.contains('focused'),
+        };
+      }, i);
+      if (st.hidden) bad.push(`${snap[i].title}#${i} 仍隐藏`);
+      if (st.geo !== snap[i].geo) bad.push(`${snap[i].title}#${i} 几何 ${snap[i].geo} → ${st.geo}`);
+      if (i === snap.length - 1 && !st.focused) bad.push('最后还原的窗口未获得焦点');
+    }
+    check('逐个从任务栏还原：全部可见 + 几何不变 + 最后还原者置顶', bad.length === 0, bad.join('；'));
+
+    // DoD：菜单栏里现有的「窗口 › 最小化全部窗口」同样不能把窗口变成孤儿（R7）
+    await page.evaluate(() => {
+      [...document.querySelectorAll('.mb-menu-btn')].find((b) => b.innerText.trim() === '窗口')?.click();
+    });
+    await sleep(300);
+    const minAllClicked = await page.evaluate(() => {
+      const it = [...document.querySelectorAll('.dropdown .dropdown-item')].find((b) => b.innerText.includes('最小化全部窗口'));
+      if (!it) return false;
+      it.click();
+      return true;
+    });
+    await sleep(600);
+    const mini2 = await page.evaluate(() => ({
+      total: document.querySelectorAll('.window').length,
+      hidden: [...document.querySelectorAll('.window')].filter((w) => w.classList.contains('minimized')).length,
+      buttons: document.querySelectorAll('.tb-win').length,
+    }));
+    check('菜单栏「最小化全部窗口」后每个窗口仍有任务栏按钮（R7）',
+      minAllClicked && mini2.hidden === mini2.total && mini2.buttons === mini2.total, JSON.stringify(mini2));
+
+    await page.evaluate(() => {
+      document.querySelector('.taskbar').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 700, clientY: 880 }));
+    });
+    await sleep(350);
+    await page.evaluate(() => {
+      [...document.querySelectorAll('.context-menu .dropdown-item')].find((b) => b.innerText.trim() === '还原所有窗口')?.click();
+    });
+    await sleep(500);
+    const mini3 = await page.evaluate(() => ({
+      total: document.querySelectorAll('.window').length,
+      hidden: [...document.querySelectorAll('.window')].filter((w) => w.classList.contains('minimized')).length,
+      focused: document.querySelectorAll('.window.focused').length,
+    }));
+    check('任务栏「还原所有窗口」一键恢复全部', mini3.hidden === 0 && mini3.focused === 1 && mini3.total >= 7, JSON.stringify(mini3));
+
+    const last = snap.length - 1;
+    await page.evaluate((idx) => document.querySelectorAll('.tb-win')[idx]?.click(), last);
+    await sleep(320);
+    check('点击已聚焦窗口的按钮 → 最小化',
+      await page.evaluate((idx) => document.querySelectorAll('.window')[idx].classList.contains('minimized'), last));
+    const handoff = await page.evaluate(() => ({
+      focused: document.querySelectorAll('.window.focused').length,
+      visible: [...document.querySelectorAll('.window')].filter((w) => !w.classList.contains('minimized')).length,
+    }));
+    check('最小化当前窗口后焦点交接给剩余最上层窗口（不置 null）',
+      handoff.focused === 1 && handoff.visible >= 1, JSON.stringify(handoff));
+
+    await page.evaluate((idx) => document.querySelectorAll('.tb-win')[idx]?.click(), last);
+    await sleep(320);
+    const topState = await page.evaluate((idx) => {
+      const w = document.querySelectorAll('.window')[idx];
+      const visible = [...document.querySelectorAll('.window')].filter((x) => !x.classList.contains('minimized'));
+      const maxZ = Math.max(...visible.map((x) => Number(x.style.zIndex) || 0));
+      return { hidden: w.classList.contains('minimized'), focused: w.classList.contains('focused'), z: Number(w.style.zIndex) || 0, maxZ };
+    }, last);
+    check('再点 → 还原且置顶', !topState.hidden && topState.focused && topState.z === topState.maxZ, JSON.stringify(topState));
+
+    // 窗口按钮右键 = 跳转列表
+    await page.evaluate((idx) => {
+      document.querySelectorAll('.tb-win')[idx].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 980, clientY: 860 }));
+    }, last);
+    await sleep(350);
+    const jump = await page.$$eval('.context-menu .dropdown-item', (els) => els.map((e) => e.innerText.trim()));
+    check('窗口按钮右键 = 跳转列表（还原/最小化/最大化/关闭）',
+      ['还原', '最小化', '关闭窗口'].every((k) => jump.includes(k)) && jump.some((t) => /最大化|向下还原/.test(t)),
+      jump.join(','));
+    await page.evaluate(() => {
+      [...document.querySelectorAll('.context-menu .dropdown-item')].find((b) => b.innerText.trim() === '最小化')?.click();
+    });
+    await sleep(350);
+    check('跳转列表「最小化」生效',
+      await page.evaluate((idx) => document.querySelectorAll('.window')[idx].classList.contains('minimized'), last));
+    await page.evaluate((idx) => document.querySelectorAll('.tb-win')[idx]?.click(), last);
+    await sleep(300);
+    await shot('任务栏与多窗口');
+  }
+
+  // ---------- 5.9 任务栏托盘：磁盘 / 传输徽标 / 通知 / 账户 ----------
+  section('任务栏托盘（磁盘 / 传输 / 通知 / 账户）');
+  if (sid) {
+    // R1：磁盘信息每 20s 轮询（原先只挂在 MenuBar 的挂载 effect 上）
+    let diskReq = 0;
+    const onDiskReq = (r) => { if (r.url().includes('/api/disk')) diskReq++; };
+    page.on('request', onDiskReq);
+    const diskBefore = diskReq;
+    await sleep(21000);
+    page.off('request', onDiskReq);
+    check('磁盘信息每 20s 自动刷新（R1）', diskReq > diskBefore, `21s 内新增 ${diskReq - diskBefore} 次 /api/disk 请求`);
+
+    const diskText = await page.$eval('.tray-disk', (el) => el.innerText).catch(() => '');
+    check('托盘磁盘显示最紧张挂载点的占用百分比', /\d+%/.test(diskText), diskText);
+    await page.evaluate(() => document.querySelector('.tray-disk')?.click());
+    await sleep(300);
+    const diskRows = await page.$$('.tb-popover .disk-row');
+    check('磁盘面板列出挂载点', diskRows.length >= 1, `行数 ${diskRows.length}`);
+    if (diskRows.length) {
+      await diskRows[0].click();
+      await sleep(1500);
+      check('点磁盘行打开「磁盘监控」窗口', !!(await page.$('.disk-window')), '未找到 .disk-window');
+    }
+
+    // 托盘传输按钮 → 打开「传输」窗口；拖系统文件到固定项「传输」= 上传到主目录
+    await page.evaluate(() => document.querySelector('.tray-transfers')?.click());
+    await page.waitForSelector('.transfers-window', { timeout: 8000 }).catch(() => {});
+    check('托盘传输按钮打开「传输」窗口', !!(await page.$('.transfers-window')), '未打开 .transfers-window');
+    await page.evaluate(() => {
+      const w = [...document.querySelectorAll('.window')].find((x) => x.querySelector('.transfers-window'));
+      w?.querySelector('.tc-close')?.click();
+    });
+    await sleep(600);
+
+    const dropped = await page.evaluate((name) => {
+      const btn = document.querySelector('.tb-app[title="传输"]');
+      if (!btn) return false;
+      const dt = new DataTransfer();
+      dt.items.add(new File(['drop upload\n'], name, { type: 'text/plain' }));
+      btn.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      btn.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      return true;
+    }, dropName);
+    await sleep(2500);
+    const dropQ = await apiFetch('GET', `/api/fs/search?path=/&q=${encodeURIComponent(dropName)}`, undefined, `cloudnine_sid=${sid}`);
+    check('拖文件到任务栏「传输」按钮 = 上传到主目录',
+      dropped && (dropQ.json?.results || []).some((x) => x.name === dropName), `status=${dropQ.status}`);
+
+    // 让文件窗口获得焦点，再粘贴两个大文件：徽标计数与可点通知都由此产生
+    await page.evaluate(() => {
+      const wins = [...document.querySelectorAll('.window')];
+      const idx = wins.findIndex((w) => w.querySelector('.finder'));
+      document.querySelectorAll('.tb-win')[idx]?.click();
+    });
+    await sleep(600);
+    const pasteOk = await page.evaluate(({ base, size }) => {
+      const dt = new DataTransfer();
+      dt.items.add(new File([new Uint8Array(size)], `${base}-a.bin`, { type: 'application/octet-stream' }));
+      dt.items.add(new File([new Uint8Array(size)], `${base}-b.bin`, { type: 'application/octet-stream' }));
+      const ev = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true });
+      document.body.dispatchEvent(ev);
+      return { prevented: ev.defaultPrevented };
+    }, { base: badgeBase, size: 12 * 1024 * 1024 });
+    check('粘贴两个文件加入上传队列', pasteOk.prevented === true, JSON.stringify(pasteOk));
+
+    const badge = await page.waitForFunction(() => {
+      const el = document.querySelector('.tray-transfers .transfer-badge');
+      return el ? el.textContent.trim() : null;
+    }, { timeout: 10000 }).then((h) => h.jsonValue()).catch(() => null);
+    check('传输徽标数 = 进行中的上传数（2）', badge === '2', `badge=${badge}`);
+
+    // 通知铃：可点项 → 打开「传输」窗口
+    await page.evaluate(() => document.querySelector('.tray-bell')?.click());
+    await sleep(300);
+    const notif = await page.evaluate(() => {
+      const rows = [...document.querySelectorAll('.tb-popover .notif-row')];
+      return {
+        total: rows.length,
+        actionable: rows.filter((r) => r.classList.contains('n-actionable')).length,
+        text: rows.map((r) => r.innerText.trim()).join(' | ').slice(0, 160),
+      };
+    });
+    check('通知面板列出通知', notif.total >= 1, JSON.stringify(notif));
+    check('通知面板含可点击项（带「查看传输」提示）', notif.actionable >= 1 && /查看传输/.test(notif.text), JSON.stringify(notif));
+    await page.evaluate(() => document.querySelector('.tb-popover .notif-row.n-actionable')?.click());
+    await page.waitForSelector('.transfers-window', { timeout: 8000 }).catch(() => {});
+    check('点通知项跳转到「传输」窗口', !!(await page.$('.transfers-window')), '未打开 .transfers-window');
+
+    const badgeGone = await page.waitForFunction(() => !document.querySelector('.tray-transfers .transfer-badge'), { timeout: 120000 })
+      .then(() => true).catch(() => false);
+    check('传输结束后徽标消失', badgeGone, '徽标仍在');
+
+    // 账户菜单：修改密码入口 + 三档主题（不真的改密码，避免破坏后续登录）
+    await page.evaluate(() => document.querySelector('.tray-account')?.click());
+    await sleep(250);
+    const accItems = await page.$$eval('.tb-popover .account-popover .dropdown-item', (els) => els.map((e) => e.innerText.trim()));
+    check('账户菜单含「修改密码 / 三档主题 / 退出登录」',
+      accItems.some((t) => /修改密码/.test(t))
+      && ['浅色主题', '深色主题', '跟随系统'].every((k) => accItems.some((t) => t.includes(k)))
+      && accItems.some((t) => /退出登录/.test(t)),
+      accItems.join(','));
+
+    const themeState = () => page.evaluate(() => ({ attr: document.documentElement.dataset.theme, saved: localStorage.getItem('cloudnine-theme') }));
+    const clickAcc = (label) => page.evaluate((l) => {
+      [...document.querySelectorAll('.tb-popover .account-popover .dropdown-item')].find((b) => b.innerText.includes(l))?.click();
+    }, label);
+    await clickAcc('深色主题');
+    await sleep(250);
+    const darkTheme = await themeState();
+    check('账户菜单切深色主题生效', darkTheme.attr === 'dark' && darkTheme.saved === 'dark', JSON.stringify(darkTheme));
+    await clickAcc('浅色主题');
+    await sleep(250);
+    const lightTheme = await themeState();
+    check('账户菜单切浅色主题生效', lightTheme.attr === 'light' && lightTheme.saved === 'light', JSON.stringify(lightTheme));
+    await clickAcc('跟随系统');
+    await sleep(250);
+    const autoTheme = await themeState();
+    check('账户菜单切「跟随系统」生效', autoTheme.saved === 'auto', JSON.stringify(autoTheme));
+
+    await clickAcc('修改密码');
+    await sleep(400);
+    const pwDlg = await page.evaluate(() => {
+      const d = document.querySelector('.dialog');
+      if (!d) return null;
+      return { title: d.querySelector('h3')?.innerText.trim(), pw: d.querySelectorAll('input[type=password]').length };
+    });
+    check('「修改密码」弹窗出现（原密码 + 新密码）', !!pwDlg && pwDlg.title === '修改密码' && pwDlg.pw === 2, JSON.stringify(pwDlg));
+    await page.evaluate(() => {
+      const btns = [...document.querySelectorAll('.dialog-actions .btn')];
+      (btns.find((b) => b.innerText.trim() === '取消') || btns[0])?.click();
+    });
+    await sleep(300);
+    check('取消修改密码后不残留弹窗', !(await page.$('.dialog')), '弹窗未关闭');
+
+    // 退出登录：二次确认 → 登录页 → 重新登录（后续健康检查仍在桌面壳里跑）
+    await page.evaluate(() => document.querySelector('.tray-account')?.click());
+    await sleep(250);
+    await clickAcc('退出登录');
+    await sleep(400);
+    const logoutTitle = await page.$eval('.dialog h3', (el) => el.innerText.trim()).catch(() => '');
+    check('「退出登录」二次确认出现', logoutTitle === '退出登录', logoutTitle);
+    await page.evaluate(() => document.querySelector('.dialog-actions .btn-primary')?.click());
+    await sleep(1800);
+    const loggedOut = !!(await page.$('.auth-card'));
+    check('退出登录后回到登录页', loggedOut, '未出现登录页');
+    if (loggedOut) {
+      const inputs = await page.$$('.auth-card input');
+      if (inputs.length >= 2) {
+        await inputs[0].click(); await page.keyboard.type(USERNAME);
+        await inputs[1].click(); await page.keyboard.type(PASSWORD);
+      }
+      await page.click('.auth-card .btn-primary');
+      await sleep(2500);
+      check('重新登录成功（任务栏回到桌面）', !!(await page.$('.taskbar')), '未回到桌面');
+    }
+  }
   } // end !MOBILE
 
   // ---------- 6. 控制台错误 ----------
@@ -1098,7 +1489,7 @@ try {
   if (!flag('keep')) {
     section('清理测试产物');
     const sid2 = await loginViaApi();
-    const names = [proofName, editName, pasteName, notifyName, btnUploadName, imgName, deskName, dirName, probeName, newDirName].filter(Boolean);
+    const names = [proofName, editName, pasteName, notifyName, btnUploadName, imgName, deskName, dirName, probeName, newDirName, dropName, tbDirName, ...badgeNames].filter(Boolean);
     for (const n of names) {
       const r = await apiFetch('GET', `/api/fs/search?path=/&q=${encodeURIComponent(n)}`, undefined, `cloudnine_sid=${sid2}`);
       const hit = (r.json?.results || []).find((x) => x.name === n);

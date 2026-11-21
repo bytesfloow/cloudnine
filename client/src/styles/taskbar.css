@@ -1,0 +1,82 @@
+/* ============ 任务栏（原 Dock） ============ */
+/* 底部通栏 + 左侧固定应用 + 每窗口一个按钮 + 右侧托盘。
+   配色全部走主题变量，亮/暗两套主题共用一套规则（阶段 3 才做视觉重做）。 */
+.taskbar {
+  position: absolute; left: 0; right: 0; bottom: 0; height: var(--taskbar-h);
+  display: flex; align-items: center; gap: 4px; padding: 0 6px;
+  background: var(--bar-bg); backdrop-filter: blur(24px) saturate(180%);
+  border-top: 1px solid var(--line); z-index: 10000;
+  font-size: 12px; user-select: none;
+}
+/* 开始按钮：位置先留出，阶段 1 · T4 才接开始菜单（现在是不可点的占位） */
+.tb-start {
+  width: 34px; height: 30px; flex: none; display: flex; align-items: center; justify-content: center;
+  border-radius: 6px; color: var(--accent); opacity: .9;
+}
+.tb-start:hover { background: var(--hover); }
+
+.tb-pinned { display: flex; align-items: center; gap: 2px; flex: none; }
+.tb-app {
+  position: relative; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
+  border-radius: 6px; transition: background-color .1s;
+}
+.tb-app:hover { background: var(--hover); }
+.tb-app:active { background: var(--active); }
+/* 运行中 / 当前窗口：图标下方的短指示条（Win11 语义） */
+.tb-app.running::after,
+.tb-app.active::after {
+  content: ''; position: absolute; left: 50%; bottom: 1px; width: 9px; height: 2px;
+  border-radius: 1px; background: var(--text-2); transform: translateX(-50%);
+}
+.tb-app.active::after { width: 15px; background: var(--accent); }
+.tb-app .transfer-badge { position: absolute; top: 1px; right: 0; }
+
+/* 窗口按钮区：每个窗口一个按钮（不是每个类型一个） */
+.tb-windows {
+  flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 4px; padding: 0 2px;
+}
+.tb-win-wrap { position: relative; display: flex; flex: 0 1 168px; min-width: 44px; }
+.tb-win {
+  width: 100%; min-width: 0; height: 30px; padding: 0 10px;
+  display: flex; align-items: center; gap: 6px; border-radius: 5px;
+  border: 1px solid transparent; background: var(--hover);
+  color: var(--text); font-size: 12px;
+}
+.tb-win:hover { background: var(--active); }
+.tb-win.active { background: var(--active); border-color: var(--line); }
+.tb-win.minimized { opacity: .6; }
+.tb-win.minimized:hover { opacity: 1; }
+.tb-win-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 悬停标题浮层：向上弹，不遮挡任务栏本身 */
+.tb-win-tip {
+  position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%);
+  max-width: 260px; padding: 4px 8px; border-radius: 6px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+  background: var(--menu-bg); border: 1px solid var(--line); box-shadow: var(--shadow-soft);
+  color: var(--text); opacity: 0; pointer-events: none; transition: opacity .08s ease .25s; z-index: 2;
+}
+.tb-win-wrap:hover .tb-win-tip { opacity: 1; }
+
+/* 托盘 */
+.tb-tray { margin-left: auto; display: flex; align-items: center; gap: 2px; flex: none; }
+.tray-btn {
+  position: relative; height: 32px; min-width: 30px; padding: 0 7px;
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+  border-radius: 6px; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.tray-btn:hover, .tray-btn.open { background: var(--hover); }
+.tray-btn:active { background: var(--active); }
+.tb-tray .avatar-btn { width: 24px; height: 24px; font-size: 12px; }
+.tray-clock { font-size: 12px; line-height: 1.2; }
+.tray-transfers .transfer-badge { margin-left: 2px; }
+
+/* 托盘弹层：与顶栏下拉共用 store.popover 槽位，视觉复用内容类，位置改为向上弹 */
+.tb-pop-wrap { position: relative; display: flex; }
+.tb-popover {
+  position: absolute; bottom: calc(100% + 8px); right: 0; width: 280px; z-index: 10001;
+  background: var(--menu-bg); backdrop-filter: blur(30px) saturate(170%);
+  border: 1px solid var(--line); border-radius: 11px; box-shadow: var(--shadow-soft); padding: 6px;
+  animation: tb-pop .12s ease-out;
+}
+.tb-popover.wide { width: 300px; }
+@keyframes tb-pop { from { opacity: 0; transform: translateY(6px) scale(.98); } }

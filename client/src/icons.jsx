@@ -135,6 +135,15 @@ export const IconChevron = ({ size = 12, dir = 'right' }) => (
 export const IconBell = ({ size = 15 }) => (
   <G size={size} d="M12 22a2.5 2.5 0 0 0 2.5-2.5h-5A2.5 2.5 0 0 0 12 22Zm7-5.5V11a7 7 0 0 0-5.5-6.8V3a1.5 1.5 0 0 0-3 0v1.2A7 7 0 0 0 5 11v5.5L3 19v1h18v-1l-2-2.5Z" />
 );
+// Windows 微标：任务栏开始按钮的占位，阶段 1 · T4 才接开始菜单
+export const IconWindows = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+    <rect x="3" y="3.4" width="8.2" height="8.2" rx="1.2" />
+    <rect x="12.8" y="3.4" width="8.2" height="8.2" rx="1.2" />
+    <rect x="3" y="13.2" width="8.2" height="8.2" rx="1.2" />
+    <rect x="12.8" y="13.2" width="8.2" height="8.2" rx="1.2" />
+  </svg>
+);
 export const IconClose = ({ size = 14 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
     <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />

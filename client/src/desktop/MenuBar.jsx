@@ -1,17 +1,10 @@
-import React, { useEffect, useState } from 'react';
-import { useStore, bus, getState, setState, setTheme, setClipboard, showDialog, confirmDialog, notify, openWindow, activateNotification, extname, openPopover, closePopover } from '../store.js';
-import { api } from '../api.js';
-import { uploadStats } from '../transfers.js';
-import { refreshDisk } from '../App.jsx';
-import { IconBell, IconChevron, IconGlobe } from '../icons.jsx';
-import { fmtSize } from '../store.js';
+import React, { useEffect } from 'react';
+import { useStore, bus, getState, setClipboard, showDialog, openWindow, openPopover, closePopover, extname } from '../store.js';
 
 // 焦点窗口对应的应用菜单
 function appMenus(type, w) {
   const A = (action, label, extra = {}) => ({ action, label, ...extra });
   const menus = [];
-  const emit = undefined; // 动作统一通过 win-action 事件派发
-  const g = (action) => bus.emit('global-action', { action });
 
   if (!type) {
     // 桌面态：没有窗口获得焦点时，菜单栏作用于桌面上的文件
@@ -89,30 +82,27 @@ function appMenus(type, w) {
   return menus;
 }
 
+// 阶段 1 · T3 起：顶栏右侧的磁盘 / 传输 / 通知 / 账户 / 时钟已迁到任务栏托盘（Taskbar.jsx），
+// 这里只剩文件/编辑/显示/前往这组菜单，T4 再与顶栏一起拆掉。
 export default function MenuBar() {
   const s = useStore();
   const openKind = s.popover?.kind || null;
-  const [now, setNow] = useState(new Date());
   const focusWin = s.windows.find((w) => w.id === s.focusId);
   const menus = appMenus(focusWin?.type, focusWin);
 
-  useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 20 * 1000);
-    return () => clearInterval(t);
-  }, []);
-  // 点击菜单栏以外任何位置都收起弹出层；菜单栏按钮/面板内容自己 stopPropagation
+  // 点击菜单栏以外任何位置都收起菜单下拉；托盘弹层由 Taskbar 自己负责，别越权关掉
   useEffect(() => {
     const close = (e) => {
-      if (getState().popover && !e.target?.closest?.('.menubar')) closePopover();
+      const kind = getState().popover?.kind;
+      if (kind?.startsWith('menu:') && !e.target?.closest?.('.menubar')) closePopover();
     };
     document.addEventListener('click', close);
     return () => document.removeEventListener('click', close);
   }, []);
   // 焦点窗口切换后菜单项会变化，旧的下标不再有意义
-  useEffect(() => { closePopover(); }, [s.focusId]);
-  useEffect(() => { refreshDisk(); }, []);
-
-  const stats = uploadStats();
+  useEffect(() => {
+    if (getState().popover?.kind?.startsWith('menu:')) closePopover();
+  }, [s.focusId]);
 
   function runItem(item) {
     closePopover();
@@ -132,152 +122,31 @@ export default function MenuBar() {
   return (
     <div className="menubar">
       <button className="mb-site" onClick={() => showDialog({ kind: 'about' })}>{s.siteName}</button>
-      {menus.map((m, i) => (
-        <div key={m.label} className="mb-menu-wrap">
-          {(() => {
-            const menuKey = `menu:${focusWin?.id || 'desktop'}:${i}`;
-            return <>
-          <button
-            className={`mb-menu-btn${openKind === menuKey ? ' open' : ''}`}
-            onClick={(e) => { e.stopPropagation(); openPopover(openKind === menuKey ? null : menuKey); }}
-            onMouseEnter={() => openKind?.startsWith('menu:') && openKind !== menuKey && openPopover(menuKey)}
-          >{m.label}</button>
-          {openKind === menuKey && (
-            <div className="dropdown" onClick={(e) => e.stopPropagation()}>
-              {m.items.map((item, j) => item === '-'
-                ? <div key={j} className="dropdown-sep" />
-                : (
-                  <button key={j} className={`dropdown-item${item.danger ? ' danger' : ''}`} disabled={item.disabled} onClick={() => runItem(item)}>
-                    <span className="di-check">{item.checked ? '✓' : ''}</span>
-                    {item.label}
-                    {item.hint && <span className="di-hint">{item.hint}</span>}
-                  </button>
-                ))}
-            </div>
-          )}
-            </>;
-          })()}
-        </div>
-      ))}
-
-      <div className="mb-right">
-        <DiskIndicator />
-        {stats.activeCount > 0 && (
-          <button className="mb-status-btn transfer-active" title="传输进行中" onClick={() => bus.emit('global-action', { action: 'transfers' })}>
-            <span className="transfer-badge">{stats.activeCount}</span>
-          </button>
-        )}
-        <NotifBell />
-        <AccountMenu />
-        <span className="mb-clock">{now.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false })}</span>
-      </div>
-    </div>
-  );
-}
-
-function DiskIndicator() {
-  const s = useStore();
-  const mounts = s.disk || [];
-  if (!mounts.length) return null;
-  const worst = mounts.reduce((a, b) => (b.usePct > a.usePct ? b : a));
-  const level = worst.usePct > 95 ? 'danger' : worst.usePct > 85 ? 'warn' : worst.usePct > 70 ? 'notice' : 'ok';
-  return (
-    <Popover
-      kind="disk"
-      wide
-      button={<span className={`disk-indicator di-${level}`}>💽 {worst.usePct}%</span>}
-    >
-      {(close) => (
-        <div className="disk-popover">
-          {mounts.map((m) => (
-            <button key={m.mount} className="disk-row" onClick={() => { close(); openWindow('disk'); }}>
-              <span className="disk-path">{m.mount}</span>
-              <span className="disk-bar"><i style={{ width: `${m.usePct}%` }} className={m.usePct > 85 ? 'danger' : m.usePct > 70 ? 'warn' : ''} /></span>
-              <span className="disk-free">{fmtSize(m.free)} 可用</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </Popover>
-  );
-}
-
-function NotifBell() {
-  const s = useStore();
-  return (
-    <Popover kind="notifications" button={<span className="bell"><IconBell />{s.notifications.length > 0 && <i className="dot" />}</span>}>
-      {(close) => (
-        <div className="notif-popover">
-          {s.notifications.length === 0 && <div className="popover-empty">暂无通知</div>}
-          {s.notifications.slice().reverse().map((n) => (
-            <div
-              key={n.id}
-              className={`notif-row n-${n.type}${n.onClick ? ' n-actionable' : ''}`}
-              onClick={n.onClick ? () => { close(); activateNotification(n.id); } : undefined}
-            >
-              <b>{n.title}</b>
-              {n.body && <span>{n.body}</span>}
-              {n.actionLabel && <em className="notif-action">{n.actionLabel} ›</em>}
-            </div>
-          ))}
-        </div>
-      )}
-    </Popover>
-  );
-}
-
-function AccountMenu() {
-  const s = useStore();
-  return (
-    <Popover kind="account" wide button={<span className="avatar-btn">{(s.user || '?').slice(0, 1).toUpperCase()}</span>}>
-      {(close) => (
-        <div className="account-popover">
-          <div className="popover-header">{s.user}</div>
-          <button className="dropdown-item" onClick={async () => { close(); await changePasswordFlow(); }}>修改密码…</button>
-          <div className="dropdown-sep" />
-          <button className="dropdown-item" onClick={() => { setTheme('light'); }}><span className="di-check">{s.theme === 'light' ? '✓' : ''}</span>浅色主题</button>
-          <button className="dropdown-item" onClick={() => { setTheme('dark'); }}><span className="di-check">{s.theme === 'dark' ? '✓' : ''}</span>深色主题</button>
-          <button className="dropdown-item" onClick={() => { setTheme('auto'); }}><span className="di-check">{s.theme === 'auto' ? '✓' : ''}</span>跟随系统</button>
-          <div className="dropdown-sep" />
-          <button className="dropdown-item danger" onClick={async () => {
-            close();
-            if (await confirmDialog({ title: '退出登录', message: '确定要退出当前会话吗？' })) {
-              await api.logout().catch(() => {});
-              setState({ user: null, windows: [], focusId: null });
-            }
-          }}>退出登录…</button>
-        </div>
-      )}
-    </Popover>
-  );
-}
-
-export async function changePasswordFlow() {
-  const values = await showDialog({
-    kind: 'form',
-    title: '修改密码',
-    fields: [
-      { key: 'current', label: '原密码', type: 'password', required: true },
-      { key: 'next', label: '新密码（≥8 位，含字母数字）', type: 'password', required: true },
-    ],
-    okText: '修改',
-  });
-  if (!values) return;
-  try {
-    await api.changePassword(values);
-    notify({ type: 'success', title: '密码已修改' });
-  } catch (e) {
-    notify({ type: 'error', title: '修改失败', body: e.message });
-  }
-}
-
-export function Popover({ kind, button, children, align = 'right', wide = false }) {
-  const s = useStore();
-  const open = s.popover?.kind === kind;
-  return (
-    <div className="popover-wrap">
-      <button className="popover-btn" onClick={(e) => { e.stopPropagation(); openPopover(open ? null : kind); }}>{button}</button>
-      {open && <div className={`popover ${align}${wide ? ' wide' : ''}`} onClick={(e) => e.stopPropagation()}>{children(closePopover)}</div>}
+      {menus.map((m, i) => {
+        const menuKey = `menu:${focusWin?.id || 'desktop'}:${i}`;
+        return (
+          <div key={m.label} className="mb-menu-wrap">
+            <button
+              className={`mb-menu-btn${openKind === menuKey ? ' open' : ''}`}
+              onClick={(e) => { e.stopPropagation(); openPopover(openKind === menuKey ? null : menuKey); }}
+              onMouseEnter={() => openKind?.startsWith('menu:') && openKind !== menuKey && openPopover(menuKey)}
+            >{m.label}</button>
+            {openKind === menuKey && (
+              <div className="dropdown" onClick={(e) => e.stopPropagation()}>
+                {m.items.map((item, j) => item === '-'
+                  ? <div key={j} className="dropdown-sep" />
+                  : (
+                    <button key={j} className={`dropdown-item${item.danger ? ' danger' : ''}`} disabled={item.disabled} onClick={() => runItem(item)}>
+                      <span className="di-check">{item.checked ? '✓' : ''}</span>
+                      {item.label}
+                      {item.hint && <span className="di-hint">{item.hint}</span>}
+                    </button>
+                  ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

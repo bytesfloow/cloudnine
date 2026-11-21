@@ -3,7 +3,7 @@
 
 /* 桌面 = 主目录直视图：图标按排序规则自动网格排布，位置不再手工摆放 */
 .desktop-icons {
-  position: absolute; top: calc(var(--menubar-h) + 8px); left: 10px; right: 10px; bottom: 0;
+  position: absolute; top: calc(var(--menubar-h) + 8px); left: 10px; right: 10px; bottom: calc(var(--taskbar-h) + 6px);
   z-index: 1; border-radius: 10px; overflow-x: auto; overflow-y: hidden;
 }
 .desktop-icons.drag-over { outline: 2px dashed var(--accent); outline-offset: -4px; background: var(--accent-soft); }

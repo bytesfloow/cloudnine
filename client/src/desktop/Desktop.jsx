@@ -1,9 +1,10 @@
 import React, { useEffect } from 'react';
-import { useStore, bus, openWindow, closeWindow, focusWindow, closeContextMenu, closePopover, openQuickLook, getState, minimizeWindow, showDialog } from '../store.js';
+import { useStore, bus, openWindow, closeWindow, focusWindow, closeContextMenu, closePopover, openQuickLook, getState, minimizeWindow, showDialog, minimizeAllWindows } from '../store.js';
 import { installPasteUpload } from '../pasteUpload.js';
+import { refreshDisk } from '../App.jsx';
 import WindowFrame from './WindowFrame.jsx';
 import MenuBar from './MenuBar.jsx';
-import Dock from './Dock.jsx';
+import Taskbar from './Taskbar.jsx';
 import ContextMenu from './ContextMenu.jsx';
 import QuickLook from './QuickLook.jsx';
 import DesktopIcons from './DesktopIcons.jsx';
@@ -62,6 +63,14 @@ export default function Desktop() {
   // Ctrl+V 粘贴系统剪贴板文件到当前文件夹（仅桌面端；移动端/分享页不安装）
   useEffect(() => installPasteUpload(), []);
 
+  // R1：磁盘占比原先只在 MenuBar 挂载时拉一次，顶栏一拆就再没人调。
+  // 这里放在登录后常驻的桌面壳里，并真的每 20s 轮询（托盘百分比才会动）。
+  useEffect(() => {
+    refreshDisk();
+    const t = setInterval(refreshDisk, 20 * 1000);
+    return () => clearInterval(t);
+  }, []);
+
   // 窗口通用动作（各窗口组件自行处理专属动作）
   useEffect(() => bus.on('win-action', ({ windowId, action }) => {
     if (action === 'minimize') minimizeWindow(windowId);
@@ -77,7 +86,7 @@ export default function Desktop() {
     else if (action === 'transfers') openWindow('transfers');
     else if (action === 'shares') openWindow('shares');
     else if (action === 'disk') openWindow('disk');
-    else if (action === 'minimizeAll') getState().windows.forEach((w) => bus.emit('win-action', { windowId: w.id, action: 'minimize' }));
+    else if (action === 'minimizeAll') minimizeAllWindows();
   }), []);
 
   return (
@@ -91,7 +100,7 @@ export default function Desktop() {
           {renderWindow(w)}
         </WindowFrame>
       ))}
-      <Dock />
+      <Taskbar />
       {s.contextMenu && <ContextMenu />}
       {s.quickLook && <QuickLook />}
     </div>

@@ -247,6 +247,8 @@ const WINDOW_DEFAULTS = {
   editor: { title: '文本编辑', w: 800, h: 560, minW: 480, minH: 360, multi: true },
   preview: { title: '预览', w: 780, h: 580, minW: 420, minH: 320, multi: true },
   info: { title: '显示简介', w: 400, h: 480, minW: 360, minH: 320, multi: true },
+  // multi: true 的五个类型（finder/terminal/editor/preview/info）同类型可多开：
+  // 任务栏必须每窗口一个按钮，按 type 去重会让按钮数与窗口数对不上（见 docs §5.3）
   transfers: { title: '传输', w: 720, h: 480, minW: 520, minH: 360, multi: false },
   shares: { title: '分享管理', w: 760, h: 500, minW: 560, minH: 400, multi: false },
   disk: { title: '磁盘监控', w: 680, h: 520, minW: 480, minH: 380, multi: false },
@@ -301,15 +303,40 @@ export function focusWindow(id) {
   }));
 }
 
+// 任务栏按钮单击：已聚焦且未最小化 → 最小化；否则 → 还原并置顶。
+// 不能复用 focusWindow 的早退逻辑："已聚焦"时它直接 return，按钮会变成死键。
+export function toggleWindow(id) {
+  const w = state.windows.find((x) => x.id === id);
+  if (!w) return;
+  if (!w.minimized && state.focusId === id) return minimizeWindow(id);
+  focusWindow(id);
+}
+
+// 应用启动器（任务栏固定项 / 开始菜单）：该类型有最小化窗口 → 还原最上层那个；否则新建。
+// 与 openWindow 的差别就在这一步：multi: true 的类型 openWindow 永远新建，
+// 启动器若直接调它，最小化的旧窗口就会被永远埋在内存里（docs §5.3 ①）。
+export function activateOrOpen(type, props = {}) {
+  const win = state.windows
+    .filter((w) => w.type === type && w.minimized)
+    .sort((a, b) => b.z - a.z)[0];
+  if (win) return focusWindow(win.id);
+  return openWindow(type, props);
+}
+
 export async function closeWindow(id) {
   const win = state.windows.find((w) => w.id === id);
   if (!win) return;
   const doClose = () => {
     bus.emit('window-close', { windowId: id });
-    setState((s) => ({
-      windows: s.windows.filter((w) => w.id !== id),
-      focusId: s.focusId === id ? (s.windows.filter((w) => w.id !== id).sort((a, b) => b.z - a.z)[0]?.id || null) : s.focusId,
-    }));
+    setState((s) => {
+      const rest = s.windows.filter((w) => w.id !== id);
+      // 焦点回落要跳过最小化窗口，否则会把焦点交给一个看不见的窗口
+      const next = rest.filter((w) => !w.minimized).sort((a, b) => b.z - a.z)[0];
+      return {
+        windows: rest,
+        focusId: s.focusId === id ? (next?.id || null) : s.focusId,
+      };
+    });
   };
   if (state.editorDirty?.[id]) {
     const choice = await showDialog({
@@ -325,8 +352,32 @@ export async function closeWindow(id) {
   doClose();
 }
 
-export const minimizeWindow = (id) =>
-  setState((s) => ({ windows: s.windows.map((w) => (w.id === id ? { ...w, minimized: true } : w)), focusId: s.focusId === id ? null : s.focusId }));
+export const minimizeWindow = (id) => setState((s) => {
+  if (!s.windows.some((w) => w.id === id)) return null;
+  // 焦点交接：交给剩余窗口中最上层者，而不是直接置 null。
+  // （置 null 等于"焦点消失"，菜单栏会立刻退回桌面态，剩下的窗口也失去激活语义）
+  const rest = s.windows.filter((w) => w.id !== id);
+  const next = s.focusId === id ? rest.filter((w) => !w.minimized).sort((a, b) => b.z - a.z)[0] : null;
+  return {
+    windows: s.windows.map((w) => (w.id === id ? { ...w, minimized: true } : w)),
+    focusId: s.focusId === id ? (next?.id ?? null) : s.focusId,
+  };
+});
+
+// 「最小化全部窗口 / 显示桌面」：全部最小化后焦点回到桌面；
+// 窗口只是隐藏，任务栏按钮仍在，逐个点就能还原。
+export const minimizeAllWindows = () => setState((s) => ({
+  windows: s.windows.map((w) => (w.minimized ? w : { ...w, minimized: true })),
+  focusId: null,
+}));
+
+// 上一条的反向操作：一次还原全部最小化窗口，焦点给最上层者
+export const restoreAllWindows = () => setState((s) => {
+  if (!s.windows.some((w) => w.minimized)) return null;
+  const windows = s.windows.map((w) => (w.minimized ? { ...w, minimized: false } : w));
+  const top = [...windows].sort((a, b) => b.z - a.z)[0];
+  return { windows, focusId: top ? top.id : s.focusId };
+});
 export const toggleMaxWindow = (id) =>
   setState((s) => ({ windows: s.windows.map((w) => (w.id === id ? { ...w, rect: { ...w.rect, max: !w.rect.max } } : w)) }));
 // 拖拽/缩放时直接操作 DOM，落点提交到 store，并按窗口类型记忆几何
