@@ -2,7 +2,7 @@
 // 桌面改为直接呈现主目录后，两处需要的能力完全一致，集中在这里避免行为分叉。
 import {
   bus, notify, setClipboard, openWindow, openFile, promptDialog, confirmDialog,
-  getState, basename, dirname, joinPath, fileCat,
+  getState, setState, basename, dirname, joinPath, fileCat,
 } from './store.js';
 import { api } from './api.js';
 import { addUpload, pickFiles } from './transfers.js';
@@ -79,6 +79,24 @@ export function reportTrashFailed(result) {
   });
 }
 
+// ---------- 回收站徽标 ----------
+// 服务端 /fs/trash、/fs/trash/restore、/fs/trash/delete 的响应里本来就带 trashCount，
+// 直接用它更新桌面徽标：操作完成即刻 +1 / -1，不必等 App.jsx 那 30s 轮询，也不多发请求。
+// 只有拿不到该字段（旧服务端）时才补一次 /fs/trash/count，且并发请求合并成一条。
+let trashCountInflight = null;
+export function syncTrashCount(result) {
+  if (result && Number.isFinite(result.trashCount)) {
+    setState({ trashCount: Math.max(0, result.trashCount) });
+    return Promise.resolve();
+  }
+  if (trashCountInflight) return trashCountInflight;
+  trashCountInflight = api.trashCount()
+    .then((r) => setState({ trashCount: Math.max(0, Number(r?.count) || 0) }))
+    .catch(() => {})
+    .finally(() => { trashCountInflight = null; });
+  return trashCountInflight;
+}
+
 // 移入废纸篓（paths 与 names 一一对应，names 只用于确认文案）
 export async function trashItems(paths, names) {
   if (!paths.length) return false;
@@ -93,6 +111,7 @@ export async function trashItems(paths, names) {
   try {
     const r = await api.trash(paths);
     reportTrashFailed(r);
+    syncTrashCount(r);
     bus.emit('fs:changed', dirname(paths[0]));
     bus.emit('fs:changed', '__trash__');
     return true;

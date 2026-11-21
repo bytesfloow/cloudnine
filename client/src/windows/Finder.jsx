@@ -9,6 +9,7 @@ import { addUpload, pickFiles } from '../transfers.js';
 import {
   createItem, uploadTo, copyToClipboard, cutToClipboard, pasteInto, trashItems, renameItem,
   downloadItem, downloadItems, compressItems, extractItem, shareItem, shareBlockReason, copyPathText, isArchive,
+  syncTrashCount,
 } from '../fsops.js';
 import FinderToolbar from './finder/FinderToolbar.jsx';
 import FinderCommandBar from './finder/FinderCommandBar.jsx';
@@ -304,7 +305,8 @@ export default function Finder({ win }) {
     if (!isTrash || !sel.size) return;
     const ids = entries.filter((e) => sel.has(e.name)).map((e) => e.trashId).filter(Boolean);
     try {
-      await api.trashRestore(ids);
+      const r = await api.trashRestore(ids);
+      syncTrashCount(r);
       setSel(new Set());
       bus.emit('fs:changed', '__trash__');
     } catch (e) { notify({ type: 'error', title: '放回原处失败', body: e.message }); }
@@ -316,7 +318,7 @@ export default function Finder({ win }) {
     if (!ok) return;
     const ids = entries.filter((e) => sel.has(e.name)).map((e) => e.trashId).filter(Boolean);
     const r = await api.trashDelete(ids);
-    setState({ trashCount: r.trashCount });
+    syncTrashCount(r);
     setSel(new Set());
     bus.emit('fs:changed', '__trash__');
   }

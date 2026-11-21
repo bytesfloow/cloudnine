@@ -5,17 +5,25 @@
 .desktop-icons {
   /* 顶部菜单栏已删除：图标区从屏幕最顶开始；底部仍为通栏任务栏让位（docs §1.1 / R13） */
   position: absolute; top: 0; left: 10px; right: 10px; bottom: calc(var(--taskbar-h) + 6px);
-  z-index: 1; border-radius: 10px; overflow-x: auto; overflow-y: hidden;
+  z-index: 1; border-radius: 10px;
+  /* 改为左起横排后，横向不再需要滚动（列数由宽度自动重算）；
+     竖向仍可能放不下，宁可出现滚动条也不把图标裁掉。 */
+  overflow-x: hidden; overflow-y: auto;
 }
 .desktop-icons.drag-over { outline: 2px dashed var(--accent); outline-offset: -4px; background: var(--accent-soft); }
-/* 纵向填充：先从上到下填满一列，再向右开新列 */
+/* 左上开始、从左往右填满一行再换行向下（Windows 桌面语义）。
+   列数由容器宽度自动重算：变窄 → 减少列数、增加行数，不会横向溢出。
+   格子宽高由图标大小档位注入的 --di-cell-w / --di-cell-h 决定。 */
 .desktop-grid {
-  display: grid; grid-auto-flow: column; grid-auto-columns: 102px;
+  display: grid; grid-auto-flow: row;
+  grid-template-columns: repeat(auto-fill, var(--di-cell-w, 102px));
+  grid-auto-rows: var(--di-cell-h, 88px);
   column-gap: 6px; row-gap: 0; align-content: start; justify-content: start;
+  padding-bottom: 4px;
 }
 .desktop-icon {
   display: flex; flex-direction: column; align-items: center; gap: 2px;
-  width: 84px; padding: 6px 2px; border-radius: 8px; cursor: default;
+  width: calc(var(--di-cell-w, 102px) - 8px); padding: 6px 2px; border-radius: 8px; cursor: default;
   touch-action: none; user-select: none; -webkit-user-select: none;
   justify-self: center;
 }
@@ -30,8 +38,8 @@
   display: flex; align-items: center; justify-content: center; padding: 0 4px; font-weight: 600;
 }
 .di-label {
-  font-size: 11.5px; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.55);
-  max-width: 82px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--di-label-size, 11.5px); color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.55);
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   text-align: center;
 }
 

@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   useStore, getState, setState, openWindow, openContextMenu, openQuickLook, bus, notify,
-  setDesktopSel, setDesktopSort, setDesktopShowHidden, setClipboard, joinPath, basename, confirmDialog,
+  setDesktopSel, setDesktopSort, setDesktopShowHidden, setDesktopIconSize, setClipboard, joinPath, basename, confirmDialog,
 } from '../store.js';
 import { api } from '../api.js';
 import { FileIcon, IconGlobe, IconTrash } from '../icons.jsx';
@@ -17,14 +17,22 @@ import {
 const DRAG_TYPE = 'application/x-cloudnine';
 
 // 桌面一次性渲染的图标上限：主目录条目极多时避免页面卡死，
-// 超出的部分明确提示「去文件窗口看」，不做静默截断。
+// 超出的部分明确提示「去文件资源管理器看」，不做静默截断。
 const MAX_ICONS = 400;
 
-// 图标网格：纵向填充（先从上到下填满一列，再向右开新列）
-const CELL_W = 102;      // 列宽（含列间距）
-const ROW_H = 88;        // 行高
-// 底部给任务栏留的空间由 .desktop-icons 的 bottom: calc(var(--taskbar-h) + 6px) 负责，
-// 容器高度已经是任务栏以上的可用高度，这里不再重复扣（旧 DOCK_RESERVE = 96 会双重留白）
+// 图标网格：左上开始、从左往右填满一行再换行向下（Windows 桌面语义）
+// 列数不再手工算：CSS 用 repeat(auto-fill, 格子宽) 按容器宽度自动重算，
+// 窗口变窄自然减少列数、增加行数，不存在横向溢出后的裁切。
+
+// 三档图标大小：图标绘制尺寸与格子尺寸必须一起变，
+// 否则大图标会顶到相邻标签、小图标又会留下大片空白。
+// medium 是默认档，数值与改造前的 102×88 / 52px 一致，默认观感不变。
+const ICON_TIERS = {
+  large: { label: '大图标', icon: 64, sys: 60, cellW: 136, cellH: 116, labelSize: 12.5 },
+  medium: { label: '中等图标', icon: 52, sys: 48, cellW: 102, cellH: 88, labelSize: 11.5 },
+  small: { label: '小图标', icon: 32, sys: 32, cellW: 86, cellH: 68, labelSize: 11 },
+};
+const ICON_TIER_ORDER = ['large', 'medium', 'small'];
 
 export default function DesktopIcons() {
   const s = useStore();
@@ -39,12 +47,11 @@ export default function DesktopIcons() {
   const [dragOver, setDragOver] = useState(false);
   const [dropTarget, setDropTarget] = useState(null);
   const [anchor, setAnchor] = useState(null);
-  const [rows, setRows] = useState(10);
   const [sysSel, setSysSel] = useState(null); // 选中的系统图标（根目录 / 废纸篓）
 
   const layerRef = useRef(null);
-  const gridRef = useRef(null);
-
+  const tierKey = ICON_TIERS[s.desktopIconSize] ? s.desktopIconSize : 'medium';
+  const tier = ICON_TIERS[tierKey];
 
   const load = useCallback(async (silent) => {
     if (!silent) setLoading(true);
@@ -104,23 +111,6 @@ export default function DesktopIcons() {
       : () => 0;
     return [...list].sort((a, b) => (dirFirst(a, b) || cmp(a, b)) * (s.desktopSort.asc ? 1 : -1));
   }, [entries, s.desktopShowHidden, s.desktopSort]);
-
-  // 纵向排列需要知道一列能放多少行：按容器可用高度算，
-  // 提示行（空目录/超量提示）占掉的高度也要扣掉。
-  useLayoutEffect(() => {
-    const measure = () => {
-      const c = layerRef.current;
-      const g = gridRef.current;
-      if (!c || !g) return;
-      const top = g.offsetTop || 0;
-      const avail = c.clientHeight - top;
-      setRows(Math.max(1, Math.floor(avail / ROW_H)));
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    if (layerRef.current) ro.observe(layerRef.current);
-    return () => ro.disconnect();
-  }, [loading, error, files.length]);
 
   const selectedEntries = useMemo(() => files.filter((e) => sel.includes(e.name)), [files, sel]);
   const selectedPaths = useMemo(() => selectedEntries.map((e) => joinPath(cwd, e.name)), [selectedEntries, cwd]);
@@ -182,13 +172,19 @@ export default function DesktopIcons() {
     if (e.target.closest('.desktop-icon, .desktop-sysicon, input, button')) return;
     // 空白处只做橡皮筋框选，别让浏览器同时启动原生文本拖选（拖动会越过新开的窗口）
     e.preventDefault();
-    const box = layerRef.current.getBoundingClientRect();
+    const layer = layerRef.current;
+    const box = layer.getBoundingClientRect();
     const sx = e.clientX, sy = e.clientY;
     const onMove = (ev) => {
       const r = { x: Math.min(sx, ev.clientX), y: Math.min(sy, ev.clientY), w: Math.abs(ev.clientX - sx), h: Math.abs(ev.clientY - sy) };
-      setMarquee({ ...r, left: r.x - box.left, top: r.y - box.top });
+      // 框选层可能已竖向滚动：绝对定位的框要加上滚动偏移才能跟住指针
+      setMarquee({
+        ...r,
+        left: r.x - box.left + layer.scrollLeft,
+        top: r.y - box.top + layer.scrollTop,
+      });
       const names = new Set();
-      layerRef.current.querySelectorAll('.desktop-icon[data-entry]').forEach((el) => {
+      layer.querySelectorAll('.desktop-icon[data-entry]').forEach((el) => {
         const er = el.getBoundingClientRect();
         if (er.left < r.x + r.w && er.right > r.x && er.top < r.y + r.h && er.bottom > r.y) names.add(el.dataset.entry);
       });
@@ -288,6 +284,12 @@ export default function DesktopIcons() {
     const sort = s.desktopSort;
     openContextMenu(e.clientX, e.clientY, [
       { label: '查看', items: [
+        ...ICON_TIER_ORDER.map((k) => ({
+          label: ICON_TIERS[k].label,
+          checked: tierKey === k,
+          action: () => setDesktopIconSize(k),
+        })),
+        '-',
         { label: '显示隐藏文件', checked: s.desktopShowHidden, action: () => setDesktopShowHidden(!s.desktopShowHidden) },
       ] },
       { label: '排序方式', items: [
@@ -454,7 +456,14 @@ export default function DesktopIcons() {
           <div className="desktop-hint">桌面为空 · 在此右键新建文件或上传</div>
         )}
 
-        <div className="desktop-grid" ref={gridRef} style={{ gridTemplateRows: `repeat(${rows}, ${ROW_H}px)` }}>
+        <div
+          className="desktop-grid"
+          style={{
+            '--di-cell-w': `${tier.cellW}px`,
+            '--di-cell-h': `${tier.cellH}px`,
+            '--di-label-size': `${tier.labelSize}px`,
+          }}
+        >
           {sysItems.map((it) => (
             <div
               key={it.key}
@@ -469,7 +478,7 @@ export default function DesktopIcons() {
               onDrop={it.trash ? onDropOnTrash : undefined}
             >
               <span className="di-icon-wrap">
-                <it.Icon size={48} full={it.trash ? s.trashCount > 0 : undefined} />
+                <it.Icon size={tier.sys} full={it.trash ? s.trashCount > 0 : undefined} />
               </span>
               <span className="di-label">{it.label}</span>
               {it.trash && s.trashCount > 0 && <span className="desktop-badge">{s.trashCount}</span>}
@@ -500,7 +509,7 @@ export default function DesktopIcons() {
                 title={entry.name}
               >
                 <span className={`di-icon-wrap${entry.type === 'dir' ? ' no-shadow' : ''}`}>
-                  <FileIcon name={entry.name} type={entry.type} size={52} />
+                  <FileIcon name={entry.name} type={entry.type} size={tier.icon} />
                 </span>
                 {renaming === entry.name ? (
                   <RenameInput value={entry.name} onSubmit={(v) => submitRename(entry.name, v)} onCancel={() => setRenaming(null)} />
@@ -514,7 +523,7 @@ export default function DesktopIcons() {
 
         {files.length > shownFiles.length && (
           <div className="desktop-hint">
-            共 {files.length} 项，桌面只显示前 {MAX_ICONS} 项；其余请在「文件」窗口中查看。
+            共 {files.length} 项，桌面只显示前 {MAX_ICONS} 项；其余请在「文件资源管理器」中查看。
           </div>
         )}
 

@@ -5,8 +5,11 @@ import { useSyncExternalStore } from 'react';
 // 位置完全由排序规则决定（Windows 桌面自动排列的思路）。
 const DESKTOP_VIEW_KEY = 'cloudnine-desktop-view';
 
+// 桌面图标三档（Windows 桌面右键 › 查看 ▸ 大图标 / 中等图标 / 小图标）
+export const DESKTOP_ICON_SIZES = ['large', 'medium', 'small'];
+
 function loadDesktopView() {
-  const fallback = { sort: { key: 'name', asc: true, dirsFirst: true }, showHidden: false };
+  const fallback = { sort: { key: 'name', asc: true, dirsFirst: true }, showHidden: false, iconSize: 'medium' };
   try {
     const v = JSON.parse(localStorage.getItem(DESKTOP_VIEW_KEY));
     if (v && typeof v === 'object') {
@@ -17,6 +20,7 @@ function loadDesktopView() {
           dirsFirst: v.sort?.dirsFirst !== false,
         },
         showHidden: !!v.showHidden,
+        iconSize: DESKTOP_ICON_SIZES.includes(v.iconSize) ? v.iconSize : 'medium',
       };
     }
   } catch { /* 忽略解析失败 */ }
@@ -54,6 +58,7 @@ let state = {
   desktopSel: [],            // 选中的条目名
   desktopSort: dv.sort,      // {key:'name'|'size'|'mtime'|'type', asc, dirsFirst}
   desktopShowHidden: dv.showHidden,
+  desktopIconSize: dv.iconSize, // 'large' | 'medium' | 'small'
 
   notifications: [],
   dialog: null,        // 当前模态对话框（队列首）
@@ -425,7 +430,9 @@ export const setDesktopSel = (names) =>
 function saveDesktopView() {
   const s = getState();
   try {
-    localStorage.setItem(DESKTOP_VIEW_KEY, JSON.stringify({ sort: s.desktopSort, showHidden: s.desktopShowHidden }));
+    localStorage.setItem(DESKTOP_VIEW_KEY, JSON.stringify({
+      sort: s.desktopSort, showHidden: s.desktopShowHidden, iconSize: s.desktopIconSize,
+    }));
   } catch { /* 忽略持久化失败 */ }
 }
 
@@ -436,6 +443,12 @@ export function setDesktopSort(sort) {
 
 export function setDesktopShowHidden(v) {
   setState({ desktopShowHidden: v });
+  saveDesktopView();
+}
+
+export function setDesktopIconSize(v) {
+  if (!DESKTOP_ICON_SIZES.includes(v)) return;
+  setState({ desktopIconSize: v });
   saveDesktopView();
 }
 

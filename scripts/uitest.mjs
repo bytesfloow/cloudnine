@@ -557,6 +557,10 @@ try {
   const wmTextName = `${wmBase}-text.txt`;
   const wmSaveName = `${wmBase}-saved.json`;
   const wmSaveAsName = `${wmBase}-copy.json`;
+  // T9 桌面排布 / 徽标用例：批量落盘的小文件（本轮用完即删，清理阶段兜底）
+  const gridBase = `uitest-grid-${Date.now()}`;
+  const gridNames = Array.from({ length: 22 }, (_, i) => `${gridBase}-${String(i + 1).padStart(2, '0')}.txt`);
+  const badgeFileName = `uitest-badge-refresh-${Date.now()}.txt`;
   if (!MOBILE) {
   // ---------- 桌面直览：主目录里的真实文件直接铺在桌面上 ----------
   section('桌面直览（主目录）');
@@ -695,8 +699,8 @@ try {
   check('↑ 回到上一项', (await ctxActive()) === '查看', await ctxActive());
   await page.keyboard.press('ArrowRight');
   await sleep(300);
-  check('→ 展开子菜单并进入', (await ctxLabels(1)).join(',') === '显示隐藏文件', (await ctxLabels(1)).join(','));
-  check('进入子菜单后高亮随之下移', (await ctxActive(1)) === '显示隐藏文件', await ctxActive(1));
+  check('→ 展开子菜单并进入', (await ctxLabels(1)).join(',') === '大图标,中等图标,小图标,显示隐藏文件', (await ctxLabels(1)).join(','));
+  check('进入子菜单后高亮随之下移', (await ctxActive(1)) === '大图标', await ctxActive(1));
   await page.keyboard.press('Escape');
   await sleep(250);
   check('Esc 只关掉子菜单，父菜单还在', !!(await page.$('.context-menu[data-ctx-level="0"]'))
@@ -791,7 +795,9 @@ try {
 
   await ctxOpenBlank();
   await ctxClick(0, '查看');
-  check('查看子菜单本轮只有「显示隐藏文件」', (await ctxLabels(1)).join(',') === '显示隐藏文件', (await ctxLabels(1)).join(','));
+  check('查看子菜单含三档图标大小 + 显示隐藏文件',
+    JSON.stringify(await ctxLabels(1)) === JSON.stringify(['大图标', '中等图标', '小图标', '显示隐藏文件']),
+    (await ctxLabels(1)).join(','));
   await ctxClick(1, '显示隐藏文件');
   check('「查看›显示隐藏文件」打开后写入状态', (await desktopView()).showHidden === true, JSON.stringify(await desktopView()));
   await ctxOpenBlank();
@@ -1271,6 +1277,226 @@ try {
   check('顶部菜单栏已从 DOM 移除（T8）', deskLayout.menubar === false, JSON.stringify(deskLayout));
   check('桌面图标区从屏幕最顶（y = 0）开始', deskLayout.iconsTop === 0, `top=${deskLayout.iconsTop}`);
   check('桌面图标区底部仍为任务栏让位', deskLayout.iconsBottom <= deskLayout.tbTop, JSON.stringify(deskLayout));
+
+  // ---------- T9：桌面排布（左上起横排）/ 图标大小 / 回收站徽标即时刷新 ----------
+  section('桌面排布与图标大小（T9）');
+  // 造足够多的条目，才能验「满行换行」与「缩窗重算列数」
+  const gridRel = (n) => (homeRel ? `${homeRel}/${n}` : n);
+  for (const n of gridNames) {
+    await apiFetch('POST', '/api/fs/write', { path: gridRel(n), content: 'grid layout\n' }, `cloudnine_sid=${dsid}`);
+  }
+  const refreshDesktop = async () => {
+    await ctxOpenBlank(900, 700);
+    await ctxClick(0, '刷新');
+    await sleep(900);
+  };
+  await refreshDesktop();
+
+  const iconGeom = () => page.evaluate(() => [...document.querySelectorAll('.desktop-grid > .desktop-icon')].map((el) => {
+    const r = el.getBoundingClientRect();
+    return {
+      name: el.dataset.entry || el.innerText.trim().split('\n')[0],
+      left: Math.round(r.left), top: Math.round(r.top), right: Math.round(r.right),
+    };
+  }));
+  const firstRowCount = (g) => g.filter((x) => x.top === g[0].top).length;
+
+  // ① 左上起、从左往右、满行向下
+  const gWide = await iconGeom();
+  const colsWide = firstRowCount(gWide);
+  const topLeft = gWide[0]?.left === Math.min(...gWide.map((x) => x.left))
+    && gWide[0]?.top === Math.min(...gWide.map((x) => x.top));
+  let flowOk = gWide.length >= 4 && topLeft;
+  for (let i = 1; i < gWide.length && flowOk; i++) {
+    const prev = gWide[i - 1], cur = gWide[i];
+    if (cur.top === prev.top) { if (cur.left <= prev.left) flowOk = false; }
+    else if (Math.abs(cur.left - gWide[0].left) > 2 || cur.top <= prev.top) flowOk = false;
+  }
+  const rowsWide = new Set(gWide.map((x) => x.top)).size;
+  check('桌面图标左上起、同一行从左往右、满行换行向下（T9 ①）',
+    flowOk, `首格=${JSON.stringify(gWide[0])} 每行 ${colsWide} 共 ${gWide.length} 项`);
+  check('图标超过一行时向下换行（不是纵向填充）',
+    rowsWide >= 2 && colsWide < gWide.length, `每行 ${colsWide}，共 ${rowsWide} 行 / ${gWide.length} 项`);
+  await shot('桌面左上起横排');
+
+  // 缩窄窗口：列数重算，且不横向溢出/被裁
+  await page.setViewport({ width: 900, height: 760, deviceScaleFactor: 1 });
+  await sleep(700);
+  const gNarrow = await iconGeom();
+  const colsNarrow = firstRowCount(gNarrow);
+  const narrowBounds = await page.evaluate(() => {
+    const c = document.querySelector('.desktop-icons');
+    const cr = c.getBoundingClientRect();
+    const icons = [...document.querySelectorAll('.desktop-grid > .desktop-icon')];
+    return {
+      overflowX: Math.round(c.scrollWidth - c.clientWidth),
+      maxRight: Math.round(Math.max(...icons.map((el) => el.getBoundingClientRect().right))),
+      right: Math.round(cr.right),
+    };
+  });
+  check('缩窗后列数重算，图标不横向溢出/被裁',
+    colsNarrow < colsWide && narrowBounds.overflowX <= 1 && narrowBounds.maxRight <= narrowBounds.right + 1,
+    `宽屏每行 ${colsWide} → 窄屏每行 ${colsNarrow}；${JSON.stringify(narrowBounds)}`);
+  await shot('桌面窄窗重排列');
+  await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
+  await sleep(700);
+
+  // ② 布局常量改了，三个靠 getBoundingClientRect 的交互必须回归：框选 / Shift 连选 /（拖拽在别处）
+  const marqueeStart = await page.evaluate(() => {
+    const c = document.querySelector('.desktop-icons').getBoundingClientRect();
+    return { x: Math.round(c.left + 6), y: Math.round(c.bottom - 8) };
+  });
+  const marqueeEnd = await page.evaluate(() => {
+    const third = document.querySelectorAll('.desktop-icon[data-entry]')[2].getBoundingClientRect();
+    return { x: Math.round(third.right - 2), y: Math.round(third.top + 4) };
+  });
+  await page.mouse.move(marqueeStart.x, marqueeStart.y);
+  await page.mouse.down();
+  await page.mouse.move(marqueeEnd.x, marqueeEnd.y, { steps: 10 });
+  await sleep(200);
+  const marqueeState = await page.evaluate(() => ({
+    box: !!document.querySelector('.marquee'),
+    selected: [...document.querySelectorAll('.desktop-icon[data-entry].selected')].map((e) => e.dataset.entry),
+    expected: [...document.querySelectorAll('.desktop-icon[data-entry]')].slice(0, 3).map((e) => e.dataset.entry),
+  }));
+  await page.mouse.up();
+  await sleep(300);
+  check('橡皮筋框选仍按元素实际位置命中',
+    marqueeState.box && marqueeState.selected.length >= 3 && marqueeState.expected.every((n) => marqueeState.selected.includes(n)),
+    `框=${marqueeState.box} 选中 ${marqueeState.selected.length} 项：${marqueeState.selected.slice(0, 4).join(',')}`);
+  check('松开鼠标后框选框消失', !(await page.$('.marquee')));
+
+  // Shift 连选：anchor 取决于上一次点击，必须分两次派发（同 tick 会被 React 批量吞掉）
+  await page.evaluate(() => document.querySelectorAll('.desktop-icon[data-entry]')[0]
+    ?.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  await sleep(250);
+  await page.evaluate(() => document.querySelectorAll('.desktop-icon[data-entry]')[2]
+    ?.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true })));
+  await sleep(400);
+  const shiftSel = await page.evaluate(() => ({
+    names: [...document.querySelectorAll('.desktop-icon[data-entry]')].slice(0, 3).map((e) => e.dataset.entry),
+    selected: [...document.querySelectorAll('.desktop-icon[data-entry].selected')].map((e) => e.dataset.entry),
+  }));
+  check('Shift 连选仍选中连续的三个图标',
+    shiftSel.selected.length === 3 && shiftSel.names.every((n) => shiftSel.selected.includes(n)),
+    `选中 ${shiftSel.selected.length}：${shiftSel.selected.join(',')}`);
+
+  // ③ 三档图标大小：图标与格子一起变、选择持久化
+  const sizeState = () => page.evaluate(() => {
+    const icon = document.querySelector('.desktop-icon[data-entry]');
+    const grid = document.querySelector('.desktop-grid');
+    const r = icon.getBoundingClientRect();
+    const svg = icon.querySelector('.di-icon-wrap svg')?.getBoundingClientRect();
+    const top = Math.round(r.top);
+    return {
+      cell: Math.round(r.width),
+      svg: svg ? Math.round(svg.width) : 0,
+      row: [...document.querySelectorAll('.desktop-grid > .desktop-icon')]
+        .filter((el) => Math.round(el.getBoundingClientRect().top) === top).length,
+      autoRows: getComputedStyle(grid).gridAutoRows,
+      font: getComputedStyle(icon.querySelector('.di-label')).fontSize,
+      stored: JSON.parse(localStorage.getItem('cloudnine-desktop-view') || '{}').iconSize || '',
+    };
+  });
+  const sizeMedium = await sizeState();
+  await ctxOpenBlank();
+  await ctxClick(0, '查看');
+  const viewSizeItems = await ctxLabels(1);
+  check('「查看 ▸」三档图标大小 + 显示隐藏文件',
+    JSON.stringify(viewSizeItems) === JSON.stringify(['大图标', '中等图标', '小图标', '显示隐藏文件']), viewSizeItems.join(','));
+  const midChecked = await page.evaluate(() => [...document.querySelectorAll('.context-menu[data-ctx-level="1"] .dropdown-item')]
+    .find((b) => b.dataset.label === '中等图标')?.querySelector('.di-check')?.innerText.trim());
+  check('默认档为「中等图标」且带 ✓', midChecked === '✓', `check=${midChecked}`);
+  await ctxClick(1, '大图标');
+  await sleep(600);
+  const sizeLarge = await sizeState();
+  check('「大图标」真的变大一档（图标 + 格子 + 字号）',
+    sizeLarge.cell > sizeMedium.cell && sizeLarge.svg > sizeMedium.svg && sizeLarge.row < sizeMedium.row
+      && sizeLarge.autoRows !== sizeMedium.autoRows && sizeLarge.stored === 'large',
+    `中 ${JSON.stringify(sizeMedium)} / 大 ${JSON.stringify(sizeLarge)}`);
+  await shot('桌面大图标');
+
+  await ctxOpenBlank();
+  await ctxClick(0, '查看');
+  await ctxClick(1, '小图标');
+  await sleep(600);
+  const sizeSmall = await sizeState();
+  check('「小图标」真的变小一档（图标 + 格子 + 字号）',
+    sizeSmall.cell < sizeMedium.cell && sizeSmall.svg < sizeMedium.svg && sizeSmall.row > sizeMedium.row
+      && sizeSmall.autoRows !== sizeMedium.autoRows && sizeSmall.stored === 'small',
+    `中 ${JSON.stringify(sizeMedium)} / 小 ${JSON.stringify(sizeSmall)}`);
+  await shot('桌面小图标');
+
+  await page.reload({ waitUntil: 'networkidle2', timeout: 45000 });
+  await page.waitForSelector('.desktop-grid', { timeout: 15000 });
+  await sleep(1800);
+  const sizeReloaded = await sizeState();
+  check('图标大小写入 localStorage，刷新后保持',
+    sizeReloaded.stored === 'small' && sizeReloaded.cell === sizeSmall.cell && sizeReloaded.svg === sizeSmall.svg,
+    `刷新前 ${JSON.stringify(sizeSmall)} → 刷新后 ${JSON.stringify(sizeReloaded)}`);
+  await ctxOpenBlank();
+  await ctxClick(0, '查看');
+  await ctxClick(1, '中等图标');
+  await sleep(500);
+  const sizeReset = await sizeState();
+  check('「中等图标」可切回默认档', sizeReset.stored === 'medium' && sizeReset.cell === sizeMedium.cell, JSON.stringify(sizeReset));
+
+  // ④ 回收站徽标：删除 / 拖到回收站 / 清空，都要立刻反映，不等 App.jsx 的 30s 轮询
+  const badgeCount = () => page.evaluate(() => document.querySelector('.desktop-badge')?.innerText.trim() || '');
+  const badgeBecomes = (want) => page.waitForFunction((w) =>
+    (document.querySelector('.desktop-badge')?.innerText || '').trim() === w, { timeout: 3000 }, want)
+    .then(() => true).catch(() => false);
+  const badgeGone = () => page.waitForFunction(() => !document.querySelector('.desktop-badge'), { timeout: 3000 })
+    .then(() => true).catch(() => false);
+
+  const badgeFileName = `uitest-badge-refresh-${Date.now()}.txt`;
+  await apiFetch('POST', '/api/fs/write', { path: gridRel(badgeFileName), content: 'badge\n' }, `cloudnine_sid=${dsid}`);
+  await refreshDesktop();
+  check('删除前回收站没有徽标（从 0 开始）', (await badgeCount()) === '', `badge=${await badgeCount()}`);
+  await page.evaluate((n) => {
+    const el = [...document.querySelectorAll('.desktop-icon[data-entry]')].find((x) => x.dataset.entry === n);
+    el?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  }, badgeFileName);
+  await sleep(250);
+  await page.keyboard.press('Delete');
+  await sleep(500);
+  await page.evaluate(() => document.querySelector('.dialog-actions .btn-primary')?.click());
+  check('桌面删除文件后回收站徽标立即 +1（不等 30s 轮询）', await badgeBecomes('1'), `badge=${await badgeCount()}`);
+  const diskAfterTrash = await apiFetch('GET', '/api/fs/list?path=' + encodeURIComponent(homeRel), undefined, `cloudnine_sid=${dsid}`);
+  check('该文件已从主目录移走',
+    !(diskAfterTrash.json?.entries || []).some((e) => e.name === badgeFileName),
+    `status=${diskAfterTrash.status}`);
+
+  // 拖到回收站：布局/命中改动后仍可用，且徽标同步
+  const dragToTrashOk = await page.evaluate((n) => {
+    const src = [...document.querySelectorAll('.desktop-icon[data-entry]')].find((x) => x.dataset.entry === n);
+    const trash = [...document.querySelectorAll('.desktop-sysicon')].find((x) => x.innerText.includes('废纸篓'));
+    if (!src || !trash) return false;
+    const dt = new DataTransfer();
+    src.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
+    trash.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    trash.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    return true;
+  }, gridNames[0]);
+  await sleep(700);
+  await page.evaluate(() => document.querySelector('.dialog-actions .btn-primary')?.click());
+  check('拖到回收站图标仍可删除，徽标同步为 2', dragToTrashOk && await badgeBecomes('2'), `drop=${dragToTrashOk} badge=${await badgeCount()}`);
+
+  await page.evaluate(() => {
+    const el = [...document.querySelectorAll('.desktop-sysicon')].find((x) => x.innerText.includes('废纸篓'));
+    el?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 160, clientY: 120 }));
+  });
+  await sleep(400);
+  await ctxClick(0, '清空回收站');
+  await sleep(500);
+  await page.evaluate(() => document.querySelector('.dialog-actions .btn-danger')?.click());
+  check('清空回收站后徽标立即消失', await badgeGone(), `badge=${await badgeCount()}`);
+
+  // 清掉本轮造的测试文件，后面的用例面对干净的主目录
+  for (const n of gridNames.slice(1)) {
+    await apiFetch('POST', '/api/fs/delete', { paths: [gridRel(n)] }, `cloudnine_sid=${dsid}`);
+  }
+  await refreshDesktop();
 
 
   section('文件窗口（Finder）');
@@ -3031,7 +3257,7 @@ try {
   if (!flag('keep')) {
     section('清理测试产物');
     const sid2 = await loginViaApi();
-    const names = [proofName, editName, pasteName, notifyName, btnUploadName, imgName, deskName, dirName, zipName, probeName, newDirName, dropName, tbDirName, smRecentName, wmTextName, wmSaveName, wmSaveAsName, ...badgeNames].filter(Boolean);
+    const names = [proofName, editName, pasteName, notifyName, btnUploadName, imgName, deskName, dirName, zipName, probeName, newDirName, dropName, tbDirName, smRecentName, wmTextName, wmSaveName, wmSaveAsName, badgeFileName, ...gridNames, ...badgeNames].filter(Boolean);
     for (const n of names) {
       const r = await apiFetch('GET', `/api/fs/search?path=/&q=${encodeURIComponent(n)}`, undefined, `cloudnine_sid=${sid2}`);
       const hit = (r.json?.results || []).find((x) => x.name === n);
