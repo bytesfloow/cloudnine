@@ -3,7 +3,7 @@ import { useStore, setWindowTitle, notify, basename, fmtSize, fmtTime } from '..
 import { api } from '../api.js';
 import { FileIcon } from '../icons.jsx';
 
-// 显示简介（Get Info）：属性 + 权限修改
+// 属性（Alt+Enter）：文件/目录属性 + 权限修改
 export default function InfoWindow({ win }) {
   const { path } = win.props;
   const [stat, setStat] = useState(null);

@@ -1,27 +1,42 @@
 import React from 'react';
-import { IconSearch, IconChevron, IconGrid, IconList, IconRefresh, IconNewFolder, IconUpload } from '../../icons.jsx';
+import { IconSearch, IconChevron } from '../../icons.jsx';
 
-// 文件资源管理器 · 命令栏
-// 后退/前进、新建文件夹、上传、图标/列表视图切换、搜索、刷新、排序。
-// 所有动作都由父组件（Finder）传入，组件本身不持有状态。
+// 文件资源管理器 · 地址栏（docs/win11-interaction-spec.md §1.4 第一行）
+//
+//   [←] [→] [↑]  本机 › 用户 › docs   [搜索框]
+//
+// 后退/前进走本地历史栈；「↑」直接 act('goParent')，点地址栏空白处 act('goFolder')，
+// 后退/前进之外的动作全部经 act()，与菜单栏 / 命令栏共用同一条执行路径。
+//
+// ⚠️ R5：`.finder-search input` 这个选择器必须保留——`act('focus-search')` 靠它做
+// DOM 查询（Ctrl+F / F3），改类名会让快捷键静默失效。
 export default function FinderToolbar({
-  hIdx, history, back, fwd, isTrash, newItem, pickUpload,
-  view, setView, query, searchMode, setQuery, runSearch, load, sortMenu,
+  hIdx, history, back, fwd, crumbs, onCrumb, act, isTrash, query, searchMode, setQuery, runSearch,
 }) {
   return (
     <div className="finder-toolbar">
       <button className="tb-btn" disabled={hIdx === 0} onClick={back} title="后退"><IconChevron dir="left" /></button>
       <button className="tb-btn" disabled={hIdx >= history.length - 1} onClick={fwd} title="前进"><IconChevron /></button>
-      {!isTrash && (
-        <>
-          <button className="tb-btn" onClick={() => newItem('dir')} title="新建文件夹"><IconNewFolder /></button>
-          <button className="tb-btn" onClick={() => pickUpload(false)} title="上传文件"><IconUpload /></button>
-        </>
-      )}
-      <div className="tb-view">
-        <button className={`tb-btn${view === 'icon' ? ' active' : ''}`} onClick={() => setView('icon')} title="图标视图"><IconGrid /></button>
-        <button className={`tb-btn${view === 'list' ? ' active' : ''}`} onClick={() => setView('list')} title="列表视图"><IconList /></button>
+      <button className="tb-btn" onClick={() => act('goParent')} title="上一级（Alt+↑）"><IconChevron dir="up" /></button>
+
+      {/* 点空白处 = 前往文件夹（Win11 地址栏点空白变可编辑路径） */}
+      <div
+        className="finder-crumbs finder-address"
+        data-act="goFolder"
+        title="点击空白处可输入路径（前往文件夹…）"
+        onClick={(e) => { if (e.target === e.currentTarget) act('goFolder'); }}
+      >
+        {crumbs.map((c, i) => (
+          <React.Fragment key={`${c.label}-${i}`}>
+            {i > 0 && <IconChevron size={9} />}
+            {c.dir == null
+              ? <span className="crumb crumb-static">{c.label}</span>
+              : <button className="crumb" onClick={() => !isTrash && onCrumb(c.dir)}>{c.label}</button>}
+          </React.Fragment>
+        ))}
+        {searchMode && <span className="crumb-note">搜索“{query}”的结果</span>}
       </div>
+
       <div className="finder-search">
         <IconSearch />
         <input
@@ -35,8 +50,6 @@ export default function FinderToolbar({
         />
         {query && <button className="clear-btn" onMouseDown={(e) => { e.preventDefault(); runSearch(''); }}>×</button>}
       </div>
-      <button className="tb-btn" onClick={() => load()} title="刷新"><IconRefresh /></button>
-      <button className="tb-btn" onClick={(e) => sortMenu(e)} title="排序方式">⇅</button>
     </div>
   );
 }

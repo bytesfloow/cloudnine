@@ -10,13 +10,15 @@ import {
   createItem, uploadTo, copyToClipboard, cutToClipboard, pasteInto, trashItems, renameItem,
   downloadItem, downloadItems, compressItems, extractItem, shareItem, shareBlockReason, copyPathText, isArchive,
 } from '../fsops.js';
-import { IconChevron } from '../icons.jsx';
 import FinderToolbar from './finder/FinderToolbar.jsx';
+import FinderCommandBar from './finder/FinderCommandBar.jsx';
 import FinderSidebar from './finder/FinderSidebar.jsx';
 import FinderIconView from './finder/FinderIconView.jsx';
 import FinderListView from './finder/FinderListView.jsx';
 
 export default function Finder({ win }) {
+  const s = useStore();
+  const clipboard = s.clipboard;
   const winIsTrash = !!win.props.trash;
   const [cwd, setCwd] = useState(winIsTrash ? '__trash__' : (win.props.cwd || ''));
   const [history, setHistory] = useState([winIsTrash ? '__trash__' : (win.props.cwd || '')]);
@@ -107,6 +109,20 @@ export default function Finder({ win }) {
     act(action, arg);
   }));
 
+  // F3 / F5：窗口内自带的键盘入口（§2.3 的 focus-search / refresh）。
+  // 只在本窗口获得焦点时响应；act 经 ref 取最新的闭包，避免拿到旧的 cwd。
+  const actRef = useRef(act);
+  actRef.current = act;
+  useEffect(() => {
+    const onKey = (e) => {
+      if (getState().focusId !== win.id) return;
+      if (e.key === 'F3') { e.preventDefault(); actRef.current('focus-search'); }
+      else if (e.key === 'F5') { e.preventDefault(); actRef.current('refresh'); }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  });
+
   // 选择状态上报（空格快速预览）：上报完整相对路径而不是裸文件名，
   // 否则在子文件夹按空格会请求 /api/fs/stat?path=1.jpg 这类不存在的路径。
   useEffect(() => {
@@ -133,6 +149,10 @@ export default function Finder({ win }) {
       case 'copy': if (!isTrash && selPaths.length) copyToClipboard(selPaths, cwd); return;
       case 'cut': if (!isTrash && selPaths.length) cutToClipboard(selPaths, cwd); return;
       case 'paste': return paste();
+      // 命令栏「粘贴 ▾ › 粘贴为副本」：复制模式下的内部剪贴板再复制一份
+      case 'pasteCopy': return pasteCopy();
+      // 命令栏「粘贴 ▾ › 清空剪贴板」：原 MenuBar 的 __clearClipboard 在这里的落点
+      case 'clearClipboard': return setClipboard(null);
       case 'selectAll': return setSel(new Set(visibleNames()));
       case 'rename': if (selectedEntries[0]) setRenaming(selectedEntries[0].name); return;
       case 'trash': return trashSelected();
@@ -259,6 +279,19 @@ export default function Finder({ win }) {
     await pasteInto(cwd);
   }
 
+  // 粘贴为副本：只对「复制」模式的内部剪贴板有意义（剪切没有副本可言）
+  async function pasteCopy() {
+    if (isTrash) return;
+    const cb = getState().clipboard;
+    if (!cb || cb.mode !== 'copy') return;
+    try {
+      await api.copy(cb.paths, cwd);
+      bus.emit('fs:changed', cwd);
+    } catch (e) {
+      notify({ type: 'error', title: '粘贴失败', body: e.message });
+    }
+  }
+
   // ---------- 删除 ----------
   async function trashSelected() {
     if (isTrash || !sel.size) return;
@@ -290,7 +323,7 @@ export default function Finder({ win }) {
 
   async function emptyTrash() {
     if (!isTrash) return;
-    const ok = await confirmDialog({ title: '清倒废纸篓', message: `将彻底删除废纸篓中的全部 ${entries?.length || 0} 项，不可恢复。`, danger: true, okText: '清倒' });
+    const ok = await confirmDialog({ title: '清空回收站', message: `将彻底删除回收站中的全部 ${entries?.length || 0} 项，不可恢复。`, danger: true, okText: '清空' });
     if (!ok) return;
     await api.trashEmpty();
     setState({ trashCount: 0 });
@@ -319,6 +352,8 @@ export default function Finder({ win }) {
   }
 
   // ---------- 右键菜单 ----------
+  // 结构对齐 docs §1.5（新建 ▸ / 打开方式 ▸ / 发送到 ▸），项与改造前逐条一致：
+  // 只是把「在终端中打开」「下载」「复制路径」从平铺收进子菜单，不增不减。
   function itemMenu(e, entry) {
     e.preventDefault(); e.stopPropagation();
     if (!sel.has(entry.name)) setSel(new Set([entry.name]));
@@ -327,25 +362,30 @@ export default function Finder({ win }) {
       { label: '放回原处', action: restoreSelected, disabled: !sel.size },
       { label: '彻底删除…', danger: true, action: deleteForeverSelected, disabled: !sel.size },
       '-',
-      { label: '清倒废纸篓…', danger: true, action: emptyTrash },
+      { label: '清空回收站…', danger: true, action: emptyTrash },
     ] : [
-      { label: entry.type === 'dir' ? '打开' : '打开', action: () => openEntry(entry) },
+      { label: '打开', action: () => openEntry(entry) },
       ...(entry.type !== 'dir' ? [{ label: '快速预览', action: () => openQuickLook([paths], 0) }] : []),
+      // 仅目录有「在终端中打开」；文件侧的打开方式（编辑器/预览）属于桌面右键，不在这里凭空添加
+      ...(entry.type === 'dir' ? [{ label: '打开方式', items: [
+        { label: '在终端中打开', action: () => openWindow('terminal', { cwd: paths }) },
+      ] }] : []),
+      '-',
+      { label: '剪切', action: () => setClipboard('cut', [paths], cwd) },
+      { label: '复制', action: () => setClipboard('copy', [paths], cwd) },
       '-',
       { label: '重命名', action: () => setRenaming(entry.name), disabled: sel.size > 1 },
-      { label: '复制', action: () => setClipboard('copy', [paths], cwd) },
-      { label: '剪切', action: () => setClipboard('cut', [paths], cwd) },
+      { label: '删除', danger: true, action: trashSelected },
       '-',
-      ...(entry.type !== 'dir' ? [{ label: '下载', action: () => downloadPath(paths) }] : []),
       { label: '压缩…', action: () => compressDialog(sel.has(entry.name) ? [...sel].map((n) => joinPath(cwd, n)) : [paths]) },
       ...(isArchive(entry) ? [{ label: '解压到…', action: () => extractDialog(entry) }] : []),
+      { label: '发送到', items: [
+        ...(entry.type !== 'dir' ? [{ label: '下载', action: () => downloadPath(paths) }] : []),
+        { label: '复制路径', action: () => copyPathText(paths) },
+      ] },
       '-',
       { label: shareBlockReason(entry) ? `分享…（${shareBlockReason(entry)}）` : '分享…', disabled: !!shareBlockReason(entry), action: () => shareDialog({ path: paths, name: entry.name, entry }) },
-      { label: '显示简介', action: () => openWindow('info', { path: paths }) },
-      { label: '复制路径', action: () => copyPathText(paths) },
-      ...(entry.type === 'dir' ? [{ label: '在终端中打开', action: () => openWindow('terminal', { cwd: paths }) }] : []),
-      '-',
-      { label: '移入废纸篓', danger: true, action: trashSelected },
+      { label: '属性', action: () => openWindow('info', { path: paths }) },
     ];
     openContextMenu(e.clientX, e.clientY, items);
   }
@@ -355,35 +395,41 @@ export default function Finder({ win }) {
     e.preventDefault();
     const cb = getState().clipboard;
     openContextMenu(e.clientX, e.clientY, isTrash ? [
-      { label: '清倒废纸篓…', danger: true, action: emptyTrash },
-      { label: '刷新', action: () => load() },
+      { label: '清空回收站…', danger: true, action: emptyTrash },
+      { label: '刷新', action: () => act('refresh') },
     ] : [
-      { label: '新建文件夹', action: () => newItem('dir') },
-      { label: '新建空白文件', action: () => newItem('file') },
+      { label: '新建', items: [
+        { label: '文件夹', action: () => newItem('dir') },
+        { label: '文本文档', action: () => newItem('file') },
+      ] },
       '-',
       { label: cb ? (cb.mode === 'copy' ? '粘贴项目' : '移动项目到此处') : '粘贴', disabled: !cb, action: paste },
-      { label: '粘贴为副本', disabled: !cb || cb.mode !== 'copy', action: async () => { try { await api.copy(cb.paths, cwd); bus.emit('fs:changed', cwd); } catch (e2) { notify({ type: 'error', title: '粘贴失败', body: e2.message }); } } },
+      // 「粘贴为副本」只存在于文件窗口空白右键（菜单栏里没有），搬动时最容易漏：
+      // 命令栏「粘贴 ▾」也调用同一个 pasteCopy()
+      { label: '粘贴为副本', disabled: !cb || cb.mode !== 'copy', action: pasteCopy },
       '-',
       { label: '上传文件…', action: () => pickUpload(false) },
       { label: '上传文件夹…', action: () => pickUpload(true) },
       '-',
-      { label: '显示隐藏文件', checked: showHidden, action: () => setShowHidden((v) => !v) },
-      { label: '在终端中打开', action: () => openWindow('terminal', { cwd }) },
+      { label: '查看', items: [
+        { label: '显示隐藏文件', checked: showHidden, action: () => act('toggleHidden') },
+      ] },
+      { label: '排序方式', items: sortItems() },
+      { label: '刷新', action: () => act('refresh') },
       '-',
-      { label: '排序方式', action: (evt) => sortMenu(evt) },
-      { label: '刷新', action: () => load() },
+      { label: '在终端中打开', action: () => openWindow('terminal', { cwd }) },
     ]);
   }
 
-  function sortMenu(e) {
-    const rect = e?.currentTarget?.getBoundingClientRect();
-    openContextMenu(rect?.left || 200, rect?.bottom || 200, [
-      { label: '按名称', checked: sort.key === 'name', action: () => setSort((s) => ({ ...s, key: 'name' })) },
-      { label: '按大小', checked: sort.key === 'size', action: () => setSort((s) => ({ ...s, key: 'size' })) },
-      { label: '按修改时间', checked: sort.key === 'mtime', action: () => setSort((s) => ({ ...s, key: 'mtime' })) },
+  // 排序项：右键「排序方式 ▸」与命令栏「排序 ▾」共用同一份（不另写一套）
+  function sortItems() {
+    return [
+      { label: '按名称', checked: sort.key === 'name', action: () => setSort((s2) => ({ ...s2, key: 'name' })) },
+      { label: '按大小', checked: sort.key === 'size', action: () => setSort((s2) => ({ ...s2, key: 'size' })) },
+      { label: '按修改时间', checked: sort.key === 'mtime', action: () => setSort((s2) => ({ ...s2, key: 'mtime' })) },
       '-',
-      { label: sort.asc ? '改为降序' : '改为升序', action: () => setSort((s) => ({ ...s, asc: !s.asc })) },
-    ]);
+      { label: sort.asc ? '改为降序' : '改为升序', action: () => setSort((s2) => ({ ...s2, asc: !s2.asc })) },
+    ];
   }
 
   // ---------- 拖拽 ----------
@@ -423,9 +469,12 @@ export default function Finder({ win }) {
   }
 
   const shown = visible();
-  const crumbs = cwd === '__trash__'
-    ? [{ label: '废纸篓', dir: '__trash__' }]
-    : [{ label: '根目录', dir: '' }, ...cwd.split('/').filter(Boolean).map((seg, i, arr) => ({ label: seg, dir: arr.slice(0, i + 1).join('/') }))];
+  // 地址栏面包屑：「最近」是虚拟视图，给一个不可点的静态段
+  const crumbs = recentMode
+    ? [{ label: '最近', dir: null }]
+    : cwd === '__trash__'
+      ? [{ label: '废纸篓', dir: '__trash__' }]
+      : [{ label: '根目录', dir: '' }, ...cwd.split('/').filter(Boolean).map((seg, i, arr) => ({ label: seg, dir: arr.slice(0, i + 1).join('/') }))];
 
   return (
     <div className="finder" ref={containerRef} onContextMenu={blankMenu}>
@@ -434,17 +483,25 @@ export default function Finder({ win }) {
         history={history}
         back={back}
         fwd={fwd}
+        crumbs={crumbs}
+        onCrumb={(dir) => navigate(dir)}
+        act={act}
         isTrash={isTrash}
-        newItem={newItem}
-        pickUpload={pickUpload}
-        view={view}
-        setView={setView}
         query={query}
         searchMode={searchMode}
         setQuery={setQuery}
         runSearch={runSearch}
-        load={load}
-        sortMenu={sortMenu}
+      />
+
+      <FinderCommandBar
+        isTrash={isTrash}
+        selCount={sel.size}
+        clipboard={clipboard}
+        showHidden={showHidden}
+        view={view}
+        act={act}
+        sortItems={sortItems}
+        onDeleteForever={deleteForeverSelected}
       />
 
       <div className="finder-main">
@@ -467,18 +524,6 @@ export default function Finder({ win }) {
             }
           }}
         >
-          {(!recentMode || searchMode) && (
-            <div className="finder-crumbs">
-              {crumbs.map((c, i) => (
-                <React.Fragment key={c.dir}>
-                  {i > 0 && <IconChevron size={9} />}
-                  <button className="crumb" onClick={() => !isTrash && navigate(c.dir)}>{c.label}</button>
-                </React.Fragment>
-              ))}
-              {searchMode && <span className="crumb-note">搜索“{query}”的结果</span>}
-            </div>
-          )}
-
           {loading ? (
             <div className="finder-loading"><div className="boot-spinner" /></div>
           ) : error ? (
@@ -530,7 +575,7 @@ export default function Finder({ win }) {
         <span>{shown.length} 个项目</span>
         {sel.size > 0 && <span>已选择 {sel.size} 项</span>}
         {free != null && <span className="sb-free">可用 {fmtSize(free)}</span>}
-        {isTrash && entries?.length > 0 && <button className="btn btn-small" onClick={emptyTrash}>清倒…</button>}
+        {isTrash && entries?.length > 0 && <button className="btn btn-small" onClick={emptyTrash}>清空回收站…</button>}
       </div>
     </div>
   );

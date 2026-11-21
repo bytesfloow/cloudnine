@@ -1,9 +1,35 @@
-/* ============ 访达 ============ */
+/* ============ 文件资源管理器 ============ */
 .finder { display: flex; flex-direction: column; height: 100%; }
 .finder-toolbar {
-  flex: none; display: flex; align-items: center; gap: 4px; padding: 6px 8px;
+  flex: none; display: flex; align-items: center; gap: 4px; padding: 6px 8px; min-width: 0;
   border-bottom: 1px solid var(--line); background: var(--bar-bg);
 }
+/* 地址栏（工具栏内的面包屑）：点空白处 = 前往文件夹 */
+.finder-address {
+  flex: 1; min-width: 40px; min-height: 24px; flex-wrap: nowrap;
+  align-items: center; overflow: hidden; padding: 0 4px; border-radius: 5px; cursor: text;
+}
+.finder-address:hover { background: var(--hover); }
+.finder-address > * { flex: none; }
+.crumb-static { cursor: default; }
+
+/* 命令栏：新建 ▸ ｜ 上传 ｜ 剪贴板 ｜ 重命名/删除 ｜ 排序 ▸ 查看 ▾ ⋯ */
+.finder-cmdbar {
+  flex: none; display: flex; align-items: center; gap: 2px; padding: 4px 8px; min-width: 0;
+  border-bottom: 1px solid var(--line); background: var(--bar-bg); overflow: hidden;
+}
+.cmd-group { display: flex; align-items: center; gap: 2px; flex: none; }
+.cmd-sep { flex: none; width: 1px; height: 18px; margin: 0 5px; background: var(--line); }
+.cmd-btn {
+  height: 26px; padding: 0 8px; border-radius: 6px; display: inline-flex; align-items: center;
+  gap: 3px; color: var(--text); font-size: 12.5px; white-space: nowrap;
+}
+.cmd-btn:hover:not(:disabled) { background: var(--hover); }
+.cmd-btn:disabled { opacity: .35; cursor: default; }
+.cmd-btn.danger { color: var(--danger); }
+.cmd-caret { display: inline-flex; align-items: center; opacity: .65; }
+.cmd-split { display: inline-flex; align-items: center; }
+.cmd-split-caret { width: 18px; padding: 0; justify-content: center; opacity: .8; }
 .tb-btn {
   width: 28px; height: 26px; border-radius: 6px; display: inline-flex;
   align-items: center; justify-content: center; color: var(--text); font-size: 14px;
@@ -36,7 +62,9 @@
 .sb-item.active { background: var(--accent); color: #fff; }
 
 .finder-content { flex: 1; position: relative; overflow: auto; padding: 10px 12px 20px; }
+/* 面包屑已上提到地址栏（§1.4）：留在工具栏里时不再承担内容区的上边距 */
 .finder-crumbs { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; color: var(--text-2); margin-bottom: 10px; font-size: 12px; }
+.finder-toolbar .finder-crumbs { margin: 0 4px; }
 .crumb { padding: 2px 6px; border-radius: 5px; color: var(--text); font-weight: 600; }
 .crumb:hover { background: var(--hover); }
 .crumb-note { color: var(--accent); margin-left: 8px; }

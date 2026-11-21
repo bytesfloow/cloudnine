@@ -1253,26 +1253,282 @@ try {
     check('文件窗口打开', /文件|Finder/i.test(titleText) || !!winTitle, `title=${titleText}`);
     await shot('文件窗口');
 
-    // 回归：Finder 的扁平右键菜单（itemMenu / blankMenu / sortMenu）没被 ContextMenu 改坏
+    // 回归：Finder 右键菜单在 T6 子菜单化后（§1.5）项与改造前一致，无增无减
     await page.evaluate(() => {
       const el = document.querySelector('.finder-main');
       el?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 420, clientY: 360 }));
     });
     await sleep(400);
     const finderBlank = await ctxLabels(0);
-    check('Finder 空白右键（扁平 items + 分隔符）仍正常',
-      ['新建文件夹', '上传文件…', '显示隐藏文件', '排序方式', '刷新'].every((k) => finderBlank.includes(k)),
+    check('Finder 空白右键九项齐备（新建/粘贴/粘贴为副本/上传×2/查看/排序方式/刷新/终端）',
+      ['新建', '粘贴', '粘贴为副本', '上传文件…', '上传文件夹…', '查看', '排序方式', '刷新', '在终端中打开']
+        .every((k) => finderBlank.includes(k)),
       finderBlank.join(','));
+    check('Finder 空白右键含 3 个子菜单（新建/查看/排序方式）',
+      (await page.$$eval('.context-menu[data-ctx-level="0"] .ctx-has-sub', (els) => els.length)) === 3);
+    await ctxClick(0, '新建');
+    const finderNew = await ctxLabels(1);
+    check('Finder「新建」子菜单为 文件夹 / 文本文档',
+      JSON.stringify(finderNew) === JSON.stringify(['文件夹', '文本文档']), finderNew.join(','));
     await ctxClick(0, '排序方式');
-    await sleep(350);
-    const finderSort = await ctxLabels(0);
-    check('Finder「排序方式」二级菜单（另开扁平菜单）仍正常',
-      finderSort.some((t) => t.includes('按名称')) && finderSort.some((t) => /改为升序|改为降序/.test(t)),
+    const finderSort = await ctxLabels(1);
+    check('Finder「排序方式」二级子菜单（名称/大小/修改时间 + 升降序）',
+      ['按名称', '按大小', '按修改时间'].every((k) => finderSort.includes(k))
+      && finderSort.some((t) => /改为升序|改为降序/.test(t)),
       finderSort.join(','));
+    await page.keyboard.press('Escape');
     await page.keyboard.press('Escape');
     await sleep(250);
   } else {
     check('任务栏存在「文件资源管理器」入口', false, '未找到 .tb-app[title=文件资源管理器]');
+  }
+
+  // ---------- 3.6 文件窗口命令栏（阶段 1 · T6） ----------
+  section('文件窗口命令栏（新建 / 剪贴板 / 排序 / 查看 / 更多）');
+  if (finderBtn) {
+    const cmdSel = (label) => `.finder-cmdbar .cmd-btn[data-cmd="${label}"]`;
+    const clickCmd = async (label) => {
+      const ok = await page.evaluate((l) => {
+        const b = document.querySelector(`.finder-cmdbar .cmd-btn[data-cmd="${l}"]`);
+        if (!b || b.disabled) return false;
+        b.click();
+        return true;
+      }, label);
+      await sleep(320);
+      return ok;
+    };
+    const cmdDisabled = (label) => page.evaluate((l) => {
+      const b = document.querySelector(`.finder-cmdbar .cmd-btn[data-cmd="${l}"]`);
+      return b ? b.disabled : null;
+    }, label);
+    const cmdLabels = () => page.$$eval('.finder-cmdbar .cmd-btn', (els) => els.map((e) => e.dataset.cmd));
+    const itemNameOf = (n) => page.evaluate((name) => {
+      const el = document.querySelector(`.finder-item[data-name="${name}"]`);
+      if (!el) return false;
+      el.click();
+      return true;
+    }, n);
+
+    const bar = await cmdLabels();
+    check('命令栏五组按钮齐备（新建/上传×2/剪切/复制/粘贴/重命名/删除/排序/查看）',
+      ['新建', '上传文件…', '上传文件夹…', '剪切', '复制', '粘贴', '重命名', '删除', '排序', '查看']
+        .every((k) => bar.includes(k)), bar.join(','));
+    check('无选中时 剪切/复制/重命名/删除 均置灰、粘贴随剪贴板置灰',
+      (await cmdDisabled('剪切')) === true && (await cmdDisabled('复制')) === true
+      && (await cmdDisabled('重命名')) === true && (await cmdDisabled('删除')) === true
+      && (await cmdDisabled('粘贴')) === true,
+      `cut=${await cmdDisabled('剪切')} copy=${await cmdDisabled('复制')} paste=${await cmdDisabled('粘贴')}`);
+
+    // 命令栏按钮必须落到 act() 的真实分支：新建 ▸ 文件夹 → 真的在磁盘上建出目录
+    const cmdDir = `uitest-cmd-dir-${Date.now()}`;
+    await clickCmd('新建');
+    const newItems = await ctxLabels(0);
+    check('命令栏「新建 ▸」下拉为 文件夹 / 文本文档',
+      JSON.stringify(newItems) === JSON.stringify(['文件夹', '文本文档']), newItems.join(','));
+    await ctxClick(0, '文件夹');
+    await sleep(450);
+    const mkTitle = await page.$eval('.dialog h3', (el) => el.innerText.trim()).catch(() => '');
+    await page.evaluate(() => document.querySelector('.dialog input')?.focus());
+    await page.keyboard.type(cmdDir);
+    await page.evaluate(() => document.querySelector('.dialog-actions .btn-primary')?.click());
+    await sleep(1400);
+    const dirQ = await apiFetch('GET', `/api/fs/search?path=/&q=${encodeURIComponent(cmdDir)}`, undefined, `cloudnine_sid=${dsid}`);
+    check('命令栏「新建 ▸ 文件夹」真的建出目录（act: newFolder）',
+      mkTitle === '新建文件夹' && (dirQ.json?.results || []).some((x) => x.name === cmdDir), `dlg=${mkTitle} q=${dirQ.status}`);
+
+    // 查看 ▾：图标 / 列表 / 显示隐藏文件 / 刷新
+    await clickCmd('查看');
+    const viewItems = await ctxLabels(0);
+    check('命令栏「查看 ▾」含 图标/列表/显示隐藏文件/刷新',
+      ['图标', '列表', '显示隐藏文件', '刷新'].every((k) => viewItems.includes(k)), viewItems.join(','));
+    await ctxClick(0, '列表');
+    await sleep(400);
+    check('「查看 ▸ 列表」切到列表视图（act: viewList）', !!(await page.$('.list-view')));
+    await clickCmd('查看');
+    await ctxClick(0, '图标');
+    await sleep(400);
+    check('「查看 ▸ 图标」切回图标视图（act: viewIcon）', !!(await page.$('.icon-grid')));
+
+    // 排序 ▾：与右键「排序方式 ▸」同一份项
+    await clickCmd('排序');
+    const sortLbl = await ctxLabels(0);
+    check('命令栏「排序 ▾」为 按名称/按大小/按修改时间 + 升降序',
+      ['按名称', '按大小', '按修改时间'].every((k) => sortLbl.includes(k))
+      && sortLbl.some((t) => /改为升序|改为降序/.test(t)), sortLbl.join(','));
+    const sortItem = sortLbl.includes('按名称') ? '按名称' : '名称';
+    await ctxClick(0, sortItem);
+    await sleep(300);
+    await clickCmd('排序');
+    const checked = await page.$eval('.context-menu .dropdown-item[data-label="按名称"] .di-check', (el) => el.innerText.trim());
+    check('命令栏排序结果写回视图排序状态（按名称 ✓）', checked === '✓', `check=${checked}`);
+    await page.keyboard.press('Escape');
+    await sleep(200);
+
+    // 剪贴板：复制 → 粘贴 ▾ →「粘贴为副本」→ 磁盘上真出现 (1) 副本（最容易漏的一项）
+    const cmdBase = `uitest-cmd-file-${Date.now()}`;
+    const cmdFile = `${cmdBase}.txt`;
+    await apiFetch('POST', '/api/fs/write', { path: homeRel ? `${homeRel}/${cmdFile}` : cmdFile, content: 'cmdbar copy test\n' }, `cloudnine_sid=${dsid}`);
+    await clickCmd('查看');
+    await ctxClick(0, '刷新');
+    await sleep(900);
+    const picked = await itemNameOf(cmdFile);
+    check('命令栏「查看 ▸ 刷新」后能看到新建文件（act: refresh）', picked, cmdFile);
+    await page.evaluate((n) => document.querySelector(`.finder-item[data-name="${n}"]`)?.click(), cmdFile);
+    await sleep(250);
+    check('选中一项后 复制/重命名 可用、重命名仍限制单选',
+      (await cmdDisabled('复制')) === false && (await cmdDisabled('重命名')) === false,
+      `copy=${await cmdDisabled('复制')} rename=${await cmdDisabled('重命名')}`);
+    await clickCmd('复制');
+    await sleep(300);
+    check('命令栏「复制」写入内部剪贴板（粘贴按钮变为可用）', (await cmdDisabled('粘贴')) === false);
+    await page.evaluate(() => document.querySelector('.finder-cmdbar .cmd-btn[data-cmd="粘贴选项"]')?.click());
+    await sleep(350);
+    const pasteMenu = await ctxLabels(0);
+    check('「粘贴 ▾」下拉保留「粘贴为副本」与「清空剪贴板」',
+      pasteMenu.includes('粘贴为副本') && pasteMenu.includes('清空剪贴板'), pasteMenu.join(','));
+    await ctxClick(0, '粘贴为副本');
+    await sleep(1500);
+    const listQ = await apiFetch('GET', `/api/fs/list?path=${encodeURIComponent(homeRel)}`, undefined, `cloudnine_sid=${dsid}`);
+    const copyHit = (listQ.json?.entries || []).find((e) => e.name === `${cmdBase}(1).txt`);
+    check('「粘贴为副本」实测生成副本（<name>(1).txt）', !!copyHit, JSON.stringify((listQ.json?.entries || []).map((e) => e.name)));
+    await page.evaluate(() => document.querySelector('.finder-cmdbar .cmd-btn[data-cmd="粘贴选项"]')?.click());
+    await sleep(300);
+    await ctxClick(0, '清空剪贴板');
+    await sleep(400);
+    check('「清空剪贴板」后 粘贴 重新置灰', (await cmdDisabled('粘贴')) === true);
+
+    // 更多 ▸：全选 / 前往文件夹…
+    await page.evaluate((n) => document.querySelector(`.finder-item[data-name="${n}"]`)?.click(), cmdFile);
+    await sleep(200);
+    await clickCmd('更多');
+    const moreItems = await ctxLabels(0);
+    check('命令栏「⋯ 更多」含 全选 / 前往文件夹…',
+      moreItems.includes('全选') && moreItems.includes('前往文件夹…'), moreItems.join(','));
+    await ctxClick(0, '全选');
+    await sleep(450);
+    const sbText = await page.$eval('.finder-statusbar', (el) => el.innerText);
+    check('「更多 ▸ 全选」真的全选（act: selectAll）', /已选择 \d+ 项/.test(sbText), sbText.replace(/\n/g, ' '));
+
+    // 删除 → 走 trashItems 的确认框（取消，不真的删）
+    await clickCmd('删除');
+    await sleep(450);
+    const trashTitle = await page.$eval('.dialog h3', (el) => el.innerText.trim()).catch(() => '');
+    check('命令栏「删除」弹出移入回收站确认框（act: trash）', /移入废纸篓/.test(trashTitle), trashTitle);
+    await page.evaluate(() => [...document.querySelectorAll('.dialog-actions .btn')].find((b) => b.innerText.trim() === '取消')?.click());
+    await sleep(300);
+
+    // 条目右键：子菜单化后项与改造前一致（属性/删除/发送到/打开方式）
+    await page.evaluate((n) => {
+      const el = document.querySelector(`.finder-item[data-name="${n}"]`);
+      el?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 480, clientY: 380 }));
+    }, cmdFile);
+    await sleep(400);
+    const itemLabels = await ctxLabels(0);
+    check('条目右键（文件）项与改造前一致：打开/快速预览/剪切/复制/重命名/删除/压缩…/发送到/属性',
+      ['打开', '快速预览', '剪切', '复制', '重命名', '删除', '压缩…', '发送到', '属性'].every((k) => itemLabels.includes(k))
+      && itemLabels.some((t) => t.startsWith('分享…')), itemLabels.join(','));
+    check('条目右键不再出现「显示简介」「移入废纸篓」旧文案',
+      !itemLabels.some((t) => /显示简介|移入废纸篓/.test(t)), itemLabels.join(','));
+    await ctxClick(0, '发送到');
+    const sendTo = await ctxLabels(1);
+    check('「发送到 ▸」收拢 下载 / 复制路径', ['下载', '复制路径'].every((k) => sendTo.includes(k)), sendTo.join(','));
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    await sleep(250);
+
+    // 目录条目：打开方式 ▸ 在终端中打开
+    await page.evaluate(() => {
+      const el = document.querySelector('.finder-item[data-name="docs"]');
+      el?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 480, clientY: 380 }));
+    });
+    await sleep(400);
+    const dirLabels = await ctxLabels(0);
+    check('目录条目右键含「打开方式」子菜单、无「快速预览」',
+      dirLabels.includes('打开方式') && !dirLabels.includes('快速预览'), dirLabels.join(','));
+    await ctxClick(0, '打开方式');
+    const openWith = await ctxLabels(1);
+    check('「打开方式 ▸」内含 在终端中打开', openWith.includes('在终端中打开'), openWith.join(','));
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    await sleep(250);
+
+    // Ctrl+F / F3 仍能聚焦搜索框（R5）
+    const activeIsSearch = () => page.evaluate(() => !!document.activeElement?.closest?.('.finder-search'));
+    await page.evaluate(() => document.activeElement?.blur?.());
+    await page.evaluate(() => document.querySelector('.finder-content')?.click());
+    await sleep(250);
+    await page.keyboard.down('Control');
+    await page.keyboard.press('KeyF');
+    await page.keyboard.up('Control');
+    await sleep(400);
+    check('Ctrl+F 仍能聚焦文件窗口搜索框（.finder-search input 选择器未变）', await activeIsSearch());
+    await page.evaluate(() => document.activeElement?.blur?.());
+    await page.keyboard.press('F3');
+    await sleep(400);
+    check('F3 同样聚焦搜索框', await activeIsSearch());
+
+    // 地址栏：点空白 = 前往文件夹（goFolder）；↑ = 上一级（goParent）
+    await page.evaluate(() => document.activeElement?.blur?.());
+    await page.evaluate(() => document.querySelector('.finder-address')?.click());
+    await sleep(400);
+    const goTitle = await page.$eval('.dialog h3', (el) => el.innerText.trim()).catch(() => '');
+    check('地址栏空白处点击 = 「前往文件夹」（act: goFolder）', goTitle === '前往文件夹', goTitle);
+    await page.evaluate(() => document.querySelector('.dialog input')?.focus());
+    await page.keyboard.type('docs');
+    await page.evaluate(() => document.querySelector('.dialog-actions .btn-primary')?.click());
+    await sleep(1000);
+    const addr1 = await page.$eval('.finder-address', (el) => el.innerText).catch(() => '');
+    check('「前往文件夹」真实导航到 docs 子目录', /docs/.test(addr1), addr1.replace(/\n/g, ' '));
+    await page.evaluate(() => document.querySelector('.finder-toolbar .tb-btn[title^="上一级"]')?.click());
+    await sleep(900);
+    const addr2 = await page.$eval('.finder-address', (el) => el.innerText).catch(() => '');
+    check('地址栏「↑」回到上一级（act: goParent）', !/docs/.test(addr2), addr2.replace(/\n/g, ' '));
+
+    // 侧栏分组名（文案统一）与回收站视图的命令栏
+    const sbGroup = await page.$eval('.finder-sidebar .sb-group', (el) => el.innerText.trim());
+    check('侧栏分组名已改为「快速访问」', sbGroup === '快速访问', sbGroup);
+    await page.evaluate(() => [...document.querySelectorAll('.sb-item')].find((b) => b.innerText.trim() === '废纸篓')?.click());
+    await sleep(1000);
+    const trashCmd = await cmdLabels();
+    check('回收站视图命令栏为 还原 / 彻底删除… / 清空回收站…',
+      ['还原', '彻底删除…', '清空回收站…'].every((k) => trashCmd.includes(k)), trashCmd.join(','));
+    await page.evaluate(() => [...document.querySelectorAll('.sb-item')].find((b) => b.innerText.trim() === '主目录')?.click());
+    await sleep(800);
+    await shot('文件窗口命令栏');
+
+    // 亮/暗主题：命令栏只用现有 token，两套主题下都要可见且仍是纯色（不加 backdrop-filter）
+    const cmdStyle = () => page.evaluate(() => {
+      const bar = document.querySelector('.finder-cmdbar');
+      const btn = document.querySelector('.finder-cmdbar .cmd-btn[data-cmd="查看"]');
+      return {
+        bg: getComputedStyle(bar).backgroundColor,
+        color: getComputedStyle(btn).color,
+        backdrop: getComputedStyle(bar).backdropFilter || 'none',
+      };
+    });
+    const lightCmd = await cmdStyle();
+    await page.evaluate(() => document.querySelector('.tray-account')?.click());
+    await sleep(250);
+    await page.evaluate(() => [...document.querySelectorAll('.tb-popover .account-popover .dropdown-item')].find((b) => b.innerText.includes('深色主题'))?.click());
+    await sleep(450);
+    const darkCmd = await cmdStyle();
+    check('命令栏跟随亮/暗主题（背景与文字色都变）且无毛玻璃',
+      lightCmd.bg !== darkCmd.bg && lightCmd.color !== darkCmd.color && darkCmd.backdrop === 'none',
+      `${lightCmd.bg}/${lightCmd.color} vs ${darkCmd.bg}/${darkCmd.color}`);
+    await page.keyboard.press('Escape');   // 先关掉账户弹层再截暗色图
+    await sleep(300);
+    await shot('文件窗口命令栏-暗色');
+    await page.evaluate(() => document.querySelector('.tray-account')?.click());
+    await sleep(250);
+    await page.evaluate(() => [...document.querySelectorAll('.tb-popover .account-popover .dropdown-item')].find((b) => b.innerText.includes('跟随系统'))?.click());
+    await sleep(400);
+
+    // 清理本节产物（命令栏创建的目录 + 副本）
+    for (const n of [cmdDir, `${cmdBase}(1).txt`, cmdFile]) {
+      const q = await apiFetch('GET', `/api/fs/search?path=/&q=${encodeURIComponent(n)}`, undefined, `cloudnine_sid=${dsid}`);
+      const hit = (q.json?.results || []).find((x) => x.name === n);
+      if (hit) await apiFetch('POST', '/api/fs/delete', { paths: [hit.rel] }, `cloudnine_sid=${dsid}`);
+    }
   }
 
   // ---------- 4. 终端（真实 PTY） ----------
@@ -1529,8 +1785,8 @@ try {
     const beforeB = await countStart();
     const uploadPath = join(OUT_DIR, btnUploadName);
     writeFileSync(uploadPath, 'button upload notify test\n');
-    const btns = await page.$$('.tb-btn[title="上传文件"]');
-    check('文件工具栏存在「上传文件」按钮', btns.length >= 1, `count=${btns.length}`);
+    const btns = await page.$$('.finder-cmdbar .cmd-btn[data-cmd="上传文件…"]');
+    check('文件命令栏存在「上传文件…」按钮', btns.length >= 1, `count=${btns.length}`);
     const [chooser] = await Promise.all([
       page.waitForFileChooser({ timeout: 8000 }),
       btns[btns.length - 1].click(),
@@ -1556,7 +1812,7 @@ try {
     writeFileSync(pngPath, makePng(1400, 900));
 
     // 通过文件窗口「上传文件」把测试图放进当前目录
-    const upBtns = await page.$$('.tb-btn[title="上传文件"]');
+    const upBtns = await page.$$('.finder-cmdbar .cmd-btn[data-cmd="上传文件…"]');
     if (upBtns.length) {
       const [chooser] = await Promise.all([
         page.waitForFileChooser({ timeout: 8000 }),
@@ -1690,7 +1946,7 @@ try {
     check('双击另一个文本文件打开记事本（第 2 个）', await dblClickItem(pasteName));
     check('双击图片打开预览', await dblClickItem(imgName));
 
-    // 「显示简介」窗口：文件窗口条目右键 → 显示简介
+    // 属性窗口：文件窗口条目右键 → 属性（原「显示简介」，按术语表已改）
     const ctxOpened = await page.evaluate((n) => {
       const el = [...document.querySelectorAll('.finder-item')].find((x) => x.textContent.includes(n));
       if (!el) return false;
@@ -1699,13 +1955,13 @@ try {
     }, imgName);
     await sleep(400);
     const infoClicked = await page.evaluate(() => {
-      const it = [...document.querySelectorAll('.context-menu .dropdown-item')].find((b) => b.innerText.trim() === '显示简介');
+      const it = [...document.querySelectorAll('.context-menu .dropdown-item')].find((b) => b.innerText.trim() === '属性');
       if (!it) return false;
       it.click();
       return true;
     });
     await sleep(1600);
-    check('条目右键「显示简介」打开简介窗口', ctxOpened && infoClicked && !!(await page.$('.info-window')),
+    check('条目右键「属性」打开属性窗口', ctxOpened && infoClicked && !!(await page.$('.info-window')),
       `ctx=${ctxOpened} click=${infoClicked}`);
 
     const typeCount = await page.evaluate(() => ({

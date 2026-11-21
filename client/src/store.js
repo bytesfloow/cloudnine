@@ -247,7 +247,7 @@ const WINDOW_DEFAULTS = {
   terminal: { title: '终端', w: 760, h: 460, minW: 420, minH: 300, multi: true },
   editor: { title: '文本编辑', w: 800, h: 560, minW: 480, minH: 360, multi: true },
   preview: { title: '预览', w: 780, h: 580, minW: 420, minH: 320, multi: true },
-  info: { title: '显示简介', w: 400, h: 480, minW: 360, minH: 320, multi: true },
+  info: { title: '属性', w: 400, h: 480, minW: 360, minH: 320, multi: true },
   // multi: true 的五个类型（finder/terminal/editor/preview/info）同类型可多开：
   // 任务栏必须每窗口一个按钮，按 type 去重会让按钮数与窗口数对不上（见 docs §5.3）
   transfers: { title: '传输', w: 720, h: 480, minW: 520, minH: 360, multi: false },
