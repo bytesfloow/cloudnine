@@ -421,7 +421,7 @@ Win11 的应用自带窗口内菜单（记事本有"文件/编辑"，Windows Ter
 
 > ⚠️ Dock 的点击语义是 `openWindow(type)`，对 `multi:true` 的类型（finder/terminal/
 > editor/preview/info）**永远新建窗口**，不会切到已有窗口。这正是"最小化后找不回来"
-> 的另一半原因，任务栏必须改成 `activateOrOpen`，见 §5.3。
+> 的另一半原因（完整分析与修复方案见 §5.3），任务栏必须改成 `activateOrOpen`。
 
 ### 2.5 `Desktop.jsx` 键盘（L16-58）与 `pasteUpload`
 
@@ -588,12 +588,21 @@ Win11 的应用自带窗口内菜单（记事本有"文件/编辑"，Windows Ter
    没有任何点击目标；
 3. `openWindow`（`store.js:255`）对 `multi: true` 的类型（finder/terminal/editor/preview/info）
    **永远新建**，只有 `multi: false`（transfers/shares/disk）才 `focusWindow(existing.id)`；
-4. `focusWindow`（`store.js:294`）是唯一会 `minimized: false` 的函数，但它在整个 `client/src`
-   里**没有任何 UI 调用点**（只被 `openWindow` 内部调用）。
+4. `focusWindow`（`store.js:294`）是**唯一会**把 `minimized` 置回 `false` 的函数。它 **有** UI 调用点，
+   但全部长在窗口自己身上：`WindowFrame.jsx:14`（标题栏拖动）、`:37`（缩放把手）、
+   `:74`（窗口根节点 `onPointerDown`）。最小化后 `.window.minimized` 是 `display: none`，
+   这三处指针事件**一个都命中不了** —— 不是“没有入口”，是“入口全部不可达”。
+   （`openWindow` 内部的 `store.js:258`、`:262` 是仅剩的另外两个调用点。）
 
 **结论**：文件 / 终端 / 记事本 / 预览 / 简介窗口一旦最小化，**就再也回不来**。
 Dock 只显示一个 `running` 小圆点，点它等于再开一个新窗口，旧窗口的编辑状态仍在内存里但不可见。
-`MenuBar` 的「最小化全部窗口」（`MenuBar.jsx:86` → `Desktop.jsx:80`）会一次性把所有窗口变成孤儿。
+`MenuBar` 的「最小化全部窗口」（`MenuBar.jsx:86` → `Desktop.jsx:80`）会一次性把这类窗口全变成孤儿。
+
+**受影响范围（只这五个类型）**：孤儿只出现在 `multi: true` 的
+finder / terminal / editor / preview / info 上。`multi: false` 的 transfers / shares / disk
+**不受影响** —— 它们的 `openWindow` 走 `if (existing) { focusWindow(existing.id) }`
+（`store.js:258`），最小化后从 Dock 再点一次就能还原。所以这不是“最小化全坏了”，
+而是“多实例类型的最小化坏了”，修的时候不要顺手把 `multi: false` 的路径也改掉。
 
 #### 修复方案（阶段 1 T3 必须落地，不能推迟到 T5）
 
@@ -708,7 +717,7 @@ export const minimizeWindow = (id) => setState((s) => {
 | R4 | 预览菜单的 `download` / `edit` 是**死 action** | `MenuBar.jsx:83` → `Preview.jsx` 无 `win-action` 监听 | 若照抄"菜单里有"会误判功能存在 | 明确由窗口内按钮承担（`Preview.jsx:244`、`:102-104`），并删掉死 action |
 | R5 | `focus-search` 依赖 `.finder-search input` 选择器 | `Finder.jsx:143` | 命令栏重构后若改了类名，`Ctrl+F` 静默失效 | 保留该选择器，或在命令栏暴露 ref |
 | R6 | 桌面态 `goHome` 是空实现 | `DesktopIcons.jsx:377` | 搬到开始菜单后点了没反应 | 直接废弃该项，不要包装成"有功能" |
-| R7 | 「最小化全部」把窗口变成孤儿 | `MenuBar.jsx:86` → `Desktop.jsx:80` + `store.js:328` | 所有窗口不可还原 | 先修 §5.3，再搬这个菜单项 |
+| R7 | 「最小化全部」把窗口变成孤儿 | `MenuBar.jsx:86` → `Desktop.jsx:80` + `store.js:328` | 五个 `multi:true` 类型的窗口全部不可还原（`multi:false` 的还能从 Dock 点回来） | 先修 §5.3，再搬这个菜单项 |
 | R8 | `openWindow` 对 `multi:true` 永远新建 | `store.js:256-258` | 任务栏点击导致窗口无限堆积 | 引入 `activateOrOpen` / `toggleWindow` |
 | R9 | `ContextMenu` 不支持子菜单 | `ContextMenu.jsx:31-45` | 「新建 ▸ / 发送到 ▸ / 打开方式 ▸」无处安放 | 阶段 2 扩展为递归渲染 + 悬浮展开 + 方向键导航 |
 | R10 | `ContextMenu` 定位只在挂载时算一次 | `ContextMenu.jsx:10-23`（`useEffect` 空依赖） | 子菜单展开或窗口缩放后会溢出屏幕 | 改为 `ResizeObserver` / 每次展开重算 |
