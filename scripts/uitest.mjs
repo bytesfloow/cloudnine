@@ -2409,17 +2409,19 @@ try {
       `${JSON.stringify(geoBeforeMax)} → ${JSON.stringify(restoredGeo)}`);
 
     const titleBox = await (await page.$('.window.focused .window-titlebar')).boundingBox();
+    // T11 起拖到顶边缘 = 最大化（Aero Snap，docs §5.2）；
+    // 这里改拖到 y = 10（8px 触发区之外）来回归「窗口能顶到 y = 0，不再被 28px 顶栏挡住」
     await page.mouse.move(titleBox.x + 80, titleBox.y + titleBox.height / 2);
     await page.mouse.down();
-    await page.mouse.move(titleBox.x + 80, 0, { steps: 6 });
+    await page.mouse.move(titleBox.x + 80, 10, { steps: 6 });
     await page.mouse.up();
     await sleep(350);
     const dragged = await page.evaluate(() => {
       const w = document.querySelector('.window.focused');
-      return { styleTop: w?.style.top, top: Math.round(w.getBoundingClientRect().top) };
+      return { styleTop: w?.style.top, top: Math.round(w.getBoundingClientRect().top), max: w?.classList.contains('maximized') || false };
     });
     check('窗口可拖到 y = 0（不再被 28px 顶栏挡住）',
-      dragged.top === 0 && dragged.styleTop === '0px', JSON.stringify(dragged));
+      dragged.top === 0 && dragged.styleTop === '0px' && !dragged.max, JSON.stringify(dragged));
     await shot('任务栏与多窗口');
   }
 
@@ -3628,6 +3630,527 @@ try {
       check('任务栏存在「终端」入口（C7 用例）', false);
     }
   }
+
+  // ---------- 5.12 窗口管理（阶段 2 · T11）----------
+  // 验收依据：docs/win11-interaction-spec.md §5.1（窗口状态）/ §5.2（Aero Snap）/ §5.3（状态流转）
+  section('窗口管理（Aero Snap / Alt+Tab / 任务栏溢出 / 显示桌面）');
+  if (sid) {
+    const closeAll = async () => {
+      await page.evaluate(() => document.querySelectorAll('.window .tc-close').forEach((b) => b.click()));
+      await sleep(900);
+    };
+    await closeAll();
+    await page.keyboard.press('Escape');
+    await sleep(300);
+
+    const vw = await page.evaluate(() => window.innerWidth);
+    const vh = await page.evaluate(() => window.innerHeight);
+    const tbH = await page.evaluate(() => Math.round(document.querySelector('.taskbar').getBoundingClientRect().height));
+    const halfW = Math.round(vw / 2);
+
+    // 当前焦点窗口几何（rect 来自 style，与 store 同步）
+    const geoOf = () => page.evaluate(() => {
+      const w = document.querySelector('.window.focused') || [...document.querySelectorAll('.window')].pop();
+      if (!w) return null;
+      const r = w.getBoundingClientRect();
+      const tb = document.querySelector('.taskbar').getBoundingClientRect();
+      return {
+        id: w.dataset.winId, cls: w.className, snap: w.dataset.snap || '', max: w.classList.contains('maximized'),
+        left: Math.round(r.left), top: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height),
+        bottom: Math.round(r.bottom), tbTop: Math.round(tb.top),
+        style: [w.style.left, w.style.top, w.style.width, w.style.height].join(','),
+      };
+    });
+    const previewNow = () => page.evaluate(() => {
+      const el = document.querySelector('.snap-preview');
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      const cs = getComputedStyle(el);
+      return {
+        snap: el.dataset.snap, left: Math.round(r.left), top: Math.round(r.top),
+        w: Math.round(r.width), h: Math.round(r.height),
+        bg: cs.backgroundColor, bw: cs.borderTopWidth, bc: cs.borderTopColor,
+      };
+    });
+
+    // 从标题栏（左侧 120px 处）按下拖到 (x,y)；hold=true 时不松手，留给调用方断言预览
+    const dragFromTitle = async (to, { hold = false } = {}) => {
+      const box = await page.evaluate(() => {
+        const w = document.querySelector('.window.focused');
+        const tb = w?.querySelector('.window-titlebar')?.getBoundingClientRect();
+        return tb ? { x: tb.x, y: tb.y, w: tb.width, h: tb.height } : null;
+      });
+      if (!box) return null;
+      const from = { x: Math.max(10, box.x + Math.min(120, Math.max(20, box.w - 90))), y: box.y + Math.min(20, box.h / 2) };
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      await page.mouse.move(to.x, to.y, { steps: 10 });
+      await sleep(150);
+      if (!hold) { await page.mouse.up(); await sleep(400); }
+      return from;
+    };
+    const geomStore = () => page.evaluate(() => localStorage.getItem('cloudnine-win-geom'));
+
+    // ---- ① 左边缘吸附（§5.2）----
+    await page.click('.tb-app[title="文件资源管理器"]');
+    await page.waitForSelector('.window .finder', { timeout: 15000 });
+    await sleep(900);
+    const g0 = await geoOf();
+    const geomBeforeSnap = await geomStore();
+    check('吸附用例起点：一个普通状态的文件窗口', !!g0 && !g0.max && !g0.snap, JSON.stringify(g0));
+
+    await dragFromTitle({ x: 2, y: 300 }, { hold: true });
+    const pvLeft = await previewNow();
+    const midLeft = await geoOf();
+    check('拖到左边缘：预览矩形 = 左半屏（纯色 + 1px 描边）',
+      !!pvLeft && pvLeft.snap === 'left' && pvLeft.left === 0 && pvLeft.top === 0
+      && Math.abs(pvLeft.w - halfW) <= 1 && pvLeft.h === vh - tbH && pvLeft.bw === '1px'
+      && !/rgba\(/.test(pvLeft.bg), JSON.stringify(pvLeft));
+    check('预览态不写 store（松手前窗口还没变成半屏）',
+      !!midLeft && !midLeft.snap && midLeft.w === g0.w, JSON.stringify(midLeft));
+    await page.mouse.up();
+    await sleep(500);
+    const gLeft = await geoOf();
+    check('松手后窗口占左半屏（贴左/上边缘，底部停在任务栏）',
+      !!gLeft && gLeft.snap === 'left' && gLeft.left === 0 && gLeft.top === 0
+      && Math.abs(gLeft.w - halfW) <= 1 && gLeft.bottom === gLeft.tbTop && /snapped/.test(gLeft.cls),
+      JSON.stringify(gLeft));
+    check('吸附预览矩形已移除', (await previewNow()) === null);
+    check('吸附跳过几何持久化（localStorage 未被改写）',
+      (await geomStore()) === geomBeforeSnap, 'cloudnine-win-geom 被吸附写入');
+
+    // ---- ② 拖离触发区：取消预览、继续自由拖动 ----
+    const fromCancel = await dragFromTitle({ x: vw - 2, y: 300 }, { hold: true });
+    const pvRight = await previewNow();
+    const toCancel = { x: Math.round(vw / 2), y: 340 };
+    await page.mouse.move(toCancel.x, toCancel.y, { steps: 8 });
+    await sleep(200);
+    const pvGone = await previewNow();
+    const midCancel = await geoOf();
+    await page.mouse.up();
+    await sleep(450);
+    const gCancel = await geoOf();
+    // 吸附后拖离：位置按「标题栏内抓取点的相对位置」等比映射回 restoreRect 尺寸，不跳锚点
+    const ratio = (fromCancel.x - gLeft.left) / gLeft.w;
+    const clampX = (v) => Math.min(Math.max(v, -(g0.w - 120)), vw - 120);
+    const clampY = (v) => Math.min(Math.max(v, 0), vh - tbH - 44);
+    const expLeft = Math.round(clampX(toCancel.x - ratio * g0.w));
+    const expTop = Math.round(clampY(toCancel.y - (fromCancel.y - gLeft.top)));
+    check('拖到右边缘显示右半屏预览，拖回中间预览消失',
+      !!pvRight && pvRight.snap === 'right' && pvRight.w === halfW && pvGone === null, JSON.stringify(pvRight));
+    check('拖离边缘后回到 restoreRect 的尺寸（左上/尺寸不再半屏）',
+      !!midCancel && !midCancel.snap && midCancel.w === g0.w && midCancel.h === g0.h, JSON.stringify(midCancel));
+    check('拖离后的位置按指针锚点换算（标题栏抓取点不跳）',
+      !!gCancel && Math.abs(gCancel.left - expLeft) <= 2 && Math.abs(gCancel.top - expTop) <= 2,
+      `实际 ${gCancel.left},${gCancel.top} / 期望 ${expLeft},${expTop}`);
+    check('从吸附拖离再松手 = 普通窗口（不吸附、几何已提交）',
+      !!gCancel && !gCancel.snap && !gCancel.max && gCancel.w === g0.w, JSON.stringify(gCancel));
+
+    // ---- ③ 右边缘吸附 + Win+↓ 精确还原 restoreRect ----
+    const gBeforeRight = await geoOf();
+    await dragFromTitle({ x: vw - 2, y: 300 });
+    const gRight = await geoOf();
+    check('拖到右边缘松手 = 右半屏（右缘贴屏幕右侧）',
+      !!gRight && gRight.snap === 'right' && gRight.left + gRight.w === vw && Math.abs(gRight.w - halfW) <= 1
+      && gRight.top === 0 && gRight.bottom === gRight.tbTop, JSON.stringify(gRight));
+
+    const winKey = (key, extra = {}) => page.evaluate((k, ex) => {
+      const ev = new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...ex });
+      window.dispatchEvent(ev);
+      return ev.defaultPrevented;
+    }, key, extra);
+    const winDownPrev = await winKey('ArrowDown', { metaKey: true });
+    await sleep(500);
+    const gRestored = await geoOf();
+    check('Win+↓ 从吸附还原：尺寸与位置都回到吸附前的 restoreRect',
+      winDownPrev && !!gRestored && !gRestored.snap && !gRestored.max
+      && Math.abs(gRestored.left - gBeforeRight.left) <= 1 && Math.abs(gRestored.top - gBeforeRight.top) <= 1
+      && Math.abs(gRestored.w - gBeforeRight.w) <= 1 && Math.abs(gRestored.h - gBeforeRight.h) <= 1,
+      `${JSON.stringify(gBeforeRight)} → ${JSON.stringify(gRestored)}`);
+
+    // ---- ④ 顶边缘吸附 = 最大化（§5.3 状态流转表）----
+    const gBeforeTop = await geoOf();
+    const geomBeforeTopSnap = await geomStore();
+    await dragFromTitle({ x: Math.round(vw / 2), y: 1 }, { hold: true });
+    const pvTop = await previewNow();
+    check('拖到顶边缘：预览 = 整屏',
+      !!pvTop && pvTop.snap === 'max' && pvTop.left === 0 && pvTop.top === 0 && pvTop.w === vw && pvTop.h === vh - tbH,
+      JSON.stringify(pvTop));
+    await page.mouse.up();
+    await sleep(500);
+    const gMax = await geoOf();
+    check('松手后窗口最大化（顶到最上沿、底部不压任务栏）',
+      !!gMax && gMax.max && gMax.top === 0 && gMax.bottom === gMax.tbTop && gMax.w === vw, JSON.stringify(gMax));
+    check('最大化跳过几何持久化', (await geomStore()) === geomBeforeTopSnap, 'cloudnine-win-geom 被最大化写入');
+    await winKey('ArrowDown', { metaKey: true });
+    await sleep(500);
+    const gFromMax = await geoOf();
+    check('Win+↓ 从最大化还原到 restoreRect',
+      !!gFromMax && !gFromMax.max
+      && Math.abs(gFromMax.left - gBeforeTop.left) <= 1 && Math.abs(gFromMax.top - gBeforeTop.top) <= 1
+      && Math.abs(gFromMax.w - gBeforeTop.w) <= 1 && Math.abs(gFromMax.h - gBeforeTop.h) <= 1,
+      `${JSON.stringify(gBeforeTop)} → ${JSON.stringify(gFromMax)}`);
+
+    // 最大化后拖标题栏 = 就地还原（§5.3「最大化 → 拖离顶部 → normal」）
+    await page.click('.window.focused .tc-max');
+    await sleep(450);
+    await dragFromTitle({ x: Math.round(vw / 2), y: 420 }, { hold: true });
+    const midFromMax = await geoOf();
+    const anchorOk = await page.evaluate(() => {
+      const w = document.querySelector('.window.focused');
+      const tb = w?.querySelector('.window-titlebar')?.getBoundingClientRect();
+      const win = w?.getBoundingClientRect();
+      return !!tb && !!win && win.top <= tb.top + 1 && tb.height > 0;
+    });
+    await page.mouse.up();
+    await sleep(450);
+    const gDraggedMax = await geoOf();
+    check('拖拽最大化窗口 → 先还原成 restoreRect 尺寸再跟随指针',
+      !!midFromMax && !midFromMax.max && midFromMax.w === gBeforeTop.w && midFromMax.h === gBeforeTop.h && anchorOk,
+      `${JSON.stringify(midFromMax)} anchor=${anchorOk}`);
+    check('松手后保持在还原后的正常状态', !!gDraggedMax && !gDraggedMax.max && !gDraggedMax.snap, JSON.stringify(gDraggedMax));
+
+    // ---- ⑤ 刷新后不带着半屏尺寸重开（§5.1 几何持久化）----
+    await closeAll();
+    await page.click('.tb-app[title="记事本"]');
+    await sleep(1400);
+    await dragFromTitle({ x: 420, y: 260 });
+    await sleep(400);
+    const gEditor = await geoOf();
+    const editorStore = await geomStore();
+    await dragFromTitle({ x: 2, y: 300 });
+    await sleep(400);
+    const gEditorSnap = await geoOf();
+    check('记事本吸附后半屏', !!gEditorSnap && gEditorSnap.snap === 'left' && Math.abs(gEditorSnap.w - halfW) <= 1,
+      JSON.stringify(gEditorSnap));
+    check('吸附不改写该类型的持久化几何', (await geomStore()) === editorStore, '持久化几何被吸附覆盖');
+    await page.reload({ waitUntil: 'networkidle2', timeout: 45000 });
+    await page.waitForSelector('.taskbar', { timeout: 20000 });
+    await sleep(1200);
+    await page.click('.tb-app[title="记事本"]');
+    await sleep(1500);
+    const gEditorReload = await geoOf();
+    check('刷新后重开记事本：不带半屏 / 整屏尺寸',
+      !!gEditorReload && !gEditorReload.snap && !gEditorReload.max
+      && Math.abs(gEditorReload.w - gEditor.w) <= 2 && Math.abs(gEditorReload.h - gEditor.h) <= 2
+      && gEditorReload.w !== halfW && gEditorReload.h !== vh - tbH,
+      `吸附前 ${JSON.stringify(gEditor)} → 重开 ${JSON.stringify(gEditorReload)}`);
+    await closeAll();
+
+    // ---- ⑥ Alt+Tab 窗口切换器（§5.3）----
+    // 按 终端 → 记事本 → 文件 的顺序打开，最近使用顺序就是 文件 / 记事本 / 终端
+    await page.click('.tb-app[title="终端"]');
+    await sleep(1800);
+    const focusedId = () => page.evaluate(() => document.querySelector('.window.focused')?.dataset.winId || '');
+    const idTerm = await focusedId();
+    await page.click('.tb-app[title="记事本"]');
+    await sleep(1400);
+    const idEditor = await focusedId();
+    await page.click('.tb-app[title="文件资源管理器"]');
+    await page.waitForSelector('.window .finder', { timeout: 15000 });
+    await sleep(1000);
+    const idFinder = await focusedId();
+    check('Alt+Tab 前置：三个窗口按最近使用排好（文件 ← 记事本 ← 终端）',
+      !!idTerm && !!idEditor && !!idFinder && idFinder !== idEditor && idEditor !== idTerm,
+      `${idFinder}/${idEditor}/${idTerm}`);
+
+    await page.keyboard.down('Alt');
+    await page.keyboard.press('Tab');
+    await sleep(400);
+    const sw1 = await page.evaluate(() => ({
+      open: !!document.querySelector('.alt-tab'),
+      items: [...document.querySelectorAll('.alt-tab-item')].map((e) => e.dataset.winId),
+      sel: document.querySelector('.alt-tab-item.sel')?.dataset.winId || '',
+      scroll: !!document.querySelector('.alt-tab-panel.scroll'),
+    }));
+    check('Alt+Tab 打开切换器：列非最小化窗口、当前窗口第一、默认选上一个',
+      sw1.open && sw1.items.length === 3 && sw1.items[0] === idFinder && sw1.sel === idEditor && !sw1.scroll,
+      JSON.stringify(sw1));
+    await page.keyboard.press('Tab');
+    await sleep(300);
+    const sw2 = await page.evaluate(() => document.querySelector('.alt-tab-item.sel')?.dataset.winId || '');
+    check('按住 Alt 连续 Tab 循环到下一位', sw2 === idTerm, sw2);
+    await page.keyboard.up('Alt');
+    await sleep(500);
+    const afterCommit = await focusedId();
+    const overlayGone = await page.evaluate(() => !document.querySelector('.alt-tab'));
+    check('松开 Alt 切到当前选中项', afterCommit === idTerm && overlayGone, `focus=${afterCommit} gone=${overlayGone}`);
+
+    // 反向循环
+    await page.keyboard.down('Alt');
+    await page.keyboard.press('Tab');
+    await page.keyboard.down('Shift');
+    await page.keyboard.press('Tab');
+    await page.keyboard.up('Shift');
+    await sleep(300);
+    const swBack = await page.evaluate(() => document.querySelector('.alt-tab-item.sel')?.dataset.winId || '');
+    for (let t = 0; t < 3; t++) { await page.keyboard.press('Tab'); await sleep(120); }
+    const swWrap = await page.evaluate(() => document.querySelector('.alt-tab-item.sel')?.dataset.winId || '');
+    await page.keyboard.press('Escape');
+    await sleep(300);
+    const escState = await page.evaluate(() => ({
+      overlay: !!document.querySelector('.alt-tab'),
+      focus: document.querySelector('.window.focused')?.dataset.winId || '',
+    }));
+    await page.keyboard.up('Alt');
+    await sleep(400);
+    const afterEsc = await focusedId();
+    check('Shift+Tab 反向 / Tab 回绕循环正常', swBack === idTerm && swWrap === idTerm, `${swBack} / ${swWrap}`);
+    check('Esc 取消切换器且焦点不变', !escState.overlay && escState.focus === idTerm && afterEsc === idTerm,
+      `${JSON.stringify(escState)} after=${afterEsc}`);
+
+    // 最小化窗口不进列表
+    await page.evaluate(() => {
+      const w = [...document.querySelectorAll('.window')].find((x) => x.querySelector('.editor-window'));
+      w?.querySelector('.tc-min')?.click();
+    });
+    await sleep(500);
+    await page.keyboard.down('Alt');
+    await page.keyboard.press('Tab');
+    await sleep(400);
+    const swMin = await page.evaluate(() => [...document.querySelectorAll('.alt-tab-item')].map((e) => e.dataset.winId));
+    await page.keyboard.press('Escape');
+    await page.keyboard.up('Alt');
+    await sleep(300);
+    check('Alt+Tab 列表跳过已最小化窗口', swMin.length === 2 && !swMin.includes(idEditor), swMin.join(','));
+
+    // ---- ⑦ 同类型多窗口不再完全重叠 ----
+    await closeAll();
+    const newFinder = async (wait = 1400) => {
+      await page.keyboard.down('Control');
+      await page.keyboard.press('KeyN');
+      await page.keyboard.up('Control');
+      await sleep(wait);
+    };
+    await page.click('.desktop-icons');
+    await sleep(300);
+    await newFinder();
+    await newFinder();
+    await newFinder();
+    const three = await page.evaluate(() => [...document.querySelectorAll('.window')].map((w) => {
+      const r = w.getBoundingClientRect();
+      return { left: Math.round(r.left), top: Math.round(r.top), w: Math.round(r.width) };
+    }));
+    const overlapped = [];
+    for (let i = 0; i < three.length; i++) {
+      for (let j = i + 1; j < three.length; j++) {
+        if (Math.abs(three[i].left - three[j].left) < 16 && Math.abs(three[i].top - three[j].top) < 16) {
+          overlapped.push(`${i}/${j}`);
+        }
+      }
+    }
+    check('三个同类窗口位置明显错开（两两不重合）',
+      three.length === 3 && overlapped.length === 0, `${JSON.stringify(three)} 重合=${overlapped.join(',')}`);
+
+    // ---- ⑧ 任务栏按钮溢出（12 个窗口 / 窄视口折叠）----
+    for (let k = 0; k < 9; k++) await newFinder(900);
+    const winCount = (await page.$$('.window')).length;
+    await sleep(500);
+    const trayGeo = () => page.evaluate(() => {
+      const tray = document.querySelector('.tb-tray').getBoundingClientRect();
+      const strip = document.querySelector('.tb-showdesk').getBoundingClientRect();
+      const area = document.querySelector('.tb-windows').getBoundingClientRect();
+      const clock = document.querySelector('.tray-clock');
+      return {
+        trayLeft: Math.round(tray.left), trayRight: Math.round(tray.right), trayW: Math.round(tray.width),
+        stripLeft: Math.round(strip.left), stripW: Math.round(strip.width),
+        areaRight: Math.round(area.right), vw: window.innerWidth,
+        clockW: clock ? Math.round(clock.getBoundingClientRect().width) : 0,
+        btns: document.querySelectorAll('.tb-win').length,
+        more: document.querySelectorAll('.tb-more').length,
+        moreCount: Number(document.querySelector('.tb-more')?.dataset.count || 0),
+        overflow: getComputedStyle(document.querySelector('.tb-windows')).overflow,
+      };
+    });
+    const tg = await trayGeo();
+    check('12+ 窗口：1440px 下每个窗口都有自己的按钮（折叠数为 0）',
+      winCount >= 12 && tg.btns === winCount && tg.more === 0, `wins=${winCount} btn=${tg.btns} more=${tg.more}`);
+    check('任务栏托盘不被挤压、显示桌面细条常驻',
+      tg.trayRight <= tg.stripLeft && tg.stripW >= 4 && tg.clockW > 0, JSON.stringify(tg));
+    check('按钮区不裁切（悬停标题浮层不会被 overflow 裁掉）', tg.overflow === 'visible', tg.overflow);
+
+    const btnFit = await page.evaluate(() => {
+      const area = document.querySelector('.tb-windows').getBoundingClientRect();
+      return [...document.querySelectorAll('.tb-win')].map((b) => {
+        const r = b.getBoundingClientRect();
+        return { w: Math.round(r.width), inside: r.left >= area.left - 1 && r.right <= area.right + 1 };
+      });
+    });
+    check('每个窗口按钮都在按钮区内且可点（宽度 ≥ 44）',
+      btnFit.length > 0 && btnFit.every((b) => b.w >= 40 && b.inside), JSON.stringify(btnFit.slice(0, 4)));
+
+    const clickBad = [];
+    for (let i = 0; i < btnFit.length; i++) {
+      await page.evaluate((idx) => document.querySelectorAll('.tb-win')[idx].click(), i);
+      await sleep(120);
+      const ok = await page.evaluate((idx) => {
+        const b = document.querySelectorAll('.tb-win')[idx];
+        return b.classList.contains('active') && !!document.querySelector('.window.focused:not(.minimized)');
+      }, i);
+      if (!ok) clickBad.push(i);
+    }
+    check('逐个点击任务栏按钮都能切到对应窗口', clickBad.length === 0, `失败的按钮 ${clickBad.join(',')}`);
+
+    // 悬停浮层：贴着任务栏向上弹，完整可见
+    const lastBtn = await page.$$('.tb-win');
+    const lb = await lastBtn[lastBtn.length - 1].boundingBox();
+    await page.mouse.move(lb.x + lb.width / 2, lb.y + lb.height / 2);
+    await sleep(450);
+    const tip = await page.evaluate(() => {
+      const wrap = [...document.querySelectorAll('.tb-win-wrap')].pop();
+      const el = wrap?.querySelector('.tb-win-tip');
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { opacity: getComputedStyle(el).opacity, top: Math.round(r.top), bottom: Math.round(r.bottom), w: Math.round(r.width) };
+    });
+    check('悬停任务栏按钮：标题浮层完整可见（未被裁切）',
+      !!tip && tip.opacity !== '0' && tip.top > 0 && tip.bottom > 0 && tip.w > 0, JSON.stringify(tip));
+
+    // 窄视口触发折叠：多出来的进「更多」，托盘宽度不变
+    await page.setViewport({ width: 1000, height: 900 });
+    await sleep(900);
+    const tgNarrow = await trayGeo();
+    check('窄视口下自动折叠进「更多」，未渲染的按钮一个不少',
+      tgNarrow.more === 1 && tgNarrow.btns + tgNarrow.moreCount === winCount && tgNarrow.trayRight <= tgNarrow.stripLeft,
+      JSON.stringify(tgNarrow));
+    await page.evaluate(() => document.querySelector('.tb-more')?.click());
+    await sleep(400);
+    const moreList = await page.evaluate(() => ({
+      items: document.querySelectorAll('.win-more-item').length,
+      panel: !!document.querySelector('.tb-popover.win-more'),
+    }));
+    check('「更多」弹层列出被折叠的窗口', moreList.panel && moreList.items === tgNarrow.moreCount, JSON.stringify(moreList));
+    await page.evaluate(() => document.querySelector('.win-more-item')?.click());
+    await sleep(500);
+    const moreFocused = await page.evaluate(() => !!document.querySelector('.window.focused:not(.minimized)'));
+    check('点「更多」里的窗口能切过去', moreFocused, '没有窗口获得焦点');
+
+    // >6 个窗口：切换器限高滚动
+    await page.keyboard.down('Alt');
+    await page.keyboard.press('Tab');
+    await sleep(450);
+    const swScroll = await page.evaluate(() => {
+      const p = document.querySelector('.alt-tab-panel');
+      return { scroll: !!p?.classList.contains('scroll'), oy: p ? getComputedStyle(p).overflowY : '', n: document.querySelectorAll('.alt-tab-item').length };
+    });
+    await page.keyboard.press('Escape');
+    await page.keyboard.up('Alt');
+    await sleep(300);
+    check('超过 6 个窗口时切换器限高滚动', swScroll.n > 6 && swScroll.scroll && swScroll.oy === 'auto', JSON.stringify(swScroll));
+    await page.setViewport({ width: 1440, height: 900 });
+    await sleep(700);
+
+    // ---- ⑨ 显示桌面 Win+D 双向切换（§5.3 ⑤）----
+    const winTotal = (await page.$$('.window')).length;
+    await page.evaluate(() => document.querySelector('.tb-showdesk')?.click());
+    await sleep(600);
+    const sd1 = await page.evaluate(() => ({
+      total: document.querySelectorAll('.window').length,
+      min: document.querySelectorAll('.window.minimized').length,
+      focus: document.querySelectorAll('.window.focused').length,
+    }));
+    await page.evaluate(() => document.querySelector('.tb-showdesk')?.click());
+    await sleep(600);
+    const sd2 = await page.evaluate(() => ({
+      total: document.querySelectorAll('.window').length,
+      min: document.querySelectorAll('.window.minimized').length,
+      focus: document.querySelectorAll('.window.focused').length,
+    }));
+    check('任务栏「显示桌面」细条：全部最小化 → 再点全部还原',
+      sd1.min === sd1.total && sd1.total === winTotal && sd1.focus === 0
+      && sd2.min === 0 && sd2.total === winTotal && sd2.focus === 1, `${JSON.stringify(sd1)} / ${JSON.stringify(sd2)}`);
+
+    // 空白右键：同一个入口，标签随状态双向切换
+    await page.evaluate(() => {
+      document.querySelector('.taskbar').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 700, clientY: 880 }));
+    });
+    await sleep(350);
+    const menuVisible = await page.$$eval('.context-menu .dropdown-item', (els) => els.map((e) => e.innerText.trim()));
+    await page.evaluate(() => document.querySelector('.context-menu .dropdown-item')?.click());
+    await sleep(500);
+    const sdMin = await page.evaluate(() => document.querySelectorAll('.window.minimized').length);
+    await page.evaluate(() => {
+      document.querySelector('.taskbar').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 700, clientY: 880 }));
+    });
+    await sleep(350);
+    const menuMin = await page.$$eval('.context-menu .dropdown-item', (els) => els.map((e) => e.innerText.trim()));
+    await page.evaluate(() => document.querySelector('.context-menu .dropdown-item')?.click());
+    await sleep(500);
+    const sdBack = await page.evaluate(() => document.querySelectorAll('.window.minimized').length);
+    check('任务栏空白右键 = 显示桌面双向切换（标签随状态变）',
+      menuVisible.includes('最小化全部窗口') && menuMin.includes('还原所有窗口')
+      && sdMin === winTotal && sdBack === 0, `${menuVisible.join('|')} → ${menuMin.join('|')} min=${sdMin}/${sdBack}`);
+
+    // Win+D（metaKey）：真机可能被 OS 截走，这里验证「收到就生效」
+    const winDPrev = await winKey('d', { metaKey: true });
+    await sleep(500);
+    const wd1 = await page.evaluate(() => document.querySelectorAll('.window.minimized').length);
+    const winDPrev2 = await winKey('d', { metaKey: true });
+    await sleep(500);
+    const wd2 = await page.evaluate(() => document.querySelectorAll('.window.minimized').length);
+    check('Win+D 双向切换（全部最小化 ↔ 全部还原）',
+      winDPrev && winDPrev2 && wd1 === winTotal && wd2 === 0, `${wd1} → ${wd2}`);
+
+    // ---- ⑩ 旧行为回归：拖动 / 缩放 / 双击标题栏 ----
+    await closeAll();
+    await page.click('.tb-app[title="文件资源管理器"]');
+    await page.waitForSelector('.window .finder', { timeout: 15000 });
+    await sleep(900);
+    // 先把窗口摆到视口内的安全位置（前面用例可能把持久化几何推到屏幕下沿）
+    await dragFromTitle({ x: 420, y: 160 });
+    await sleep(400);
+    const r0 = await geoOf();
+    const dragFrom = await dragFromTitle({ x: r0.left + 160, y: r0.top + 90 });
+    const r1 = await geoOf();
+    check('回归：拖动标题栏仍能自由移动（不在触发区）',
+      !!r1 && !r1.snap && !r1.max && Math.abs(r1.left - (r0.left + 40)) <= 1 && Math.abs(r1.top - (r0.top + 70)) <= 1,
+      `${JSON.stringify(r0)} → ${JSON.stringify(r1)}`);
+
+    const seBox = await page.evaluate(() => {
+      const h = document.querySelector('.window.focused .rh-se')?.getBoundingClientRect();
+      return h ? { x: h.x + h.width / 2, y: h.y + h.height / 2 } : null;
+    });
+    await page.mouse.move(seBox.x, seBox.y);
+    await page.mouse.down();
+    await page.mouse.move(seBox.x + 40, seBox.y + 30, { steps: 8 });
+    await page.mouse.up();
+    await sleep(400);
+    const r2 = await geoOf();
+    check('回归：右下角缩放把手仍能改尺寸',
+      !!r2 && Math.abs(r2.w - (r1.w + 40)) <= 2 && Math.abs(r2.h - (r1.h + 30)) <= 2,
+      `${JSON.stringify(r1)} → ${JSON.stringify(r2)}`);
+
+    const titleCenter = await page.evaluate(() => {
+      const tb = document.querySelector('.window.focused .window-titlebar')?.getBoundingClientRect();
+      return tb ? { x: tb.x + tb.width / 2, y: tb.y + tb.height / 2 } : null;
+    });
+    // CDP 里要拿到真正的 dblclick，必须给两次 press 的 clickCount 分别设 1 / 2
+    const dblclickAt = async (pt) => {
+      await page.mouse.move(pt.x, pt.y);
+      await page.mouse.down({ clickCount: 1 }); await page.mouse.up({ clickCount: 1 });
+      await page.mouse.down({ clickCount: 2 }); await page.mouse.up({ clickCount: 2 });
+      await sleep(500);
+    };
+    await dblclickAt(titleCenter);
+    const r3 = await geoOf();
+    const maxTitleCenter = await page.evaluate(() => {
+      const tb = document.querySelector('.window.focused .window-titlebar')?.getBoundingClientRect();
+      return tb ? { x: tb.x + tb.width / 2, y: tb.y + tb.height / 2 } : null;
+    });
+    await dblclickAt(maxTitleCenter);
+    await sleep(200);
+    const r4 = await geoOf();
+    check('回归：双击标题栏最大化 / 再双击还原到原几何',
+      !!r3 && r3.max && r3.top === 0 && !!r4 && !r4.max
+      && Math.abs(r4.left - r2.left) <= 1 && Math.abs(r4.w - r2.w) <= 1
+      && Math.abs(r4.top - r2.top) <= 1 && Math.abs(r4.h - r2.h) <= 1,
+      `${JSON.stringify(r2)} → ${JSON.stringify(r3)} → ${JSON.stringify(r4)}`);
+    check('回归：拖动/缩放后几何仍写入持久化', (await geomStore())?.includes(`"w":${Math.round(r2.w)}`) === true,
+      String(await geomStore()));
+    await closeAll();
+    await shot('窗口管理-吸附与切换器');
+  }
+
   } // end !MOBILE
 
   // ---------- 6. 控制台错误 ----------

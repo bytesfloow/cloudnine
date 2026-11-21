@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   useStore, getState, setTheme, openWindow, openPopover, closePopover, openContextMenu,
   activateNotification, toggleWindow, activateOrOpen, focusWindow, minimizeWindow,
-  minimizeAllWindows, restoreAllWindows, toggleMaxWindow, closeWindow, fmtSize,
+  toggleMaxWindow, closeWindow, toggleShowDesktop, fmtSize,
 } from '../store.js';
 import { addUpload, uploadStats } from '../transfers.js';
 import { changePasswordFlow, logoutFlow } from './account.js';
@@ -20,12 +20,41 @@ const PINNED = [
 
 // 托盘弹层与开始菜单共用 store.popover 这个全局槽位（一次只开一层），
 // 但各自的 kind 互不重叠，关闭逻辑才能各扫门前雪。
-const TRAY_KINDS = ['disk', 'notifications', 'clock', 'account'];
+const TRAY_KINDS = ['disk', 'notifications', 'clock', 'account', 'wins'];
+
+// 窗口按钮的尺寸常量（与 taskbar.css 里的 .tb-win / .tb-more 保持一致）：
+// 溢出策略靠它算「能放下几个」，不靠 CSS 裁切 —— 被裁掉等于点不到。
+const WIN_GAP = 4;
+const WIN_MIN_W = 44;
+const MORE_W = 64;
 
 export default function Taskbar() {
   const s = useStore();
   const [now, setNow] = useState(() => new Date());
   const stats = uploadStats();
+  const winsRef = useRef(null);
+  const [fitCount, setFitCount] = useState(99);
+
+  // 窗口按钮溢出：算得出能放下几个就渲染几个，多出来的折叠进「更多」。
+  // 不选横向滚动 —— overflow 会连带裁掉悬停标题浮层；不选裁切 —— 那样会有点不到的按钮。
+  // .tb-windows 是 flex:1/min-width:0，宽度由布局分配、不受内容影响，所以测量不会抖动。
+  useEffect(() => {
+    const el = winsRef.current;
+    if (!el) return;
+    const measure = () => {
+      const avail = el.clientWidth - 4; // 左右各 2px padding
+      const total = getState().windows.length;
+      const cap = Math.max(1, Math.floor((avail + WIN_GAP) / (WIN_MIN_W + WIN_GAP)));
+      if (total <= cap) { setFitCount(total); return; }
+      const fit = Math.floor((avail - MORE_W - WIN_GAP) / (WIN_MIN_W + WIN_GAP));
+      setFitCount(Math.max(1, Math.min(fit, total)));
+    };
+    measure();
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
+    ro?.observe(el);
+    window.addEventListener('resize', measure);
+    return () => { ro?.disconnect(); window.removeEventListener('resize', measure); };
+  }, [s.windows.length]);
 
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 20 * 1000);
@@ -78,15 +107,23 @@ export default function Taskbar() {
     files.forEach((f) => addUpload(f, homeRel || ''));
   }
 
-  // 任务栏空白处右键：最小化全部 / 还原所有（Win11「显示桌面」的底线形态）
+  // 任务栏空白处右键：显示桌面（双向切换，与 Win+D / 右端细条同一个动作）
   function blankMenu(e) {
     if (e.target.closest?.('button, .tb-popover')) return;
     e.preventDefault();
+    const allMin = s.windows.length > 0 && s.windows.every((w) => w.minimized);
     openContextMenu(e.clientX, e.clientY, [
-      { label: '最小化全部窗口', disabled: !s.windows.some((w) => !w.minimized), action: minimizeAllWindows },
-      { label: '还原所有窗口', disabled: !s.windows.some((w) => w.minimized), action: restoreAllWindows },
+      {
+        label: allMin ? '还原所有窗口' : '最小化全部窗口',
+        disabled: s.windows.length === 0,
+        action: toggleShowDesktop,
+      },
     ]);
   }
+
+  // 溢出到「更多」里的窗口
+  const shownWins = s.windows.length > fitCount ? s.windows.slice(0, Math.max(1, fitCount)) : s.windows;
+  const overflowWins = s.windows.slice(shownWins.length);
 
   return (
     <div className="taskbar" onContextMenu={blankMenu}>
@@ -132,8 +169,8 @@ export default function Taskbar() {
       </div>
 
       {/* 每个窗口一个按钮：同类型多开时绝不能按 type 去重（docs §5.3 ④） */}
-      <div className="tb-windows">
-        {s.windows.map((w) => (
+      <div className="tb-windows" ref={winsRef}>
+        {shownWins.map((w) => (
           <div className="tb-win-wrap" key={w.id}>
             <button
               type="button"
@@ -147,6 +184,38 @@ export default function Taskbar() {
             <span className="tb-win-tip" aria-hidden="true">{w.title}</span>
           </div>
         ))}
+        {overflowWins.length > 0 && (
+          <div className="tb-more-wrap">
+            <button
+              type="button"
+              className={`tb-more${s.popover?.kind === 'wins' ? ' open' : ''}`}
+              title={`还有 ${overflowWins.length} 个窗口`}
+              aria-label={`还有 ${overflowWins.length} 个窗口`}
+              aria-expanded={s.popover?.kind === 'wins'}
+              data-count={overflowWins.length}
+              onClick={(e) => { e.stopPropagation(); openPopover(s.popover?.kind === 'wins' ? null : 'wins'); }}
+            >
+              更多 <span className="tb-more-count">{overflowWins.length}</span>
+            </button>
+            {s.popover?.kind === 'wins' && (
+              <div className="tb-popover win-more" onClick={(e) => e.stopPropagation()}>
+                <div className="popover-header">其他窗口</div>
+                {overflowWins.map((w) => (
+                  <button
+                    key={w.id}
+                    type="button"
+                    className={`dropdown-item win-more-item${w.id === s.focusId && !w.minimized ? ' active' : ''}`}
+                    onClick={() => { closePopover(); toggleWindow(w.id); }}
+                  >
+                    <span className={`win-more-dot${w.minimized ? ' minimized' : ''}`} />
+                    <span className="win-more-title">{w.title}</span>
+                    <span className="win-more-state">{w.rect.max ? '最大化' : w.snap ? '半屏' : w.minimized ? '已最小化' : ''}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="tb-tray">
@@ -206,6 +275,15 @@ export default function Taskbar() {
           )}
         </TrayPopover>
       </div>
+
+      {/* 任务栏右端「显示桌面」细条：单击切换全部最小化 / 还原（Win11 同款，docs §5.3 ⑤） */}
+      <button
+        type="button"
+        className="tb-showdesk"
+        title="显示桌面（Win+D）"
+        aria-label="显示桌面"
+        onClick={toggleShowDesktop}
+      />
     </div>
   );
 }

@@ -36,6 +36,8 @@ export const SHELL_TOP_H = 0;
 export const SHELL_BOTTOM_H = 40;
 // 拖动 / 恢复几何时，标题栏至少要露出这么多（标题栏 39px + 1px 余量），不能被任务栏吃掉
 export const TITLEBAR_MIN_VISIBLE = 44;
+// Aero Snap 触发区宽度（docs §5.2：Win 系默认 8px）
+export const SNAP_EDGE = 8;
 
 // ---------- 极简全局状态 ----------
 let state = {
@@ -50,6 +52,8 @@ let state = {
   zTop: 10,
   focusId: null,
   windowCount: 0,
+  recent: [],   // 最近使用顺序（窗口 id，从新到旧），Alt+Tab 切换器按它排
+  altTab: null, // Alt+Tab 切换器打开时的快照 { ids: [], index: 0 }
 
   clipboard: null, // {mode:'copy'|'cut', paths:[], cwd}
   finderSel: {},   // windowId -> [paths]
@@ -280,26 +284,52 @@ export function openWindow(type, props = {}) {
     // 窗口从屏幕顶部下方 10px 起层叠，不越过任务栏，也不再为顶栏留 38px
     y = Math.max(SHELL_TOP_H + 10, Math.min(24 + ((n % 6) - 2) * 28, vh - h - SHELL_BOTTOM_H - 8));
   }
+  // 同类型多开时几何按类型只持久化一份：第二个窗口会精确盖住第一个。
+  // 目标位置若已被现存窗口占用，就按上面那套 (n % 6) 的层叠步长错开（最多挪 6 次）。
+  // 最大化 / 吸附窗口不参与占位判断：它们本来就铺满屏幕，rect 只是还原用的旧几何。
+  const occupiedAt = (px, py) => state.windows.some((w) => !w.rect.max && !w.snap
+    && Math.abs(w.rect.x - px) < 8 && Math.abs(w.rect.y - py) < 8);
+  if (occupiedAt(x, y)) {
+    const minX = Math.max(0, Math.min(10, vw - w)), maxX = Math.max(minX, vw - w - 10);
+    const minY = SHELL_TOP_H, maxY = Math.max(minY, vh - h - SHELL_BOTTOM_H - 8);
+    const spanX = Math.max(1, maxX - minX + 1), spanY = Math.max(1, maxY - minY + 1);
+    for (let i = 1; i <= 6 && occupiedAt(x, y); i++) {
+      x = minX + ((Math.max(0, Math.round(x - minX)) + 32 * i) % spanX);
+      y = minY + ((Math.max(0, Math.round(y - minY)) + 28 * i) % spanY);
+    }
+  }
   const win = {
     id: nextId(),
     type,
     props,
     title: def.title,
     rect: { x, y, w, h, max: false },
+    snap: null,        // null | 'left' | 'right'（docs §5.1）
+    restoreRect: null, // 最大化 / 吸附前的几何，供还原用
     minW: def.minW, minH: def.minH,
     minimized: false,
     z: ++state.zTop,
   };
-  setState((s) => ({ windows: [...s.windows, win], windowCount: n + 1, focusId: win.id, zTop: s.zTop + 1 }));
+  setState((s) => ({
+    windows: [...s.windows, win],
+    windowCount: n + 1,
+    focusId: win.id,
+    zTop: s.zTop + 1,
+    recent: [win.id, ...s.recent.filter((id) => id !== win.id)].slice(0, 40),
+  }));
   return win.id;
 }
 
 export function focusWindow(id) {
   const w = state.windows.find((x) => x.id === id);
-  if (w && !w.minimized && state.focusId === id) return;
+  if (!w) return;
+  // 最近使用顺序：Alt+Tab 的排序依据（已聚焦也要更新，否则从任务栏点回来的窗口排不上来）
+  const recent = [id, ...state.recent.filter((x) => x !== id)].slice(0, 40);
+  if (!w.minimized && state.focusId === id) { setState({ recent }); return; }
   setState((s) => ({
     focusId: id,
     zTop: s.zTop + 1,
+    recent,
     windows: s.windows.map((x) => (x.id === id ? { ...x, z: s.zTop + 1, minimized: false } : x)),
   }));
 }
@@ -341,6 +371,7 @@ export async function closeWindow(id) {
       return {
         windows: rest,
         focusId: s.focusId === id ? (next?.id || null) : s.focusId,
+        recent: s.recent.filter((x) => x !== id),
       };
     });
   };
@@ -384,19 +415,129 @@ export const restoreAllWindows = () => setState((s) => {
   const top = [...windows].sort((a, b) => b.z - a.z)[0];
   return { windows, focusId: top ? top.id : s.focusId };
 });
-export const toggleMaxWindow = (id) =>
-  setState((s) => ({ windows: s.windows.map((w) => (w.id === id ? { ...w, rect: { ...w.rect, max: !w.rect.max } } : w)) }));
-// 拖拽/缩放时直接操作 DOM，落点提交到 store，并按窗口类型记忆几何
+
+// Win+D / 任务栏「显示桌面」：双向切换。
+// 还有可见窗口 → 全部最小化；全都已最小化 → 全部还原（docs §5.3 ⑤）。
+export function toggleShowDesktop() {
+  if (!state.windows.length) return;
+  if (state.windows.some((w) => !w.minimized)) minimizeAllWindows();
+  else restoreAllWindows();
+}
+// 吸附 / 最大化前的几何快照：已经是特殊状态（最大化或已吸附）时沿用旧值，
+// 否则把当前几何记下来 —— 连续换边吸附不能把半屏尺寸当成「原始几何」。
+function restoreRectOf(w) {
+  if ((w.rect.max || w.snap) && w.restoreRect) return w.restoreRect;
+  return { x: w.rect.x, y: w.rect.y, w: w.rect.w, h: w.rect.h };
+}
+
+// 吸附目标几何（docs §5.2）：左/右半屏，高度到任务栏上沿
+export function snapTargetRect(side) {
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const h = Math.max(160, vh - SHELL_BOTTOM_H - SHELL_TOP_H);
+  if (side !== 'left' && side !== 'right') return null;
+  const w = Math.round(vw / 2);
+  return side === 'left'
+    ? { x: 0, y: SHELL_TOP_H, w, h, max: false }
+    : { x: vw - w, y: SHELL_TOP_H, w, h, max: false };
+}
+
+// 提交吸附（只在 pointerup 调用）：side 为 'left' | 'right' | 'max'。
+// 吸附 / 最大化都不落几何库（见 commitRect），否则下次开窗会带着半屏尺寸。
+export function applySnap(id, side) {
+  setState((s) => ({
+    windows: s.windows.map((w) => {
+      if (w.id !== id) return w;
+      const restoreRect = restoreRectOf(w);
+      if (side === 'max') return { ...w, restoreRect, snap: null, rect: { ...w.rect, max: true } };
+      const r = snapTargetRect(side);
+      if (!r) return w;
+      return { ...w, restoreRect, snap: side, rect: r };
+    }),
+  }));
+}
+
+// 从最大化 / 吸附回到 restoreRect（拖离边缘、Win+↓、双击标题栏共用）
+export function restoreWindow(id) {
+  setState((s) => ({
+    windows: s.windows.map((w) => {
+      if (w.id !== id) return w;
+      if (!w.rect.max && !w.snap) return w;
+      const r = w.restoreRect;
+      return { ...w, snap: null, restoreRect: null, rect: r ? { ...r, max: false } : { ...w.rect, max: false } };
+    }),
+  }));
+}
+
+// 拖动标题栏时从特殊状态「就地还原」：先把窗口放回给定几何并去掉 max/snap，
+// 剩下的位移仍由 WindowFrame 直接操作 DOM（指针锚点不跳）。
+export function beginMoveFromSpecial(id, rect) {
+  setState((s) => ({
+    windows: s.windows.map((w) => (w.id === id
+      ? { ...w, rect: { ...rect, max: false }, snap: null, restoreRect: null }
+      : w)),
+  }));
+}
+
+export const toggleMaxWindow = (id) => setState((s) => ({
+  windows: s.windows.map((w) => {
+    if (w.id !== id) return w;
+    if (w.rect.max) {
+      const r = w.restoreRect || w.rect;
+      return { ...w, snap: null, restoreRect: null, rect: { ...r, max: false } };
+    }
+    return { ...w, snap: null, restoreRect: restoreRectOf(w), rect: { ...w.rect, max: true } };
+  }),
+}));
+
+// 拖拽/缩放时直接操作 DOM，落点提交到 store，并按窗口类型记忆几何。
+// 吸附 / 最大化必须跳过几何持久化：否则下次开窗会带着半屏 / 整屏尺寸（docs §5.1）。
 export const commitRect = (id, rect) => {
-  setState((s) => ({ windows: s.windows.map((w) => (w.id === id ? { ...w, rect: { ...w.rect, ...rect } } : w)) }));
+  setState((s) => ({
+    windows: s.windows.map((w) => (w.id === id ? { ...w, rect: { ...w.rect, ...rect }, snap: null } : w)),
+  }));
   const win = state.windows.find((w) => w.id === id);
-  if (win && !win.rect.max) saveGeom(win.type, win.rect);
+  if (win && !win.rect.max && !win.snap) saveGeom(win.type, win.rect);
 };
 export const setWindowTitle = (id, title) =>
   setState((s) => ({ windows: s.windows.map((w) => (w.id === id ? { ...w, title } : w)) }));
 
 export function updateWindowProps(id, patch) {
   setState((s) => ({ windows: s.windows.map((w) => (w.id === id ? { ...w, props: { ...w.props, ...patch } } : w)) }));
+}
+
+// ---------- Alt+Tab 窗口切换器 ----------
+// 列表：非最小化窗口，按最近使用顺序（当前窗口排第一，初始选中第二项 —— Win 语义）。
+// 按住 Alt 连续 Tab 循环，松开提交，Esc 取消。
+export function openAltTab() {
+  const s = state;
+  const live = s.windows.filter((w) => !w.minimized);
+  if (!live.length) return false;
+  const rank = (w) => {
+    const i = s.recent.indexOf(w.id);
+    return i < 0 ? Number.MAX_SAFE_INTEGER : i;
+  };
+  const ids = live.slice().sort((a, b) => rank(a) - rank(b) || b.z - a.z).map((w) => w.id);
+  // 与右键菜单 / 开始菜单共用「同一时刻只开一层」的收口规则（docs §5.4）
+  setState({ popover: null, contextMenu: null, altTab: { ids, index: ids.length > 1 ? 1 : 0 } });
+  return true;
+}
+
+export function cycleAltTab(dir = 1) {
+  setState((s) => {
+    if (!s.altTab) return null;
+    const n = s.altTab.ids.length || 1;
+    return { altTab: { ...s.altTab, index: (s.altTab.index + dir + n) % n } };
+  });
+}
+
+export const closeAltTab = () => setState((s) => (s.altTab ? { altTab: null } : null));
+
+export function commitAltTab() {
+  const t = state.altTab;
+  if (!t) return;
+  const id = t.ids[t.index];
+  setState({ altTab: null });
+  if (id && state.windows.some((w) => w.id === id)) focusWindow(id);
 }
 
 // ---------- 剪贴板 ----------

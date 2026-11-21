@@ -34,6 +34,8 @@
 .tb-app .transfer-badge { position: absolute; top: 1px; right: 0; }
 
 /* 窗口按钮区：每个窗口一个按钮（不是每个类型一个） */
+/* 溢出策略见 Taskbar.jsx：算得出放几个就渲染几个，多出来的折叠进「更多」。
+   这里刻意不写 overflow —— 一旦裁切，.tb-win-tip 悬停标题浮层会被一起裁掉。 */
 .tb-windows {
   flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 4px; padding: 0 2px;
 }
@@ -59,8 +61,31 @@
 }
 .tb-win-wrap:hover .tb-win-tip { opacity: 1; }
 
+/* 溢出折叠：「更多」按钮 + 列表弹层。尺寸常量（44 / 4 / 64）与 Taskbar.jsx 一致 */
+.tb-more-wrap { position: relative; display: flex; flex: none; }
+.tb-more {
+  height: 30px; padding: 0 9px; border-radius: 5px; border: 1px solid var(--line);
+  background: var(--hover); color: var(--text); font-size: 12px; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.tb-more:hover, .tb-more.open { background: var(--active); }
+.tb-more-count { font-variant-numeric: tabular-nums; color: var(--text-2); }
+.win-more { width: 260px; max-height: min(52vh, 420px); overflow-y: auto; }
+.win-more-item { display: flex; align-items: center; gap: 7px; }
+.win-more-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
+.win-more-dot.minimized { background: var(--text-2); }
+.win-more-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.win-more-state { font-size: 11px; color: var(--text-2); flex: none; }
+
 /* 托盘 */
 .tb-tray { margin-left: auto; display: flex; align-items: center; gap: 2px; flex: none; }
+/* 右端「显示桌面」细条：固定 6px，永远不会被窗口按钮挤掉或压缩 */
+.tb-showdesk {
+  width: 6px; align-self: stretch; flex: none; margin-left: 4px;
+  border-left: 1px solid var(--line); border-radius: 0 3px 3px 0;
+}
+.tb-showdesk:hover { background: var(--active); }
+.tb-showdesk:active { background: var(--accent-soft); }
 .tray-btn {
   position: relative; height: 32px; min-width: 30px; padding: 0 7px;
   display: flex; align-items: center; justify-content: center; gap: 5px;

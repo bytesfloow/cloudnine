@@ -20,6 +20,7 @@
        overlays.css    384-458  右键菜单、对话框、快速预览外壳、通知
      窗口
        window.css      259-366  窗口框架、标题栏按钮、缩放把手、错误兜底
+       winmgr.css      ——       窗口管理（阶段 2 · T11 新增：吸附预览 / Alt+Tab 切换器）
      应用
        finder.css      459-539  文件资源管理器
        terminal.css    540-566  终端
@@ -34,6 +35,7 @@
 @import './auth.css';
 @import './desktop.css';
 @import './window.css';
+@import './winmgr.css';
 @import './taskbar.css';
 @import './startmenu.css';
 @import './overlays.css';

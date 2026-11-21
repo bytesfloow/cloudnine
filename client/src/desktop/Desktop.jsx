@@ -1,11 +1,16 @@
 import React, { useEffect } from 'react';
-import { useStore, bus, openWindow, closeWindow, closeContextMenu, closePopover, getState, showDialog, minimizeWindow, minimizeAllWindows } from '../store.js';
+import {
+  useStore, bus, openWindow, closeWindow, closeContextMenu, closePopover, getState, showDialog,
+  minimizeWindow, minimizeAllWindows, toggleShowDesktop, toggleMaxWindow, restoreWindow,
+  openAltTab, cycleAltTab, commitAltTab, closeAltTab,
+} from '../store.js';
 import { installPasteUpload } from '../pasteUpload.js';
 import { refreshDisk } from '../App.jsx';
 import WindowFrame from './WindowFrame.jsx';
 import Taskbar from './Taskbar.jsx';
 import ContextMenu from './ContextMenu.jsx';
 import DesktopIcons from './DesktopIcons.jsx';
+import AltTab from './AltTab.jsx';
 import { renderWindow } from '../windows/registry.jsx';
 
 export default function Desktop() {
@@ -27,9 +32,9 @@ export default function Desktop() {
       const inControl = !!(t && t.closest?.('button, a[href], select, [role="button"], [role="menuitem"], [role="tab"]'));
       const st = getState();
       const focus = st.windows.find((w) => w.id === st.focusId);
-      // 弹层（对话框 / 右键菜单 / 开始菜单）打开时：浏览器保留键照旧拦下，但不执行动作，
+      // 弹层（对话框 / 右键菜单 / 开始菜单 / Alt+Tab）打开时：浏览器保留键照旧拦下，但不执行动作，
       // 其余键完交回弹层自己的键盘处理（方向键 / Enter / Esc）
-      const layerOpen = !!(st.dialog || st.contextMenu || st.popover);
+      const layerOpen = !!(st.dialog || st.contextMenu || st.popover || st.altTab);
       // 焦点窗口优先，没有焦点窗口时落到桌面（两边的动作名保持一致）
       const dispatch = (action) => {
         if (focus) bus.emit('win-action', { windowId: focus.id, action });
@@ -37,10 +42,37 @@ export default function Desktop() {
       };
       const winOnly = (action) => { if (focus) bus.emit('win-action', { windowId: focus.id, action }); };
 
+      // ---------- Alt+Tab 窗口切换器（docs §5.1 / §5.3 状态表）----------
+      // 「按住 Alt 连续 Tab 循环、松开切到当前项、Esc 取消」的按键入口在捕获阶段
+      // （见下面的 altTabKey effect）；这里只负责打开状态下的取消。
+      // ⚠️ Windows 桌面上 Alt+Tab 会被操作系统先截走，浏览器根本收不到这个组合键；
+      // 能收到它的场景（远程桌面 / 内嵌 WebView / 自定义按键映射）一律生效，
+      // 收不到时任务栏窗口按钮仍是最稳的入口。
+      if (st.altTab) {
+        if (key === 'Escape') { e.preventDefault(); return closeAltTab(); }
+        if (key === 'Alt') { e.preventDefault(); return; }
+      }
+
       if (key === 'Escape') {
         if (st.contextMenu) return closeContextMenu();
         if (st.popover) return closePopover();
         return;
+      }
+
+      // ---------- Win 键（metaKey）----------
+      // Win+D 显示桌面（双向）/ Win+↑ 最大化 / Win+↓ 还原否则最小化。
+      // 同 Alt+Tab：这几个组合在浏览器里通常被操作系统先吃掉（Win+D 会直接最小化整个桌面），
+      // 页面收不到时同样有任务栏入口兜底（任务栏右端「显示桌面」条 / 窗口按钮 / 标题栏按钮）。
+      if (e.metaKey && !ctrl && !alt && !e.shiftKey) {
+        if (lower === 'd') { e.preventDefault(); if (!layerOpen) toggleShowDesktop(); return; }
+        if (key === 'ArrowUp') { e.preventDefault(); if (focus && !layerOpen) toggleMaxWindow(focus.id); return; }
+        if (key === 'ArrowDown') {
+          e.preventDefault();
+          if (!focus || layerOpen) return;
+          if (focus.rect.max || focus.snap) restoreWindow(focus.id);
+          else minimizeWindow(focus.id);
+          return;
+        }
       }
 
       // ---------- 浏览器保留键：必须先于 inEditable 判断拦下（R15）----------
@@ -145,7 +177,16 @@ export default function Desktop() {
       if (ctrl && !alt && !e.shiftKey && lower === 'x') { e.preventDefault(); return winOnly('cut'); }
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    // Alt 松开 = 切到当前选中项（Alt+Tab 的提交动作）；窗口失焦（真被 OS 抢走）按取消处理
+    const onKeyUp = (e) => { if (e.key === 'Alt' && getState().altTab) commitAltTab(); };
+    const onBlur = () => { if (getState().altTab) closeAltTab(); };
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onBlur);
+    };
   }, []);
 
   // Ctrl+V 粘贴系统剪贴板文件到当前文件夹（仅桌面端；移动端/分享页不安装）
@@ -157,6 +198,25 @@ export default function Desktop() {
     refreshDisk();
     const t = setInterval(refreshDisk, 20 * 1000);
     return () => clearInterval(t);
+  }, []);
+
+  // Alt+Tab 必须在捕获阶段接：焦点在 xterm / 输入框时，元素级 keydown 会把 Tab 吃掉。
+  // 只拦这一个组合，不影响其它键的优先级（终端 Ctrl+W 仍由它自己的捕获监听先处理）。
+  useEffect(() => {
+    const onAltTab = (e) => {
+      if (e.key !== 'Tab' || !e.altKey) return;
+      const st = getState();
+      e.preventDefault();
+      e.stopPropagation();
+      if (!st.altTab) {
+        if (st.dialog || st.contextMenu) return;
+        openAltTab();
+      } else {
+        cycleAltTab(e.shiftKey ? -1 : 1);
+      }
+    };
+    window.addEventListener('keydown', onAltTab, true);
+    return () => window.removeEventListener('keydown', onAltTab, true);
   }, []);
 
   // 窗口通用动作（各窗口组件自行处理专属动作）
@@ -188,6 +248,7 @@ export default function Desktop() {
         </WindowFrame>
       ))}
       <Taskbar />
+      {s.altTab && <AltTab />}
       {s.contextMenu && <ContextMenu key={s.contextMenu.id} />}
     </div>
   );

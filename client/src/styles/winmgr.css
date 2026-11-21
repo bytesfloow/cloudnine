@@ -1,0 +1,47 @@
+/* ============ 窗口管理（阶段 2 · T11） ============
+   docs §5.2 Aero Snap 预览 + §5.3 Alt+Tab 窗口切换器。
+   两块都只服务外框：预览矩形由 WindowFrame 直接插进 DOM（不写 store），
+   切换器只做视觉，键盘循环在 Desktop.jsx 里统一处理。 */
+
+/* 吸附预览：--accent-soft-solid 纯色填充 + 1px --accent 描边。
+   ⚠️ 规格明确写了「不要半透明」，所以这里不用 --accent-soft（rgba）。
+   z-index 取 12000：高于任务栏（10000）与所有窗口，但预览矩形本身
+   高度已经扣掉任务栏，不会真的盖住任务栏。 */
+.snap-preview {
+  position: absolute; z-index: 12000; pointer-events: none;
+  background: var(--accent-soft-solid);
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+}
+
+/* Alt+Tab 切换器：居中浮层，不拦指针（真正决定焦点的是键盘状态） */
+.alt-tab {
+  position: absolute; inset: 0; z-index: 10050;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  pointer-events: none;
+}
+.alt-tab-panel {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
+  width: max-content; max-width: min(880px, 88vw);
+  padding: 14px; border-radius: 12px;
+  background: var(--menu-bg); border: 1px solid var(--line); box-shadow: var(--shadow);
+}
+/* 超过 6 个才限高滚动（≤6 直接平铺） */
+.alt-tab-panel.scroll {
+  max-height: min(62vh, 520px); overflow-y: auto; align-content: flex-start;
+}
+.alt-tab-item {
+  width: 186px; min-height: 64px; padding: 9px 10px; border-radius: 8px;
+  display: flex; align-items: center; gap: 9px;
+  border: 1px solid var(--line); background: var(--panel-bg); color: var(--text-2);
+}
+.alt-tab-item.sel { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+.alt-tab-icon { display: inline-flex; flex: none; color: var(--accent); opacity: .75; }
+.alt-tab-item.sel .alt-tab-icon { opacity: 1; }
+.alt-tab-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.alt-tab-title {
+  font-size: 12.5px; font-weight: 600; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.alt-tab-type { font-size: 11px; color: var(--text-2); }
+.alt-tab-hint { font-size: 11.5px; color: var(--text-2); }
