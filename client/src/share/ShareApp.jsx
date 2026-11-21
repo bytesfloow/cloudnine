@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import '../styles.css';
+import '../styles/index.css';
 import { fmtSize, fmtTime, fileCat } from '../store.js';
 
 // 分享访问页：独立轻量页面，不加载桌面环境（F-07）

@@ -1,0 +1,48 @@
+/* ============ 桌面 ============ */
+.desktop { height: 100%; background: var(--wallpaper); position: relative; overflow: hidden; }
+
+/* 桌面 = 主目录直视图：图标按排序规则自动网格排布，位置不再手工摆放 */
+.desktop-icons {
+  position: absolute; top: calc(var(--menubar-h) + 8px); left: 10px; right: 10px; bottom: 0;
+  z-index: 1; border-radius: 10px; overflow-x: auto; overflow-y: hidden;
+}
+.desktop-icons.drag-over { outline: 2px dashed var(--accent); outline-offset: -4px; background: var(--accent-soft); }
+/* 纵向填充：先从上到下填满一列，再向右开新列 */
+.desktop-grid {
+  display: grid; grid-auto-flow: column; grid-auto-columns: 102px;
+  column-gap: 6px; row-gap: 0; align-content: start; justify-content: start;
+}
+.desktop-icon {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  width: 84px; padding: 6px 2px; border-radius: 8px; cursor: default;
+  touch-action: none; user-select: none; -webkit-user-select: none;
+  justify-self: center;
+}
+.desktop-icon:hover { background: rgba(255,255,255,.14); }
+.desktop-icon.selected { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.desktop-icon.drop-target { background: var(--accent-soft); box-shadow: 0 0 0 2px var(--accent); }
+.di-icon-wrap { position: relative; filter: drop-shadow(0 3px 6px rgba(0,0,0,.25)); }
+.di-icon-wrap.no-shadow { filter: none; }
+.desktop-badge {
+  position: absolute; top: -2px; right: -4px; min-width: 16px; height: 16px;
+  border-radius: 8px; background: var(--accent); color: #fff; font-size: 10px;
+  display: flex; align-items: center; justify-content: center; padding: 0 4px; font-weight: 600;
+}
+.di-label {
+  font-size: 11.5px; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.55);
+  max-width: 82px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-align: center;
+}
+
+/* 系统图标（根目录 / 废纸篓）：与文件同处一个图标网格，占据左上角前两格 */
+.desktop-sysicon { position: relative; }
+/* 系统图标（根目录等）用线条绘制，需在深色壁纸上保持可读 */
+.desktop-sysicon .di-icon-wrap { color: #eef1f8; }
+
+.desktop-hint {
+  color: rgba(255,255,255,.78); font-size: 12.5px; padding: 12px 10px;
+  text-shadow: 0 1px 3px rgba(0,0,0,.55);
+}
+.desktop-hint.err { color: #ffb3a7; }
+.desktop-loading { position: absolute; top: 10px; left: 10px; }
+

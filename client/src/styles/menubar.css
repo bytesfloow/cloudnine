@@ -1,0 +1,74 @@
+/* ============ 菜单栏 ============ */
+.menubar {
+  position: absolute; top: 0; left: 0; right: 0; height: var(--menubar-h);
+  display: flex; align-items: center; padding: 0 10px; gap: 2px;
+  background: var(--bar-bg); backdrop-filter: blur(24px) saturate(180%);
+  border-bottom: 1px solid var(--line); z-index: 10000;
+  font-size: 12.5px; user-select: none;
+}
+.mb-site { font-weight: 700; font-size: 13px; padding: 2px 9px; border-radius: 5px; }
+.mb-site:hover, .mb-menu-btn:hover, .mb-menu-btn.open { background: rgba(125,125,140,.25); }
+.mb-menu-wrap { position: relative; }
+.mb-menu-btn { padding: 2px 9px; border-radius: 5px; }
+.mb-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.mb-clock { font-size: 12px; color: var(--text); font-variant-numeric: tabular-nums; }
+.mb-status-btn { padding: 2px 6px; border-radius: 5px; }
+.transfer-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px;
+  background: var(--accent); color: #fff; font-size: 10px; font-weight: 700;
+}
+.bell { position: relative; display: inline-flex; }
+.bell .dot { position: absolute; top: -1px; right: -3px; width: 7px; height: 7px; border-radius: 50%; background: var(--danger); }
+.avatar-btn {
+  width: 19px; height: 19px; border-radius: 50%; background: linear-gradient(135deg, #30a5ff, #7a5cff);
+  color: #fff; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center;
+}
+.disk-indicator { font-size: 12px; font-variant-numeric: tabular-nums; }
+.di-ok { color: var(--text); } .di-notice { color: #c78f1c; } .di-warn { color: #f0883a; } .di-danger { color: var(--danger); }
+
+.dropdown {
+  position: absolute; top: calc(100% + 4px); left: 0; min-width: 200px; z-index: 10001;
+  background: var(--menu-bg); backdrop-filter: blur(30px) saturate(170%);
+  border: 1px solid var(--line); border-radius: 9px; box-shadow: var(--shadow-soft);
+  padding: 4px; animation: pop .12s ease-out;
+}
+@keyframes pop { from { opacity: 0; transform: translateY(-4px) scale(.98); } }
+.dropdown-sep { height: 1px; background: var(--line); margin: 4px 8px; }
+.dropdown-item {
+  display: flex; align-items: center; width: 100%; text-align: left;
+  padding: 5px 10px; border-radius: 6px; font-size: 13px; gap: 4px;
+}
+.dropdown-item:hover:not(:disabled) { background: var(--accent); color: #fff; }
+.dropdown-item:disabled { opacity: .4; cursor: default; }
+.dropdown-item.danger { color: var(--danger); }
+.dropdown-item.danger:hover:not(:disabled) { background: var(--danger); color: #fff; }
+.di-check { width: 14px; display: inline-block; flex: none; }
+
+.popover-wrap { position: relative; }
+.popover-btn { padding: 2px 6px; border-radius: 5px; display: inline-flex; }
+.popover-btn:hover { background: rgba(125,125,140,.25); }
+.popover {
+  position: absolute; top: calc(100% + 6px); right: 0; width: 280px; z-index: 10001;
+  background: var(--menu-bg); backdrop-filter: blur(30px) saturate(170%);
+  border: 1px solid var(--line); border-radius: 11px; box-shadow: var(--shadow-soft); padding: 6px;
+  animation: pop .12s ease-out;
+}
+.popover-header { font-weight: 700; padding: 6px 10px 8px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+.popover-empty { color: var(--text-2); text-align: center; padding: 18px 0; }
+.notif-row { padding: 7px 10px; border-radius: 7px; font-size: 12.5px; display: flex; flex-direction: column; gap: 2px; }
+.notif-row:hover { background: var(--hover); }
+.notif-row.n-actionable { cursor: pointer; }
+.notif-row.n-error b { color: var(--danger); }
+.notif-row span { color: var(--text-2); font-size: 12px; }
+.notif-action { font-style: normal; font-size: 11.5px; font-weight: 600; color: var(--accent); margin-top: 2px; }
+.popover.wide { width: 300px; }
+.disk-popover, .account-popover { width: auto; }
+.disk-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px; border-radius: 7px; font-size: 12px; }
+.disk-row:hover { background: var(--hover); }
+.disk-path { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.disk-bar { flex: 1.2; height: 5px; border-radius: 3px; background: var(--active); overflow: hidden; min-width: 50px; }
+.disk-bar i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+.disk-bar i.warn { background: #f0883a; } .disk-bar i.danger { background: var(--danger); }
+.disk-free { color: var(--text-2); flex: none; }
+

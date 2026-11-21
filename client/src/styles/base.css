@@ -1,0 +1,88 @@
+/* ============ 主题变量 ============ */
+:root {
+  --accent: #0a7cff;
+  --accent-soft: rgba(10, 124, 255, 0.12);
+  --danger: #ff5f57;
+  --radius-win: 11px;
+  --radius-ctl: 8px;
+  --menubar-h: 28px;
+  --font: system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --mono: 'SF Mono', 'Cascadia Code', Menlo, Consolas, 'Courier New', monospace;
+}
+:root[data-theme='light'] {
+  --wallpaper: radial-gradient(1200px 800px at 20% 10%, #2f5aa8 0%, transparent 62%),
+               radial-gradient(1000px 700px at 80% 20%, #6b3d9e 0%, transparent 58%),
+               radial-gradient(900px 900px at 50% 100%, #17655f 0%, transparent 52%),
+               linear-gradient(160deg, #131d33 0%, #1a1d38 50%, #0f2429 100%);
+  --text: #1d1d1f;
+  --text-2: #6e6e73;
+  --win-bg: rgba(248, 248, 250, 0.88);
+  --win-border: rgba(0, 0, 0, 0.12);
+  --panel-bg: rgba(252, 252, 253, 0.8);
+  --sidebar-bg: rgba(240, 241, 245, 0.55);
+  --hover: rgba(0, 0, 0, 0.05);
+  --active: rgba(0, 0, 0, 0.09);
+  --line: rgba(0, 0, 0, 0.1);
+  --menu-bg: rgba(250, 250, 252, 0.92);
+  --input-bg: rgba(255, 255, 255, 0.85);
+  --bar-bg: rgba(238, 239, 243, 0.9);
+  --cap-glyph: #1f1f1f;
+  --shadow: 0 22px 70px rgba(0, 0, 0, 0.28), 0 4px 16px rgba(0, 0, 0, 0.12);
+  --shadow-soft: 0 10px 34px rgba(0, 0, 0, 0.14);
+}
+:root[data-theme='dark'] {
+  --wallpaper: radial-gradient(1200px 800px at 20% 10%, #1d3a6e 0%, transparent 60%),
+               radial-gradient(1000px 700px at 80% 20%, #3d2a63 0%, transparent 55%),
+               radial-gradient(900px 900px at 50% 100%, #0e4a44 0%, transparent 50%),
+               linear-gradient(160deg, #12131a 0%, #191b26 50%, #10161a 100%);
+  --text: #f2f2f5;
+  --text-2: #9b9ba1;
+  --win-bg: rgba(30, 30, 36, 0.9);
+  --win-border: rgba(255, 255, 255, 0.14);
+  --panel-bg: rgba(36, 36, 42, 0.82);
+  --sidebar-bg: rgba(28, 28, 34, 0.6);
+  --hover: rgba(255, 255, 255, 0.07);
+  --active: rgba(255, 255, 255, 0.12);
+  --line: rgba(255, 255, 255, 0.12);
+  --menu-bg: rgba(40, 40, 47, 0.94);
+  --input-bg: rgba(20, 20, 26, 0.7);
+  --bar-bg: rgba(34, 34, 40, 0.9);
+  --cap-glyph: #ececf0;
+  --shadow: 0 22px 70px rgba(0, 0, 0, 0.6), 0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-soft: 0 10px 34px rgba(0, 0, 0, 0.45);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #root, #share-root { height: 100%; }
+body {
+  font-family: var(--font);
+  color: var(--text);
+  font-size: 13px;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+button { font-family: inherit; font-size: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+input, select, textarea {
+  font-family: inherit; font-size: 13px; color: var(--text);
+  background: var(--input-bg); border: 1px solid var(--line);
+  border-radius: 6px; padding: 5px 8px; outline: none;
+}
+input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+a { color: var(--accent); text-decoration: none; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 4px; justify-content: center;
+  padding: 5px 12px; border-radius: 7px;
+  background: var(--hover); border: 1px solid var(--line);
+  font-size: 12.5px; transition: all .15s; white-space: nowrap;
+}
+.btn:hover { background: var(--active); }
+.btn:disabled { opacity: 0.45; cursor: default; }
+.btn-primary { background: var(--accent); border-color: transparent; color: #fff; }
+.btn-primary:hover { background: #0a6ee0; }
+.btn-danger { background: var(--danger); border-color: transparent; color: #fff; }
+.btn-small { padding: 3px 9px; font-size: 12px; }
+.btn-icon { width: 26px; height: 26px; padding: 0; }
+

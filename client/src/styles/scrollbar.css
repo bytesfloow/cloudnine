@@ -1,0 +1,5 @@
+/* 滚动条 */
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb { background: rgba(127,127,140,.4); border-radius: 5px; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: rgba(127,127,140,.7); background-clip: content-box; }
+::-webkit-scrollbar-corner { background: transparent; }

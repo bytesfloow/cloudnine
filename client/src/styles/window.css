@@ -1,0 +1,108 @@
+/* ============ 窗口 ============ */
+.window {
+  position: absolute; display: flex; flex-direction: column;
+  background: var(--win-bg); backdrop-filter: blur(34px) saturate(170%);
+  border: 1px solid var(--win-border); border-radius: var(--radius-win);
+  box-shadow: var(--shadow); overflow: hidden; min-width: 200px; min-height: 120px;
+}
+.window:not(.focused) { box-shadow: 0 10px 34px rgba(0,0,0,.18); }
+.window.minimized { display: none; }
+
+/* 桌面/窗口的界面文字不参与浏览器原生拖选。
+   双击打开文件夹时窗口在 dblclick 里同步挂载，若紧接着按住左键甩鼠标，
+   浏览器的拖选锚点会落在桌面/工具栏，终点落在窗口底部；窗口 DOM 夹在两者之间，
+   按文档顺序整段被卷入选区，看起来像「窗口内文字被全选」。
+   这里默认禁选外壳，只放行输入框与真正需要复制的内容展示区。 */
+.desktop, .window { user-select: none; -webkit-user-select: none; }
+.desktop :is(
+  input, textarea, [contenteditable],
+  table, .preview-text, .preview-pre, .preview-csv, .preview-archive, .preview-office,
+  .preview-unknown, .preview-error, .md-render, .info-window,
+  .finder-empty, .transfer-list, .shares-table-wrap
+) { user-select: text; -webkit-user-select: text; }
+.window-titlebar {
+  /* 39px：扣除 1px 底边框后内容高度为偶数 38px，Windows 风格按钮可整格占满，无半像素 */
+  height: 39px; flex: none; display: flex; align-items: center; padding: 0 0 0 12px;
+  border-bottom: 1px solid var(--line); cursor: default; user-select: none;
+  background: var(--bar-bg);
+}
+.win-controls { display: flex; margin-left: auto; align-self: stretch; }
+/* Windows 风格标题栏按钮：矩形平铺于右上角，细线符号常显；符号用 SVG（mask）绘制，
+   画布 14 单位按 1:1 渲染（无缩放模糊），坐标对称于中心 (7,7) */
+.tc {
+  width: 46px; position: relative; padding: 0;
+  transition: background-color .08s ease;
+}
+.tc::before {
+  content: ''; position: absolute; inset: 0; background-color: var(--cap-glyph);
+  transition: background-color .08s ease, opacity .08s ease;
+}
+.tc-min::before {
+  -webkit-mask: url('data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"%3E%3Cpath d="M3 7h8" fill="none" stroke="black" stroke-width="1"/%3E%3C/svg%3E') center / 14px 14px no-repeat;
+  mask: url('data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"%3E%3Cpath d="M3 7h8" fill="none" stroke="black" stroke-width="1"/%3E%3C/svg%3E') center / 14px 14px no-repeat;
+}
+.tc-max::before {
+  -webkit-mask: url('data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"%3E%3Cpath d="M3.5 3.5h7v7h-7z" fill="none" stroke="black" stroke-width="1"/%3E%3C/svg%3E') center / 14px 14px no-repeat;
+  mask: url('data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"%3E%3Cpath d="M3.5 3.5h7v7h-7z" fill="none" stroke="black" stroke-width="1"/%3E%3C/svg%3E') center / 14px 14px no-repeat;
+}
+.tc-close::before {
+  -webkit-mask: url('data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"%3E%3Cpath d="M3.5 3.5l7 7M10.5 3.5l-7 7" fill="none" stroke="black" stroke-width="1"/%3E%3C/svg%3E') center / 14px 14px no-repeat;
+  mask: url('data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"%3E%3Cpath d="M3.5 3.5l7 7M10.5 3.5l-7 7" fill="none" stroke="black" stroke-width="1"/%3E%3C/svg%3E') center / 14px 14px no-repeat;
+}
+/* 最大化状态下切换为 Windows「还原」双框符号 */
+.window.maximized .tc-max::before {
+  -webkit-mask: url('data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"%3E%3Cpath d="M2.5 4.5h7v7h-7zM4.5 4.5v-2h7v7h-2" fill="none" stroke="black" stroke-width="1"/%3E%3C/svg%3E') center / 14px 14px no-repeat;
+  mask: url('data:image/svg+xml;utf8,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14"%3E%3Cpath d="M2.5 4.5h7v7h-7zM4.5 4.5v-2h7v7h-2" fill="none" stroke="black" stroke-width="1"/%3E%3C/svg%3E') center / 14px 14px no-repeat;
+}
+/* 悬停/按下底色复用主题变量 --hover/--active，保证关闭键的红色规则（后置）在两套主题下都胜出 */
+.tc:hover { background: var(--hover); }
+.tc:active { background: var(--active); }
+.tc-close:hover { background: #c42b1c; }
+.tc-close:active { background: #b92718; }
+.tc-close:hover::before, .tc-close:active::before { background-color: #fff; }
+.window:not(.focused) .tc::before { opacity: .45; }
+.window:not(.focused) .tc:hover::before { opacity: 1; }
+.window-title {
+  position: absolute; left: 0; right: 0; text-align: center; pointer-events: none;
+  font-weight: 600; font-size: 13px; color: var(--text-2);
+}
+.window.focused .window-title { color: var(--text); }
+.window-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.window-body > * { min-height: 0; }
+.resize-handle { position: absolute; z-index: 10; }
+.rh-n { top: -3px; left: 8px; right: 8px; height: 7px; cursor: ns-resize; }
+.rh-s { bottom: -3px; left: 8px; right: 8px; height: 7px; cursor: ns-resize; }
+.rh-e { right: -3px; top: 8px; bottom: 8px; width: 7px; cursor: ew-resize; }
+.rh-w { left: -3px; top: 8px; bottom: 8px; width: 7px; cursor: ew-resize; }
+.rh-ne { top: -4px; right: -4px; width: 14px; height: 14px; cursor: nesw-resize; }
+.rh-nw { top: -4px; left: -4px; width: 14px; height: 14px; cursor: nwse-resize; }
+.rh-se { bottom: -4px; right: -4px; width: 14px; height: 14px; cursor: nwse-resize; }
+.rh-sw { bottom: -4px; left: -4px; width: 14px; height: 14px; cursor: nesw-resize; }
+.win-missing { padding: 30px; color: var(--text-2); }
+
+/* ============ 错误兜底（窗口级 / 整页级） ============ */
+.win-error {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  height: 100%; padding: 24px; color: var(--text-2); text-align: center;
+}
+.win-error-icon { font-size: 26px; }
+.win-error-title { margin: 0; font-size: 14px; color: var(--text); }
+.win-error-msg {
+  max-width: 100%; max-height: 140px; overflow: auto; margin: 0; padding: 8px 10px;
+  background: var(--hover); border-radius: 8px; font-size: 12px; color: var(--text-2);
+  white-space: pre-wrap; word-break: break-word;
+}
+.app-error { display: flex; align-items: center; justify-content: center; height: 100vh; padding: 24px; }
+.app-error-box {
+  display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 520px; padding: 28px 32px;
+  background: var(--win-bg); border: 1px solid var(--win-border); border-radius: 14px;
+  box-shadow: var(--shadow-soft); text-align: center;
+}
+.app-error-icon { font-size: 32px; }
+.app-error-title { margin: 0; font-size: 16px; color: var(--text); }
+.app-error-msg {
+  max-width: 100%; max-height: 200px; overflow: auto; margin: 0; padding: 8px 10px;
+  background: var(--hover); border-radius: 8px; font-size: 12px; color: var(--text-2);
+  white-space: pre-wrap; word-break: break-word;
+}
+

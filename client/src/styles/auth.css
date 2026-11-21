@@ -1,0 +1,48 @@
+/* ============ 启动 / 认证页 ============ */
+.boot-screen { height: 100%; display: flex; align-items: center; justify-content: center; background: var(--wallpaper); }
+.boot-spinner {
+  width: 26px; height: 26px; border-radius: 50%;
+  border: 3px solid rgba(127,127,140,.3); border-top-color: var(--accent);
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.auth-screen {
+  height: 100%; display: flex; align-items: center; justify-content: center;
+  background: var(--wallpaper); padding: 16px;
+}
+.auth-card {
+  width: 380px; max-width: 94vw; max-height: 92vh; overflow: auto;
+  background: var(--menu-bg); backdrop-filter: blur(30px) saturate(160%);
+  border: 1px solid var(--win-border); border-radius: 18px;
+  box-shadow: var(--shadow); padding: 34px 30px; text-align: center;
+}
+.auth-logo, .auth-avatar { font-size: 44px; margin-bottom: 10px; }
+.auth-card h1 { font-size: 19px; font-weight: 700; margin-bottom: 6px; }
+.auth-sub { color: var(--text-2); font-size: 12.5px; margin-bottom: 18px; }
+.auth-err { color: var(--danger); font-size: 12.5px; margin: 8px 0; }
+.auth-version { color: var(--text-2); font-size: 11px; margin-top: 14px; }
+.field { display: block; text-align: left; margin: 12px 0; }
+.field > span { display: block; font-size: 12px; color: var(--text-2); margin-bottom: 5px; }
+.field input, .field select, .field textarea { width: 100%; padding: 8px 10px; }
+/* 复选框行：提高特异性，避免被 .field > span 的块级标题样式覆盖 */
+.check-row, .field > span.check-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; color: var(--text-2); margin: 10px 0 2px; cursor: pointer;
+}
+/* 复选框不受 .field input 的整行宽样式影响 */
+.field input[type='checkbox'], .check-row input[type='checkbox'] {
+  width: 15px; height: 15px; flex: none; padding: 0; margin: 0; accent-color: var(--accent);
+}
+/* 下拉框：自绘箭头，与右边缘保持间距 */
+.field select {
+  appearance: none; padding-right: 30px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23808088' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+.strength { display: flex; align-items: center; gap: 5px; margin: -4px 0 8px; }
+.strength i { width: 34px; height: 4px; border-radius: 2px; background: var(--accent); }
+.strength span { font-size: 11px; color: var(--text-2); }
+.btn-primary.wide, .auth-card .btn-primary { width: 100%; margin-top: 10px; padding: 9px; font-size: 13.5px; }
+

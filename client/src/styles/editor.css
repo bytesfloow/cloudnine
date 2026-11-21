@@ -1,0 +1,45 @@
+/* ============ 编辑器 ============ */
+.editor-window { display: flex; flex-direction: column; height: 100%; }
+.editor-window.loading { align-items: center; justify-content: center; }
+.editor-banner { flex: none; background: #f0883a22; color: #f0883a; padding: 6px 12px; font-size: 12px; border-bottom: 1px solid var(--line); }
+.editor-cm { flex: 1; min-height: 0; overflow: hidden; }
+.editor-cm .cm-theme, .editor-cm .cm-editor { height: 100%; }
+.editor-statusbar {
+  flex: none; display: flex; align-items: center; gap: 12px; padding: 4px 10px;
+  border-top: 1px solid var(--line); background: var(--bar-bg); font-size: 11.5px; color: var(--text-2);
+}
+.editor-statusbar .btn { margin-left: 0; }
+.editor-statusbar > span:first-child { flex: 1; }
+.editor-dirty { color: #f0883a; font-weight: 700; }
+/* 状态栏左端保存状态（原文件路径位置） */
+.editor-statusbar .es-state { font-weight: 600; }
+.editor-statusbar .es-state.saved { color: #1fa04a; }
+:root[data-theme='dark'] .editor-statusbar .es-state.saved { color: #3ddc6e; }
+/* 格式切换器（状态栏） */
+.editor-fmt { position: relative; flex: none; }
+.editor-fmt-chip {
+  appearance: none; border: 1px solid var(--line); background: var(--input-bg); color: var(--text-2);
+  font-family: var(--mono); font-size: 11.5px; line-height: 1; padding: 4px 9px; border-radius: 6px; cursor: pointer;
+}
+.editor-fmt-chip:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+.editor-fmt-chip.pending { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.editor-fmt-chip:disabled { opacity: .45; cursor: default; }
+.editor-fmt-menu {
+  position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 60; min-width: 158px;
+  background: var(--menu-bg); backdrop-filter: blur(30px) saturate(170%);
+  border: 1px solid var(--line); border-radius: 9px; box-shadow: var(--shadow-soft);
+  padding: 4px; display: flex; flex-direction: column; animation: pop .12s ease-out;
+}
+.editor-fmt-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 6px 12px; border: 0; background: none; border-radius: 6px;
+  font-size: 12.5px; color: var(--text-1); cursor: pointer; text-align: left; white-space: nowrap;
+}
+.editor-fmt-item:hover { background: var(--accent); color: #fff; }
+.editor-fmt-item.active { color: var(--accent); font-weight: 700; }
+.editor-fmt-item.active:hover { color: #fff; }
+.editor-fmt-ext { font-size: 11px; opacity: .65; }
+/* 菜单栏快捷键提示 */
+.di-hint { margin-left: auto; padding-left: 28px; color: var(--text-2); font-size: 11px; }
+.dropdown-item:hover:not(:disabled) .di-hint { color: rgba(255, 255, 255, 0.85); }
+
