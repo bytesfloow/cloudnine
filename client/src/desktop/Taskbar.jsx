@@ -7,7 +7,7 @@ import {
 import { addUpload, uploadStats } from '../transfers.js';
 import { changePasswordFlow, logoutFlow } from './account.js';
 import StartMenu from './StartMenu.jsx';
-import { IconFiles, IconTerminal, IconEditor, IconTransfer, IconBell, IconWindows } from '../icons.jsx';
+import { IconFiles, IconTerminal, IconEditor, IconTransfer, IconBell, IconWindows, IconDisk } from '../icons.jsx';
 
 // 固定应用区：图标常驻，单击 = 无窗口则新建 / 有窗口切到最上层 / 已聚焦则最小化
 // （docs §1.2；不是旧 Dock 的「每次点击都新建」）
@@ -325,7 +325,7 @@ function DiskTray() {
       className="tray-disk"
       wide
       title={`磁盘占用 ${worst.usePct}%（${worst.mount}）`}
-      button={<span className={`disk-indicator di-${level}`}>💽 {worst.usePct}%</span>}
+      button={<span className={`disk-indicator di-${level}`}><IconDisk size={14} /> {worst.usePct}%</span>}
     >
       {(close) => (
         <div className="disk-popover">
