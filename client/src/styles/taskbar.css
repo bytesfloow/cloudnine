@@ -1,29 +1,29 @@
 /* ============ 任务栏（原 Dock） ============ */
 /* 底部通栏 + 左侧固定应用 + 每窗口一个按钮 + 右侧托盘。
-   配色全部走主题变量，亮/暗两套主题共用一套规则（阶段 3 才做视觉重做）。 */
+   纯色材质：--bar-bg 是不透明色（亮色 #F3F3F3），不加背景模糊。 */
 .taskbar {
   position: absolute; left: 0; right: 0; bottom: 0; height: var(--taskbar-h);
   display: flex; align-items: center; gap: 4px; padding: 0 6px;
-  background: var(--bar-bg); backdrop-filter: blur(24px) saturate(180%);
+  background: var(--bar-bg);
   border-top: 1px solid var(--line); z-index: 10000;
   font-size: 12px; user-select: none;
 }
 /* 开始按钮：单击开/合开始菜单（docs §1.2） */
 .tb-start {
   width: 34px; height: 30px; flex: none; display: flex; align-items: center; justify-content: center;
-  border-radius: 6px; color: var(--accent); opacity: .9;
+  border-radius: var(--radius-ctl); color: var(--accent);
 }
-.tb-start:hover, .tb-start.open { background: var(--hover); opacity: 1; }
-.tb-start:active { background: var(--active); }
+.tb-start:hover, .tb-start.open { background: var(--hover); }
+.tb-start:active { background: var(--pressed); }
 .tb-start:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
 .tb-pinned { display: flex; align-items: center; gap: 2px; flex: none; }
 .tb-app {
   position: relative; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
-  border-radius: 6px; transition: background-color .1s;
+  border-radius: var(--radius-ctl); transition: background-color .1s;
 }
 .tb-app:hover { background: var(--hover); }
-.tb-app:active { background: var(--active); }
+.tb-app:active { background: var(--pressed); }
 /* 运行中 / 当前窗口：图标下方的短指示条（Win11 语义） */
 .tb-app.running::after,
 .tb-app.active::after {
@@ -42,21 +42,23 @@
 .tb-win-wrap { position: relative; display: flex; flex: 0 1 168px; min-width: 44px; }
 .tb-win {
   width: 100%; min-width: 0; height: 30px; padding: 0 10px;
-  display: flex; align-items: center; gap: 6px; border-radius: 5px;
+  display: flex; align-items: center; gap: 6px; border-radius: var(--radius-ctl);
   border: 1px solid transparent; background: var(--hover);
   color: var(--text); font-size: 12px;
 }
 .tb-win:hover { background: var(--active); }
+.tb-win:active { background: var(--pressed); }
 .tb-win.active { background: var(--active); border-color: var(--line); }
-.tb-win.minimized { opacity: .6; }
-.tb-win.minimized:hover { opacity: 1; }
+/* 最小化：只降文字灰阶，不用整体 opacity（否则文字对比度跟着一起淡） */
+.tb-win.minimized { color: var(--text-3); background: transparent; }
+.tb-win.minimized:hover { color: var(--text); background: var(--hover); }
 .tb-win-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 悬停标题浮层：向上弹，不遮挡任务栏本身 */
 .tb-win-tip {
   position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%);
-  max-width: 260px; padding: 4px 8px; border-radius: 6px; white-space: nowrap;
+  max-width: 260px; padding: 4px 8px; border-radius: var(--radius-menu); white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis;
-  background: var(--menu-bg); border: 1px solid var(--line); box-shadow: var(--shadow-soft);
+  background: var(--menu-bg); border: 1px solid var(--line); box-shadow: var(--shadow-menu);
   color: var(--text); opacity: 0; pointer-events: none; transition: opacity .08s ease .25s; z-index: 2;
 }
 .tb-win-wrap:hover .tb-win-tip { opacity: 1; }
@@ -64,11 +66,12 @@
 /* 溢出折叠：「更多」按钮 + 列表弹层。尺寸常量（44 / 4 / 64）与 Taskbar.jsx 一致 */
 .tb-more-wrap { position: relative; display: flex; flex: none; }
 .tb-more {
-  height: 30px; padding: 0 9px; border-radius: 5px; border: 1px solid var(--line);
+  height: 30px; padding: 0 9px; border-radius: var(--radius-ctl); border: 1px solid var(--line);
   background: var(--hover); color: var(--text); font-size: 12px; white-space: nowrap;
   display: inline-flex; align-items: center; gap: 5px;
 }
 .tb-more:hover, .tb-more.open { background: var(--active); }
+.tb-more:active { background: var(--pressed); }
 .tb-more-count { font-variant-numeric: tabular-nums; color: var(--text-2); }
 .win-more { width: 260px; max-height: min(52vh, 420px); overflow-y: auto; }
 .win-more-item { display: flex; align-items: center; gap: 7px; }
@@ -89,10 +92,10 @@
 .tray-btn {
   position: relative; height: 32px; min-width: 30px; padding: 0 7px;
   display: flex; align-items: center; justify-content: center; gap: 5px;
-  border-radius: 6px; font-variant-numeric: tabular-nums; white-space: nowrap;
+  border-radius: var(--radius-ctl); font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 .tray-btn:hover, .tray-btn.open { background: var(--hover); }
-.tray-btn:active { background: var(--active); }
+.tray-btn:active { background: var(--pressed); }
 .tb-tray .avatar-btn { width: 24px; height: 24px; font-size: 12px; }
 .tray-clock { font-size: 12px; line-height: 1.2; }
 .tray-transfers .transfer-badge { margin-left: 2px; }
@@ -110,18 +113,18 @@
   color: #fff; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center;
 }
 .disk-indicator { font-size: 12px; font-variant-numeric: tabular-nums; }
-.di-ok { color: var(--text); } .di-notice { color: #c78f1c; } .di-warn { color: #f0883a; } .di-danger { color: var(--danger); }
+.di-ok { color: var(--text); } .di-notice { color: var(--warn); } .di-warn { color: var(--warn-strong); } .di-danger { color: var(--danger-text); }
 
 .popover-header { font-weight: 700; padding: 6px 10px 8px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
 .popover-empty { color: var(--text-2); text-align: center; padding: 18px 0; }
-.notif-row { padding: 7px 10px; border-radius: 7px; font-size: 12.5px; display: flex; flex-direction: column; gap: 2px; }
+.notif-row { padding: 7px 10px; border-radius: var(--radius-ctl); font-size: 12.5px; display: flex; flex-direction: column; gap: 2px; }
 .notif-row:hover { background: var(--hover); }
 .notif-row.n-actionable { cursor: pointer; }
-.notif-row.n-error b { color: var(--danger); }
+.notif-row.n-error b { color: var(--danger-text); }
 .notif-row span { color: var(--text-2); font-size: 12px; }
 .notif-action { font-style: normal; font-size: 11.5px; font-weight: 600; color: var(--accent); margin-top: 2px; }
 
-.disk-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px; border-radius: 7px; font-size: 12px; }
+.disk-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px; border-radius: var(--radius-ctl); font-size: 12px; }
 .disk-row:hover { background: var(--hover); }
 .disk-path { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .disk-free { color: var(--text-2); flex: none; }
@@ -130,8 +133,8 @@
 .tb-pop-wrap { position: relative; display: flex; }
 .tb-popover {
   position: absolute; bottom: calc(100% + 8px); right: 0; width: 280px; z-index: 10001;
-  background: var(--menu-bg); backdrop-filter: blur(30px) saturate(170%);
-  border: 1px solid var(--line); border-radius: 11px; box-shadow: var(--shadow-soft); padding: 6px;
+  background: var(--menu-bg);
+  border: 1px solid var(--line); border-radius: var(--radius-menu); box-shadow: var(--shadow-menu); padding: 6px;
   animation: tb-pop .12s ease-out;
 }
 .tb-popover.wide { width: 300px; }

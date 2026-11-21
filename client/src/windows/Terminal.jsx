@@ -17,10 +17,12 @@ const b64ToBytes = (s) => {
 const outDecoder = new TextDecoder('utf-8');
 const b64ToUtf8 = (s) => outDecoder.decode(b64ToBytes(s), { stream: true });
 
+// xterm 配色：只跟随 applyTheme 写入的 data-theme（纯色背景，与窗口表面一致）。
+// 主题切换广播 theme-changed → 下方 useEffect 订阅后刷新 term.options.theme。
 function termTheme() {
   return document.documentElement.dataset.theme === 'dark'
-    ? { background: 'rgba(20,20,24,0.92)', foreground: '#e8e8ec', cursor: '#5be07f' }
-    : { background: 'rgba(252,252,253,0.94)', foreground: '#2b2b30', cursor: '#28a745' };
+    ? { background: '#1f1f1f', foreground: '#e8e8ec', cursor: '#5be07f' }
+    : { background: '#ffffff', foreground: '#1b1b1b', cursor: '#0a7cff' };
 }
 
 // 单个终端会话视图（桌面窗口与移动端复用）
@@ -34,7 +36,7 @@ export function TerminalView({ cwd, actionFilter, className = '', terminalRef })
     const term = new Terminal({
       cursorBlink: true,
       fontSize: 13,
-      fontFamily: "'SF Mono', 'Cascadia Code', Menlo, Consolas, 'Courier New', monospace",
+      fontFamily: "'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace",
       theme: termTheme(),
       scrollback: 5000,
       allowProposedApi: true,

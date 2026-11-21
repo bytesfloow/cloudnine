@@ -43,7 +43,7 @@
 .m-dock {
   flex: none; margin: 12px 12px 2px; padding: 10px 6px;
   display: flex; justify-content: space-around;
-  background: var(--menu-bg); backdrop-filter: blur(24px);
+  background: var(--menu-bg);
   border: 1px solid var(--line); border-radius: 22px;
 }
 
@@ -68,7 +68,7 @@
 }
 .m-appbar {
   flex: none; height: 48px; display: flex; align-items: center; gap: 6px; padding: 0 8px;
-  border-bottom: 1px solid var(--line); background: var(--bar-bg); backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--line); background: var(--bar-bg);
 }
 .m-back { display: flex; align-items: center; padding: 12px 14px 12px 4px; color: var(--accent); }
 .m-apptitle { flex: 1; min-width: 0; font-weight: 700; font-size: 16.5px; text-align: center; }
@@ -101,7 +101,7 @@
 .m-toolmenu {
   position: absolute; top: calc(100% - 6px); right: 10px; z-index: 60;
   min-width: 172px; padding: 5px;
-  background: var(--menu-bg); backdrop-filter: blur(30px) saturate(170%);
+  background: var(--menu-bg);
   border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-soft);
   animation: pop .12s ease-out;
 }
@@ -173,7 +173,7 @@
 /* 目录选择器（上传目标） */
 .dir-picker {
   width: 100%; max-height: 72vh; display: flex; flex-direction: column;
-  background: var(--menu-bg); backdrop-filter: blur(30px);
+  background: var(--menu-bg);
   border-radius: 18px 18px 0 0; padding: 10px 10px calc(12px + env(safe-area-inset-bottom, 0px));
   animation: sheetup .22s ease-out;
 }
@@ -236,7 +236,7 @@
 .m-preview .preview-zoom {
   gap: 4px; max-width: 100%; padding: 4px; flex-wrap: wrap; justify-content: center;
   border: 1px solid var(--line); border-radius: 14px;
-  background: var(--panel-bg); backdrop-filter: blur(20px);
+  background: var(--panel-bg);
 }
 .m-preview .preview-zoom .btn { padding: 7px 11px; min-width: 40px; }
 .m-preview .preview-zoom-val { min-width: 44px; font-size: 11.5px; }
@@ -292,7 +292,7 @@
 }
 .action-sheet {
   width: 100%; max-height: 72vh; overflow-y: auto;
-  background: var(--menu-bg); backdrop-filter: blur(30px);
+  background: var(--menu-bg);
   border-radius: 18px 18px 0 0; padding: 10px 10px calc(12px + env(safe-area-inset-bottom, 0px));
   animation: sheetup .22s ease-out;
 }

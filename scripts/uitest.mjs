@@ -1867,7 +1867,7 @@ try {
     await sleep(800);
     await shot('文件窗口命令栏');
 
-    // 亮/暗主题：命令栏只用现有 token，两套主题下都要可见且仍是纯色（不加 backdrop-filter）
+    // 亮/暗主题：命令栏只用现有 token，两套主题下都要可见且仍是纯色（不做背景模糊）
     const cmdStyle = () => page.evaluate(() => {
       const bar = document.querySelector('.finder-cmdbar');
       const btn = document.querySelector('.finder-cmdbar .cmd-btn[data-cmd="查看"]');
@@ -1878,6 +1878,114 @@ try {
       };
     });
     const lightCmd = await cmdStyle();
+
+    // ---------- 阶段 3 · T13：Fluent 亮色视觉断言 ----------
+    // ① 全域无背景模糊：运行时逐元素看 computed style + 打包 CSS 原文里也不许出现该属性
+    const blurScan = await page.evaluate(async () => {
+      const runtime = [];
+      for (const el of document.querySelectorAll('*')) {
+        const bf = getComputedStyle(el).backdropFilter;
+        if (bf && bf !== 'none') runtime.push(el.className || el.tagName);
+      }
+      const hrefs = [...document.querySelectorAll('link[rel=stylesheet]')].map((l) => l.href)
+        .concat(performance.getEntriesByType('resource').map((e) => e.name).filter((n) => /\.css(\?|$)/.test(n)));
+      let cssHits = 0;
+      for (const href of [...new Set(hrefs)]) {
+        try {
+          const text = await fetch(href, { cache: 'no-store' }).then((r) => r.text());
+          cssHits += (text.match(/backdrop-filter/g) || []).length;
+        } catch { /* 取不到就跳过 */ }
+      }
+      return { runtime, cssHits };
+    });
+    check('全站已无背景模糊（运行时 0 元素 / 打包 CSS 0 处）',
+      blurScan.runtime.length === 0 && blurScan.cssHits === 0, JSON.stringify(blurScan));
+
+    // ② 字体栈：Segoe UI Variable Display → Segoe UI → system-ui → 微软雅黑
+    const fontStack = await page.evaluate(() => getComputedStyle(document.body).fontFamily);
+    check('字体栈以 Segoe UI Variable Display 起头并回退微软雅黑',
+      /^\s*"?Segoe UI Variable Display"?/.test(fontStack) && /Microsoft YaHei/.test(fontStack), fontStack);
+
+    // ③ 圆角：窗口/弹层 8px，控件 4px（标题栏按钮是 Win11 方角例外）
+    const radii = await page.evaluate(() => {
+      const g = (sel) => { const el = document.querySelector(sel); return el ? getComputedStyle(el).borderRadius : null; };
+      return {
+        win: g('.window'),
+        ctrl: g('.finder-cmdbar .cmd-btn'),
+        search: g('.finder-search'),
+        titleBtn: g('.window .tc-min'),
+      };
+    });
+    check('窗口圆角 8px / 控件圆角 4px',
+      radii.win === '8px' && /^4px/.test(radii.ctrl || '') && /^4px/.test(radii.search || ''),
+      JSON.stringify(radii));
+
+    // ④ 纯色表面：窗口 / 任务栏 / 侧栏 / 命令栏都是不透明 rgb()，没有模糊
+    const solid = await page.evaluate(() => {
+      const pick = (sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return null;
+        const cs = getComputedStyle(el);
+        return { bg: cs.backgroundColor, blur: cs.backdropFilter };
+      };
+      return { win: pick('.window'), bar: pick('.taskbar'), side: pick('.finder-sidebar'), cmd: pick('.finder-cmdbar') };
+    });
+    check('亮色下窗口 / 任务栏 / 侧栏 / 命令栏均为不透明纯色且无模糊',
+      Object.values(solid).every((x) => x && /^rgb\(/.test(x.bg) && x.blur === 'none'),
+      JSON.stringify(solid));
+
+    // ⑤ 对比度实测（正文 / 次级文字 / 禁用态）
+    const contrast = await page.evaluate(() => {
+      const parse = (c) => (c.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
+      const bgOf = (el) => {
+        let n = el;
+        while (n) {
+          const c = getComputedStyle(n).backgroundColor;
+          if (c && c !== 'rgba(0, 0, 0, 0)' && c !== 'transparent') return c;
+          n = n.parentElement;
+        }
+        return 'rgb(255, 255, 255)';
+      };
+      const lum = ([r, g, b]) => {
+        const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+        return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+      };
+      const ratio = (a, b) => {
+        const [l1, l2] = [lum(parse(a)), lum(parse(b))].sort((x, y) => y - x);
+        return Math.round(((l1 + 0.05) / (l2 + 0.05)) * 100) / 100;
+      };
+      const pick = (sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return null;
+        const cs = getComputedStyle(el);
+        return { fg: cs.color, bg: bgOf(el) };
+      };
+      const disabledEl = document.querySelector('.finder-cmdbar .cmd-btn:disabled');
+      let disabled = disabledEl ? { fg: getComputedStyle(disabledEl).color, bg: bgOf(disabledEl) } : null;
+      if (!disabled) {
+        // 没有现成的禁用控件就临时置一个，量完立即还原
+        const probe = document.querySelector('.finder-cmdbar .cmd-btn');
+        if (probe) {
+          probe.disabled = true;
+          disabled = { fg: getComputedStyle(probe).color, bg: bgOf(probe) };
+          probe.disabled = false;
+        }
+      }
+      const out = {};
+      for (const [k, v] of Object.entries({
+        正文: pick('.window-title'),
+        次级: pick('.sb-group'),
+        禁用: disabled,
+      })) {
+        out[k] = v ? { fg: v.fg, bg: v.bg, ratio: ratio(v.fg, v.bg) } : null;
+      }
+      return out;
+    });
+    check('亮色对比度实测：正文 / 次级 / 禁用均 ≥ 4.5:1',
+      ['正文', '次级', '禁用'].every((k) => contrast[k] && contrast[k].ratio >= 4.5),
+      JSON.stringify(contrast));
+
+    await shot('窗口与任务栏-亮色');
     await page.evaluate(() => document.querySelector('.tray-account')?.click());
     await sleep(250);
     await page.evaluate(() => [...document.querySelectorAll('.tb-popover .account-popover .dropdown-item')].find((b) => b.innerText.includes('深色主题'))?.click());
@@ -2101,6 +2209,15 @@ try {
     await page.waitForSelector('.finder', { timeout: 15000 });
     await sleep(500);
 
+    // 阶段 3 · T13 的截图要求亮色：先把主题锁定为浅色（后续用例会自行切换）
+    if ((await page.evaluate(() => document.documentElement.dataset.theme)) !== 'light') {
+      await page.evaluate(() => document.querySelector('.tray-account')?.click());
+      await sleep(250);
+      await page.evaluate(() => [...document.querySelectorAll('.tb-popover .account-popover .dropdown-item')]
+        .find((b) => b.innerText.includes('浅色主题'))?.click());
+      await sleep(400);
+    }
+
     const closeTransfers = () => page.evaluate(() => {
       const w = [...document.querySelectorAll('.window')].find((x) => x.querySelector('.transfers-window'));
       w?.querySelector('.tc-close')?.click();
@@ -2134,14 +2251,60 @@ try {
       { timeout: 8000 }, beforeA);
     const infoA = await lastStartInfo();
     check('粘贴上传「开始上传」通知带可点击提示', !!infoA?.actionable && !!infoA?.hasHint, JSON.stringify(infoA));
-    // R11：通知弹层不再为 28px 顶栏留白，直接贴视口右上角
+    // 阶段 3 · T13 ③：通知改到 Win11 位置——视口右下角、任务栏正上方
     const notifPos = await page.evaluate(() => {
       const el = document.querySelector('.notification-stack');
       if (!el) return null;
       const r = el.getBoundingClientRect();
-      return { top: Math.round(r.top), right: Math.round(innerWidth - r.right), z: getComputedStyle(el).zIndex };
+      const tb = document.querySelector('.taskbar');
+      const tbRect = tb.getBoundingClientRect();
+      const card = el.querySelector('.notification');
+      const cardCs = card ? getComputedStyle(card) : null;
+      return {
+        right: Math.round(innerWidth - r.right),
+        gapToTaskbar: Math.round(tbRect.top - r.bottom),
+        z: Number(getComputedStyle(el).zIndex),
+        taskbarZ: Number(getComputedStyle(tb).zIndex),
+        cardBg: cardCs?.backgroundColor || null,
+        cardBlur: cardCs?.backdropFilter || 'none',
+        cardRadius: cardCs?.borderRadius || null,
+        toastPointer: getComputedStyle(el).pointerEvents,
+      };
     });
-    check('通知弹层贴视口右上角（top 8 / right 12）', !!notifPos && notifPos.top === 8 && notifPos.right === 12, JSON.stringify(notifPos));
+    check('通知弹层固定在视口右下角（right 12）', !!notifPos && notifPos.right === 12, JSON.stringify(notifPos));
+    check('通知在任务栏正上方且不遮挡任务栏（间距 4-24px）',
+      !!notifPos && notifPos.gapToTaskbar >= 4 && notifPos.gapToTaskbar <= 24, JSON.stringify(notifPos));
+    check('通知层级低于任务栏（托盘弹层展开时能盖住 toast）',
+      !!notifPos && notifPos.z < notifPos.taskbarZ, JSON.stringify(notifPos));
+    check('通知卡片为纯色 8px 圆角（不透明背景 + 无毛玻璃）',
+      !!notifPos && /^rgb\(/.test(notifPos.cardBg || '') && notifPos.cardBlur === 'none' && notifPos.cardRadius === '8px',
+      JSON.stringify(notifPos));
+    check('通知容器不拦点击（pointer-events: none，只有单条 toast 接收点击）',
+      !!notifPos && notifPos.toastPointer === 'none', JSON.stringify(notifPos));
+    // 等入场动画结束再截图：动画中途 opacity < 1，会拍出半透明「灰」toast
+    await page.waitForFunction(
+      () => [...document.querySelectorAll('.notification')].every((n) => getComputedStyle(n).opacity === '1'),
+      { timeout: 5000 },
+    ).catch(() => {});
+    await sleep(150);
+    await shot('通知右下角');
+
+    // 通知在场时，任务栏托盘弹层仍能正常开关，且不会被 toast 遮挡
+    await page.evaluate(() => document.querySelector('.tray-account')?.click());
+    await sleep(300);
+    const popWithToast = await page.evaluate(() => {
+      const pop = document.querySelector('.tb-popover');
+      if (!pop) return null;
+      const r = pop.getBoundingClientRect();
+      // 弹层右下角那一点应该属于弹层自身（而不是被 toast 盖住）
+      const hit = document.elementFromPoint(Math.round(r.right - 8), Math.round(r.bottom - 8));
+      return { open: true, hitInsidePopover: !!hit?.closest?.('.tb-popover') };
+    });
+    check('通知在场时托盘弹层仍能打开且未被遮挡',
+      !!popWithToast?.open && popWithToast.hitInsidePopover, JSON.stringify(popWithToast));
+    await page.evaluate(() => document.querySelector('.tray-account')?.click());
+    await sleep(250);
+    check('通知在场时托盘弹层能正常关闭', !(await page.$('.tb-popover')));
     check('需求1：点击前传输窗口未打开', !(await hasTransfers()));
     await clickLastStart();
     await page.waitForSelector('.transfers-window', { timeout: 8000 });
@@ -2602,6 +2765,16 @@ try {
     });
     check('通知面板列出通知', notif.total >= 1, JSON.stringify(notif));
     check('通知面板含可点击项（带「查看传输」提示）', notif.actionable >= 1 && /查看传输/.test(notif.text), JSON.stringify(notif));
+    await shot('通知面板-亮色');
+    // 再补一张面板元素截图：整页图里 toast 会从面板右侧探出来，元素图能干净地看纯色面板
+    const notifPanelEl = await page.$('.tb-popover');
+    if (notifPanelEl) {
+      const panelShot = `${String(++shotIdx).padStart(2, '0')}-通知面板元素-亮色.png`;
+      await notifPanelEl.screenshot({ path: join(OUT_DIR, panelShot) });
+      steps.push(panelShot);
+      currentShot = panelShot;
+      console.log(`${DIM}    📸 ${panelShot}${RESET}`);
+    }
     await page.evaluate(() => document.querySelector('.tb-popover .notif-row.n-actionable')?.click());
     await page.waitForSelector('.transfers-window', { timeout: 8000 }).catch(() => {});
     check('点通知项跳转到「传输」窗口', !!(await page.$('.transfers-window')), '未打开 .transfers-window');
@@ -2743,12 +2916,14 @@ try {
         tbZ: Number(getComputedStyle(document.querySelector('.taskbar')).zIndex),
         bg: getComputedStyle(sm).backgroundColor,
         backdrop: getComputedStyle(sm).backdropFilter,
+        radius: getComputedStyle(sm).borderRadius,
       };
     });
     check('开始菜单锚定在任务栏正上方', geo.gap >= 4 && geo.gap <= 12, `间距 ${geo.gap}px`);
     check('开始菜单层级高于任务栏', geo.smZ > geo.tbZ, `${geo.smZ} vs ${geo.tbZ}`);
-    check('开始菜单为纯色材质（不透明背景 + 无 backdrop-filter）',
+    check('开始菜单为纯色材质（不透明背景 + 无背景模糊）',
       /^rgb\(/.test(geo.bg) && geo.backdrop === 'none', JSON.stringify(geo));
+    check('开始菜单圆角统一 8px', geo.radius === '8px', `radius=${geo.radius}`);
 
     check('最近使用的文件区列出已记录文件',
       (await page.$$eval('.startmenu .sm-recent-name', (els) => els.map((e) => e.innerText.trim()))).includes(smRecentName),
@@ -2925,7 +3100,7 @@ try {
     await page.keyboard.press('Escape');
     await sleep(250);
 
-    // 右键菜单亮/暗两套主题：纯色背景可见、没有 backdrop-filter
+    // 右键菜单亮/暗两套主题：纯色背景可见、没有背景模糊
     const menuStyle = async (label) => {
       await page.evaluate(() => {
         document.querySelector('.desktop-icons').dispatchEvent(new MouseEvent('contextmenu', {
@@ -2937,7 +3112,7 @@ try {
         const el = document.querySelector('.context-menu');
         if (!el) return null;
         const cs = getComputedStyle(el);
-        return { bg: cs.backgroundColor, blur: cs.backdropFilter };
+        return { bg: cs.backgroundColor, blur: cs.backdropFilter, radius: cs.borderRadius, shadow: cs.boxShadow };
       });
       await shot(`右键菜单-${label}`);
       await page.keyboard.press('Escape');
@@ -2945,8 +3120,9 @@ try {
       return st;
     };
     const darkMenu = await menuStyle('暗色');
-    check('暗色主题下右键菜单有纯色背景且无毛玻璃', !!darkMenu
-      && darkMenu.bg !== 'rgba(0, 0, 0, 0)' && darkMenu.bg !== 'transparent' && darkMenu.blur === 'none',
+    check('暗色主题下右键菜单有纯色背景且无毛玻璃、圆角 8px', !!darkMenu
+      && darkMenu.bg !== 'rgba(0, 0, 0, 0)' && darkMenu.bg !== 'transparent' && darkMenu.blur === 'none'
+      && darkMenu.radius === '8px',
       JSON.stringify(darkMenu));
 
     await accOpen();
@@ -2959,8 +3135,9 @@ try {
     await page.keyboard.press('Escape');
     await sleep(250);
     const lightMenu = await menuStyle('亮色');
-    check('亮色主题下右键菜单有纯色背景且无毛玻璃', !!lightMenu
-      && lightMenu.bg !== 'rgba(0, 0, 0, 0)' && lightMenu.bg !== 'transparent' && lightMenu.blur === 'none',
+    check('亮色主题下右键菜单有纯色背景且无毛玻璃、圆角 8px', !!lightMenu
+      && lightMenu.bg !== 'rgba(0, 0, 0, 0)' && lightMenu.bg !== 'transparent' && lightMenu.blur === 'none'
+      && lightMenu.radius === '8px',
       JSON.stringify(lightMenu));
     check('亮/暗主题下右键菜单背景色确实不同', !!darkMenu && !!lightMenu && darkMenu.bg !== lightMenu.bg,
       `${darkMenu?.bg} vs ${lightMenu?.bg}`);
@@ -3025,6 +3202,42 @@ try {
     await page.waitForSelector('.terminal-window .xterm', { timeout: 15000 });
     await sleep(1800);
     check('终端标签栏右侧有 ∨ 下拉', !!(await page.$('.terminal-window .term-tab-menu')));
+
+    // ---------- 阶段 3 · T13 ④：终端配色跟随主题（实测） ----------
+    // applyTheme 是唯一的 theme-changed 发射点；xterm 不跟着 React 重渲染，必须收到事件后刷新配色
+    const termColors = () => page.evaluate(() => {
+      const vp = document.querySelector('.terminal-window .xterm-viewport');
+      const rows = document.querySelector('.terminal-window .xterm-rows');
+      return {
+        attr: document.documentElement.dataset.theme,
+        bg: vp ? getComputedStyle(vp).backgroundColor : null,
+        fg: rows ? getComputedStyle(rows).color : null,
+      };
+    });
+    const setThemeViaAccount = async (label) => {
+      const open = await page.evaluate(() => !!document.querySelector('.tb-popover .account-popover'));
+      if (!open) {
+        await page.evaluate(() => document.querySelector('.tray-account')?.click());
+        await sleep(250);
+      }
+      await page.evaluate((l) => [...document.querySelectorAll('.tb-popover .account-popover .dropdown-item')]
+        .find((b) => b.innerText.includes(l))?.click(), label);
+      await sleep(500);
+    };
+    if ((await page.evaluate(() => document.documentElement.dataset.theme)) !== 'light') {
+      await setThemeViaAccount('浅色主题');
+    }
+    const termLight = await termColors();
+    await setThemeViaAccount('深色主题');
+    const termDark = await termColors();
+    await setThemeViaAccount('浅色主题');
+    const termLightAgain = await termColors();
+    check('终端配色跟随主题切换（亮 → 暗 → 亮，背景/前景立即变化）',
+      termLight.bg === 'rgb(255, 255, 255)' && termDark.bg === 'rgb(31, 31, 31)'
+      && termLightAgain.bg === termLight.bg && termLight.fg !== termDark.fg,
+      JSON.stringify({ termLight, termDark, termLightAgain }));
+    await page.evaluate(() => document.querySelector('.tray-account')?.click());
+    await sleep(250);
     await openWinMenu('.terminal-window .term-tab-menu');
     const termMenu = await winMenuLabels();
     check('终端下拉五项齐备（新建/关闭标签/清屏/重置/关闭窗口）',

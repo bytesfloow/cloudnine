@@ -5,19 +5,20 @@
 .dropdown-sep { height: 1px; background: var(--line); margin: 4px 8px; }
 .dropdown-item {
   display: flex; align-items: center; width: 100%; text-align: left;
-  padding: 5px 10px; border-radius: 6px; font-size: 13px; gap: 4px;
+  padding: 5px 10px; border-radius: var(--radius-ctl); font-size: 13px; gap: 4px;
 }
 .dropdown-item:hover:not(:disabled) { background: var(--accent); color: #fff; }
-.dropdown-item:disabled { opacity: .4; cursor: default; }
-.dropdown-item.danger { color: var(--danger); }
+.dropdown-item:active:not(:disabled) { background: var(--accent); filter: brightness(.94); }
+.dropdown-item:disabled { color: var(--text-3); cursor: default; }
+.dropdown-item.danger { color: var(--danger-text); }
 .dropdown-item.danger:hover:not(:disabled) { background: var(--danger); color: #fff; }
 .di-check { width: 14px; display: inline-block; flex: none; }
 
 .context-menu {
   position: fixed; min-width: 210px; z-index: 12000;
-  /* 纯色材质：不用 backdrop-filter（规格 §0-6），亮/暗两套主题共用变量 */
+  /* 纯色材质：不透明表面 + 1px 描边，全局已无背景模糊（docs §0 决策 6） */
   background: var(--menu-bg);
-  border: 1px solid var(--line); border-radius: 9px; box-shadow: var(--shadow-soft);
+  border: 1px solid var(--line); border-radius: var(--radius-menu); box-shadow: var(--shadow-menu);
   padding: 4px; animation: pop .1s ease-out;
   max-height: calc(100vh - 16px); overflow-y: auto; overscroll-behavior: contain;
 }
@@ -32,13 +33,14 @@
 /* ============ 对话框 ============ */
 .dialog-overlay {
   position: fixed; inset: 0; z-index: 15000;
-  background: rgba(0,0,0,.32); backdrop-filter: blur(3px);
+  /* 模态遮罩：只压暗，不模糊（纯色材质） */
+  background: rgba(0, 0, 0, .32);
   display: flex; align-items: center; justify-content: center; padding: 16px;
 }
 .dialog {
   width: 420px; max-width: 94vw; max-height: 86vh; overflow: auto;
-  background: var(--menu-bg); backdrop-filter: blur(34px);
-  border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow);
+  background: var(--menu-bg);
+  border: 1px solid var(--line); border-radius: var(--radius-win); box-shadow: var(--shadow-modal);
   padding: 20px; animation: dialog .18s ease-out;
 }
 .dialog.wide { width: 520px; }
@@ -59,23 +61,32 @@
 .about-note { color: var(--text-2); font-size: 11.5px; margin-top: 14px; }
 
 /* ============ 通知 ============ */
+/* Win11 位置：视口右下角、任务栏正上方（≥768px，与 App 的移动端判定对齐；
+   窄屏保留原来的顶部位置，不把移动端 toast 压到 Dock 上）。
+   - 桌面端 bottom 预留 --taskbar-h + 12px，永远不压任务栏；
+   - z-index 故意低于任务栏（10000）：任务栏托盘弹层展开时盖住 toast，弹层内每一项都点得到；
+   - 容器 pointer-events: none，只有单条 toast 接收点击，空白区域不挡桌面。 */
 .notification-stack {
-  /* 顶部的 28px 菜单栏已删除：通知直接贴视口右上角，不再向下让位 */
-  position: fixed; top: 8px; right: 12px; z-index: 16000;
+  position: fixed; top: 8px; right: 12px; z-index: 9990;
   display: flex; flex-direction: column; gap: 8px; width: 300px;
+  pointer-events: none;
+}
+@media (min-width: 768px) {
+  .notification-stack { top: auto; bottom: calc(var(--taskbar-h) + 12px); }
 }
 .notification {
-  background: var(--menu-bg); backdrop-filter: blur(30px);
-  border: 1px solid var(--line); border-radius: 11px; box-shadow: var(--shadow-soft);
+  pointer-events: auto;
+  background: var(--menu-bg);
+  border: 1px solid var(--line); border-radius: var(--radius-win); box-shadow: var(--shadow-menu);
   padding: 11px 13px; animation: slidein .25s ease-out; cursor: pointer;
 }
-@keyframes slidein { from { opacity: 0; transform: translateX(40px); } }
+@keyframes slidein { from { opacity: 0; transform: translateX(24px); } }
 .n-title { font-weight: 700; font-size: 13px; }
 .n-body { color: var(--text-2); font-size: 12px; margin-top: 3px; word-break: break-all; }
-.notification.n-success .n-title { color: #28a745; }
-.notification.n-error .n-title { color: var(--danger); }
+.notification.n-success .n-title { color: var(--ok); }
+.notification.n-error .n-title { color: var(--danger-text); }
 /* 提示类（如「最近」里的文件已不存在）：琥珀色提醒，不是红色报错 */
-.notification.n-warn .n-title { color: #c78f1c; }
+.notification.n-warn .n-title { color: var(--warn); }
 /* 可点击通知（如「开始上传」）的轻量提示，暗示点击可打开传输窗口 */
 .notification.n-actionable:hover { border-color: var(--accent); }
 .n-action { margin-top: 7px; font-size: 11.5px; font-weight: 600; color: var(--accent); }

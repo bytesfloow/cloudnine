@@ -6,12 +6,12 @@
 }
 .term-tab {
   display: flex; align-items: center; gap: 6px; padding: 5px 12px; font-size: 12px;
-  border-radius: 7px 7px 0 0; color: var(--text-2); cursor: default;
+  border-radius: var(--radius-menu) var(--radius-menu) 0 0; color: var(--text-2); cursor: default;
 }
 .term-tab.active { background: var(--win-bg); color: var(--text); border: 1px solid var(--line); border-bottom: none; }
 .term-tab-close { opacity: .6; font-size: 13px; padding: 0 2px; }
 .term-tab-close:hover { opacity: 1; }
-.term-new-tab { padding: 4px 9px; font-size: 14px; color: var(--text-2); border-radius: 6px; }
+.term-new-tab { padding: 4px 9px; font-size: 14px; color: var(--text-2); border-radius: var(--radius-ctl); }
 .term-new-tab:hover { background: var(--hover); }
 /* 标签栏右侧的 ∨ 下拉（规格 §1.6 / §2.1.3）：新建/关闭标签、清屏、重置、关闭窗口 */
 .term-tab-menu { margin-left: auto; width: 26px; height: 22px; padding: 0; justify-content: center; }
@@ -23,7 +23,7 @@
 .term-status {
   position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
   display: flex; gap: 10px; align-items: center; padding: 6px 14px;
-  background: var(--menu-bg); border: 1px solid var(--line); border-radius: 9px;
-  box-shadow: var(--shadow-soft); font-size: 12px; color: var(--text-2);
+  background: var(--menu-bg); border: 1px solid var(--line); border-radius: var(--radius-menu);
+  box-shadow: var(--shadow-menu); font-size: 12px; color: var(--text-2);
 }
 

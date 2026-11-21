@@ -48,7 +48,7 @@ export default function ImageViewer({ src, alt = '', view }) {
   viewRef.current = view;
 
   // 画面变换直接写 DOM style：
-  // 拖动过程中不触发 React 重渲染，避免整个预览窗口（含 backdrop-filter 模糊背景）
+  // 拖动过程中不触发 React 重渲染，避免整个预览窗口（含背景模糊）
   // 每移动一像素就整窗重绘，既卡顿又容易在合成层上留下残影。
   const paint = useCallback(() => {
     const el = imgRef.current;

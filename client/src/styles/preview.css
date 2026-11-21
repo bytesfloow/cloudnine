@@ -40,11 +40,11 @@
 }
 .preview-media, .preview-pdf { width: 100%; height: 100%; background: #000; border: none; }
 .preview-audio { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; }
-.audio-art { width: 110px; height: 110px; border-radius: 18px; background: linear-gradient(135deg, #c56bff, #30a5ff); display: flex; align-items: center; justify-content: center; font-size: 44px; color: #fff; }
+.audio-art { width: 110px; height: 110px; border-radius: var(--radius-win); background: linear-gradient(135deg, #c56bff, #30a5ff); display: flex; align-items: center; justify-content: center; font-size: 44px; color: #fff; }
 .preview-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .preview-text { display: flex; flex-direction: column; gap: 8px; padding: 12px; overflow: auto; }
 .preview-pre {
-  background: var(--input-bg); border: 1px solid var(--line); border-radius: 9px;
+  background: var(--input-bg); border: 1px solid var(--line); border-radius: var(--radius-win);
   padding: 12px; font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-all;
   overflow: auto; flex: 1;
 }
@@ -61,7 +61,7 @@
 .md-render { overflow: auto; padding: 14px 18px; line-height: 1.65; font-size: 13.5px; }
 .md-render h1, .md-render h2, .md-render h3 { margin: 14px 0 8px; }
 .md-render p { margin: 8px 0; }
-.md-render pre { background: var(--input-bg); padding: 10px; border-radius: 8px; overflow: auto; }
+.md-render pre { background: var(--input-bg); padding: 10px; border-radius: var(--radius-win); overflow: auto; }
 .md-render code { font-family: var(--mono); font-size: 12px; }
 .md-render img { max-width: 100%; }
 .md-render table { border-collapse: collapse; }

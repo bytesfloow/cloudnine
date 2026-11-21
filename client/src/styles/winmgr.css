@@ -11,7 +11,7 @@
   position: absolute; z-index: 12000; pointer-events: none;
   background: var(--accent-soft-solid);
   border: 1px solid var(--accent);
-  border-radius: 2px;
+  border-radius: var(--radius-win);
 }
 
 /* Alt+Tab 切换器：居中浮层，不拦指针（真正决定焦点的是键盘状态） */
@@ -23,15 +23,15 @@
 .alt-tab-panel {
   display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
   width: max-content; max-width: min(880px, 88vw);
-  padding: 14px; border-radius: 12px;
-  background: var(--menu-bg); border: 1px solid var(--line); box-shadow: var(--shadow);
+  padding: 14px; border-radius: var(--radius-win);
+  background: var(--menu-bg); border: 1px solid var(--line); box-shadow: var(--shadow-menu);
 }
 /* 超过 6 个才限高滚动（≤6 直接平铺） */
 .alt-tab-panel.scroll {
   max-height: min(62vh, 520px); overflow-y: auto; align-content: flex-start;
 }
 .alt-tab-item {
-  width: 186px; min-height: 64px; padding: 9px 10px; border-radius: 8px;
+  width: 186px; min-height: 64px; padding: 9px 10px; border-radius: var(--radius-menu);
   display: flex; align-items: center; gap: 9px;
   border: 1px solid var(--line); background: var(--panel-bg); color: var(--text-2);
 }

@@ -13,14 +13,14 @@
 }
 .auth-card {
   width: 380px; max-width: 94vw; max-height: 92vh; overflow: auto;
-  background: var(--menu-bg); backdrop-filter: blur(30px) saturate(160%);
-  border: 1px solid var(--win-border); border-radius: 18px;
-  box-shadow: var(--shadow); padding: 34px 30px; text-align: center;
+  background: var(--menu-bg);
+  border: 1px solid var(--win-border); border-radius: var(--radius-win);
+  box-shadow: var(--shadow-modal); padding: 34px 30px; text-align: center;
 }
 .auth-logo, .auth-avatar { font-size: 44px; margin-bottom: 10px; }
 .auth-card h1 { font-size: 19px; font-weight: 700; margin-bottom: 6px; }
 .auth-sub { color: var(--text-2); font-size: 12.5px; margin-bottom: 18px; }
-.auth-err { color: var(--danger); font-size: 12.5px; margin: 8px 0; }
+.auth-err { color: var(--danger-text); font-size: 12.5px; margin: 8px 0; }
 .auth-version { color: var(--text-2); font-size: 11px; margin-top: 14px; }
 .field { display: block; text-align: left; margin: 12px 0; }
 .field > span { display: block; font-size: 12px; color: var(--text-2); margin-bottom: 5px; }

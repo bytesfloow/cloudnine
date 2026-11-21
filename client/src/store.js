@@ -164,6 +164,9 @@ export function applyTheme(theme) {
     : theme;
   document.documentElement.dataset.theme = resolved;
   document.documentElement.style.colorScheme = resolved;
+  // 主题真正落地后广播一次：画布类组件（终端 xterm）不跟着 React 重渲染，
+  // 必须靠这个事件刷新配色。这里是全仓唯一的 theme-changed 发射点。
+  bus.emit('theme-changed', resolved);
 }
 export function setTheme(theme) {
   localStorage.setItem('cloudnine-theme', theme);

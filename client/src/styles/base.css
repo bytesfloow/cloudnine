@@ -1,60 +1,103 @@
 /* ============ 主题变量 ============ */
+/* Fluent 设计令牌（阶段 3 · T13）：
+   - 圆角：窗口 / 菜单 / 弹层统一 8px（--radius-win / --radius-menu）；
+     按钮、输入框、列表行等控件 4px（--radius-ctl，Win11 控件圆角）。
+   - 材质：纯色，全域不使用背景模糊（docs §0 决策 6）。
+   - 字体：Segoe UI Variable Display → Segoe UI → system-ui → 微软雅黑。 */
 :root {
   --accent: #0a7cff;
   --accent-soft: rgba(10, 124, 255, 0.12);
   /* 纯色版 --accent-soft：Aero Snap 预览矩形要求「不半透明」（docs §5.2） */
   --accent-soft-solid: #dbe9fb;
-  --danger: #ff5f57;
-  --radius-win: 11px;
-  --radius-ctl: 8px;
+  --danger: #c42b1c;
+  --radius-win: 8px;
+  --radius-menu: 8px;
+  --radius-ctl: 4px;
   /* 底部任务栏高度：外壳与桌面图标区的留白都以它为准（docs §1.1 / R13） */
   --taskbar-h: 40px;
-  --font: system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-  --mono: 'SF Mono', 'Cascadia Code', Menlo, Consolas, 'Courier New', monospace;
+  --font: 'Segoe UI Variable Display', 'Segoe UI', system-ui, 'Microsoft YaHei', sans-serif;
+  --mono: 'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;
 }
+/* 亮色色阶按 Fluent：背景 #F3F3F3 系 / 表面 #FFFFFF / 描边 #E5E5E5 系 / 文字三级灰阶。
+   材质全部为不透明纯色（无 rgba 表面、无背景模糊）。 */
 :root[data-theme='light'] {
   --wallpaper: radial-gradient(1200px 800px at 20% 10%, #2f5aa8 0%, transparent 62%),
                radial-gradient(1000px 700px at 80% 20%, #6b3d9e 0%, transparent 58%),
                radial-gradient(900px 900px at 50% 100%, #17655f 0%, transparent 52%),
                linear-gradient(160deg, #131d33 0%, #1a1d38 50%, #0f2429 100%);
-  --text: #1d1d1f;
-  --text-2: #6e6e73;
-  --win-bg: rgba(248, 248, 250, 0.88);
-  --win-border: rgba(0, 0, 0, 0.12);
-  --panel-bg: rgba(252, 252, 253, 0.8);
-  --sidebar-bg: rgba(240, 241, 245, 0.55);
-  --hover: rgba(0, 0, 0, 0.05);
-  --active: rgba(0, 0, 0, 0.09);
-  --line: rgba(0, 0, 0, 0.1);
-  --menu-bg: rgba(250, 250, 252, 0.92);
-  --input-bg: rgba(255, 255, 255, 0.85);
-  --bar-bg: rgba(238, 239, 243, 0.9);
+  --bg: #f3f3f3;
+  --text: #1b1b1b;
+  --text-2: #5a5a5a;
+  /* 三级灰阶里最深的一档：禁用 / 占位。对 #f3f3f3 与 #ffffff 均 ≥ 4.5:1 */
+  --text-3: #6f6f6f;
+  --win-bg: #ffffff;
+  --win-border: #e5e5e5;
+  --panel-bg: #fafafa;
+  --sidebar-bg: #f7f7f7;
+  --hover: rgba(0, 0, 0, 0.04);
+  --active: rgba(0, 0, 0, 0.07);
+  /* 按下态：比悬停再深一档，三态（悬停/按下/禁用）靠灰阶区分 */
+  --pressed: rgba(0, 0, 0, 0.11);
+  --line: #e5e5e5;
+  --menu-bg: #ffffff;
+  --input-bg: #ffffff;
+  --bar-bg: #f3f3f3;
   --cap-glyph: #1f1f1f;
   --accent-soft-solid: #dbe9fb;
-  --shadow: 0 22px 70px rgba(0, 0, 0, 0.28), 0 4px 16px rgba(0, 0, 0, 0.12);
-  --shadow-soft: 0 10px 34px rgba(0, 0, 0, 0.14);
+  --danger: #c42b1c;
+  /* 语义色（亮色修正：原来的 macOS 亮橙色/亮绿色当正文时对比度不够） */
+  --ok: #1f7d36;
+  --ok-soft: #e6f4ea;
+  --warn: #8a5a00;
+  --warn-strong: #b45309;
+  --warn-soft: #fdf3e0;
+  --danger-text: #c0271c;
+  --danger-soft: #fdeceb;
+  /* 窗口阴影三层：常规 / 悬停焦点 / 模态；弹层单独一层（--shadow-menu） */
+  --shadow-win: 0 8px 16px rgba(0, 0, 0, 0.08), 0 0 2px rgba(0, 0, 0, 0.06), 0 2px 6px rgba(0, 0, 0, 0.04);
+  --shadow-win-focus: 0 16px 32px rgba(0, 0, 0, 0.12), 0 0 2px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.06);
+  --shadow-modal: 0 32px 64px rgba(0, 0, 0, 0.16), 0 0 2px rgba(0, 0, 0, 0.1), 0 8px 24px rgba(0, 0, 0, 0.1);
+  --shadow-menu: 0 8px 16px rgba(0, 0, 0, 0.1), 0 0 2px rgba(0, 0, 0, 0.1);
+  /* 兼容旧别名：仍指向各自语义的真实层级 */
+  --shadow: var(--shadow-modal);
+  --shadow-soft: var(--shadow-menu);
 }
 :root[data-theme='dark'] {
   --wallpaper: radial-gradient(1200px 800px at 20% 10%, #1d3a6e 0%, transparent 60%),
                radial-gradient(1000px 700px at 80% 20%, #3d2a63 0%, transparent 55%),
                radial-gradient(900px 900px at 50% 100%, #0e4a44 0%, transparent 50%),
                linear-gradient(160deg, #12131a 0%, #191b26 50%, #10161a 100%);
+  --bg: #1a1a1a;
   --text: #f2f2f5;
-  --text-2: #9b9ba1;
-  --win-bg: rgba(30, 30, 36, 0.9);
-  --win-border: rgba(255, 255, 255, 0.14);
-  --panel-bg: rgba(36, 36, 42, 0.82);
-  --sidebar-bg: rgba(28, 28, 34, 0.6);
+  --text-2: #b9b9bf;
+  --text-3: #8f8f96;
+  --win-bg: #202020;
+  --win-border: #3a3a3a;
+  --panel-bg: #262626;
+  --sidebar-bg: #232323;
   --hover: rgba(255, 255, 255, 0.07);
   --active: rgba(255, 255, 255, 0.12);
-  --line: rgba(255, 255, 255, 0.12);
-  --menu-bg: rgba(40, 40, 47, 0.94);
-  --input-bg: rgba(20, 20, 26, 0.7);
-  --bar-bg: rgba(34, 34, 40, 0.9);
+  --pressed: rgba(255, 255, 255, 0.18);
+  --line: #3a3a3a;
+  --menu-bg: #2b2b2b;
+  --input-bg: #2b2b2b;
+  --bar-bg: #1f1f1f;
   --cap-glyph: #ececf0;
   --accent-soft-solid: #1c2947;
-  --shadow: 0 22px 70px rgba(0, 0, 0, 0.6), 0 4px 16px rgba(0, 0, 0, 0.4);
-  --shadow-soft: 0 10px 34px rgba(0, 0, 0, 0.45);
+  --danger: #ff5f57;
+  --ok: #4cc26a;
+  --ok-soft: rgba(76, 194, 106, .16);
+  --warn: #e0a85a;
+  --warn-strong: #ffb066;
+  --warn-soft: rgba(224, 168, 90, .16);
+  --danger-text: #ff8a80;
+  --danger-soft: rgba(255, 95, 87, .16);
+  --shadow-win: 0 8px 16px rgba(0, 0, 0, 0.36), 0 0 2px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.28);
+  --shadow-win-focus: 0 16px 32px rgba(0, 0, 0, 0.46), 0 0 2px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.34);
+  --shadow-modal: 0 32px 64px rgba(0, 0, 0, 0.55), 0 0 2px rgba(0, 0, 0, 0.6), 0 8px 24px rgba(0, 0, 0, 0.4);
+  --shadow-menu: 0 8px 16px rgba(0, 0, 0, 0.42), 0 0 2px rgba(0, 0, 0, 0.5);
+  --shadow: var(--shadow-modal);
+  --shadow-soft: var(--shadow-menu);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -62,6 +105,7 @@ html, body, #root, #share-root { height: 100%; }
 body {
   font-family: var(--font);
   color: var(--text);
+  background: var(--bg);
   font-size: 13px;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
@@ -70,24 +114,31 @@ button { font-family: inherit; font-size: inherit; color: inherit; background: n
 input, select, textarea {
   font-family: inherit; font-size: 13px; color: var(--text);
   background: var(--input-bg); border: 1px solid var(--line);
-  border-radius: 6px; padding: 5px 8px; outline: none;
+  border-radius: var(--radius-ctl); padding: 5px 8px; outline: none;
 }
+input::placeholder, textarea::placeholder { color: var(--text-3); }
 input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+input:disabled, select:disabled, textarea:disabled { color: var(--text-3); background: var(--panel-bg); }
 a { color: var(--accent); text-decoration: none; }
 .mono { font-family: var(--mono); font-size: 12px; }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .btn {
   display: inline-flex; align-items: center; gap: 4px; justify-content: center;
-  padding: 5px 12px; border-radius: 7px;
+  padding: 5px 12px; border-radius: var(--radius-ctl);
   background: var(--hover); border: 1px solid var(--line);
-  font-size: 12.5px; transition: all .15s; white-space: nowrap;
+  font-size: 12.5px; transition: background-color .12s ease, border-color .12s ease; white-space: nowrap;
 }
-.btn:hover { background: var(--active); }
-.btn:disabled { opacity: 0.45; cursor: default; }
+.btn:hover:not(:disabled) { background: var(--active); }
+.btn:active:not(:disabled) { background: var(--pressed); border-color: var(--line); }
+/* 禁用态走灰阶，不用 opacity：文字保持可读，避免「半透明文字叠背景」的随机对比度 */
+.btn:disabled { color: var(--text-3); background: transparent; border-color: var(--line); cursor: default; }
 .btn-primary { background: var(--accent); border-color: transparent; color: #fff; }
-.btn-primary:hover { background: #0a6ee0; }
+.btn-primary:hover:not(:disabled) { background: #0a6ee0; }
+.btn-primary:active:not(:disabled) { background: #0963c9; }
 .btn-danger { background: var(--danger); border-color: transparent; color: #fff; }
+/* 主按钮禁用：退成中性灰块（与 Fluent 禁用按钮一致），不拿低透明度白字凑数 */
+.btn-primary:disabled { color: var(--text-3); background: var(--hover); border-color: var(--line); opacity: 1; }
 .btn-small { padding: 3px 9px; font-size: 12px; }
 .btn-icon { width: 26px; height: 26px; padding: 0; }
 

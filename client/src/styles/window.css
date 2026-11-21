@@ -1,11 +1,13 @@
 /* ============ 窗口 ============ */
 .window {
   position: absolute; display: flex; flex-direction: column;
-  background: var(--win-bg); backdrop-filter: blur(34px) saturate(170%);
+  /* 纯色材质：不透明表面 + 1px 描边，不加背景模糊（docs §0 决策 6） */
+  background: var(--win-bg);
   border: 1px solid var(--win-border); border-radius: var(--radius-win);
-  box-shadow: var(--shadow); overflow: hidden; min-width: 200px; min-height: 120px;
+  box-shadow: var(--shadow-win); overflow: hidden; min-width: 200px; min-height: 120px;
 }
-.window:not(.focused) { box-shadow: 0 10px 34px rgba(0,0,0,.18); }
+/* 焦点窗口：阴影第二层（悬停焦点），不靠颜色变化区分 */
+.window.focused { box-shadow: var(--shadow-win-focus); }
 .window.minimized { display: none; }
 
 /* 桌面/窗口的界面文字不参与浏览器原生拖选。
@@ -56,7 +58,7 @@
 }
 /* 悬停/按下底色复用主题变量 --hover/--active，保证关闭键的红色规则（后置）在两套主题下都胜出 */
 .tc:hover { background: var(--hover); }
-.tc:active { background: var(--active); }
+.tc:active { background: var(--pressed); }
 .tc-close:hover { background: #c42b1c; }
 .tc-close:active { background: #b92718; }
 .tc-close:hover::before, .tc-close:active::before { background-color: #fff; }
@@ -83,7 +85,7 @@
 /* ============ 窗口内菜单（规格 §1.6） ============ */
 /* 终端标签栏 ∨ / 记事本 文件·编辑：按钮只摆下拉，弹层与样式复用全局 ContextMenu */
 .winmenu-btn {
-  height: 24px; padding: 0 9px; border-radius: 5px; display: inline-flex; align-items: center;
+  height: 24px; padding: 0 9px; border-radius: var(--radius-ctl); display: inline-flex; align-items: center;
   gap: 4px; color: var(--text); font-size: 12.5px; white-space: nowrap; flex: none;
 }
 .winmenu-btn:hover { background: var(--hover); }
@@ -100,20 +102,20 @@
 .win-error-title { margin: 0; font-size: 14px; color: var(--text); }
 .win-error-msg {
   max-width: 100%; max-height: 140px; overflow: auto; margin: 0; padding: 8px 10px;
-  background: var(--hover); border-radius: 8px; font-size: 12px; color: var(--text-2);
+  background: var(--hover); border-radius: var(--radius-win); font-size: 12px; color: var(--text-2);
   white-space: pre-wrap; word-break: break-word;
 }
 .app-error { display: flex; align-items: center; justify-content: center; height: 100vh; padding: 24px; }
 .app-error-box {
   display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 520px; padding: 28px 32px;
-  background: var(--win-bg); border: 1px solid var(--win-border); border-radius: 14px;
-  box-shadow: var(--shadow-soft); text-align: center;
+  background: var(--win-bg); border: 1px solid var(--win-border); border-radius: var(--radius-win);
+  box-shadow: var(--shadow-modal); text-align: center;
 }
 .app-error-icon { font-size: 32px; }
 .app-error-title { margin: 0; font-size: 16px; color: var(--text); }
 .app-error-msg {
   max-width: 100%; max-height: 200px; overflow: auto; margin: 0; padding: 8px 10px;
-  background: var(--hover); border-radius: 8px; font-size: 12px; color: var(--text-2);
+  background: var(--hover); border-radius: var(--radius-win); font-size: 12px; color: var(--text-2);
   white-space: pre-wrap; word-break: break-word;
 }
 

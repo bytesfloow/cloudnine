@@ -5,7 +5,7 @@
 .desktop-icons {
   /* 顶部菜单栏已删除：图标区从屏幕最顶开始；底部仍为通栏任务栏让位（docs §1.1 / R13） */
   position: absolute; top: 0; left: 10px; right: 10px; bottom: calc(var(--taskbar-h) + 6px);
-  z-index: 1; border-radius: 10px;
+  z-index: 1; border-radius: var(--radius-win);
   /* 改为左起横排后，横向不再需要滚动（列数由宽度自动重算）；
      竖向仍可能放不下，宁可出现滚动条也不把图标裁掉。 */
   overflow-x: hidden; overflow-y: auto;
@@ -23,7 +23,7 @@
 }
 .desktop-icon {
   display: flex; flex-direction: column; align-items: center; gap: 2px;
-  width: calc(var(--di-cell-w, 102px) - 8px); padding: 6px 2px; border-radius: 8px; cursor: default;
+  width: calc(var(--di-cell-w, 102px) - 8px); padding: 6px 2px; border-radius: var(--radius-menu); cursor: default;
   touch-action: none; user-select: none; -webkit-user-select: none;
   justify-self: center;
 }

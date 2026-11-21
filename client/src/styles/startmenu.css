@@ -1,13 +1,13 @@
 /* ============ 开始菜单（阶段 1 · T4） ============ */
-/* 纯色材质：不加 backdrop-filter、不用半透明背景（docs §0 决策 6 已锁定）。
-   亮/暗两套主题各给一组变量，规则本身只有一份。 */
+/* 纯色材质：不加背景模糊、不用半透明背景（docs §0 决策 6 已锁定）。
+   亮色按 Fluent 色阶：面板 #F3F3F3（同任务栏），输入框与弹层表面 #FFFFFF，描边 #E5E5E5。 */
 :root[data-theme='light'] {
-  --sm-bg: #f3f3f5;
+  --sm-bg: #f3f3f3;
   --sm-input-bg: #ffffff;
-  --sm-input-line: rgba(0, 0, 0, 0.14);
-  --sm-hover: #e7e8ec;
-  --sm-sel: #dfe8f8;
-  --sm-foot-bg: #ebecf0;
+  --sm-input-line: #e5e5e5;
+  --sm-hover: #e8e8e8;
+  --sm-sel: #e0ecfb;
+  --sm-foot-bg: #ededed;
   --sm-icon: #4a4f57;
 }
 :root[data-theme='dark'] {
@@ -27,8 +27,8 @@
   height: min(620px, calc(100vh - var(--taskbar-h) - 28px));
   display: flex; flex-direction: column; overflow: hidden;
   background: var(--sm-bg); color: var(--text);
-  border: 1px solid var(--line); border-radius: 11px;
-  box-shadow: var(--shadow); z-index: 10002;
+  border: 1px solid var(--line); border-radius: var(--radius-win);
+  box-shadow: var(--shadow-menu); z-index: 10002;
   text-align: left; animation: sm-in .12s ease-out;
 }
 @keyframes sm-in { from { opacity: 0; transform: translateY(8px); } }
@@ -37,7 +37,7 @@
 .sm-search { flex: none; padding: 14px 16px 8px; }
 .sm-search-field {
   display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px;
-  border-radius: 18px; border: 1px solid var(--sm-input-line);
+  border-radius: var(--radius-ctl); border: 1px solid var(--sm-input-line);
   background: var(--sm-input-bg); color: var(--text-2);
 }
 .sm-search-field:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
@@ -63,7 +63,7 @@
 .sm-pinned { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px 4px; }
 .sm-app {
   display: flex; flex-direction: column; align-items: center; gap: 7px;
-  padding: 10px 4px 9px; border-radius: 7px; border: 1px solid transparent;
+  padding: 10px 4px 9px; border-radius: var(--radius-ctl); border: 1px solid transparent;
   color: var(--text);
 }
 .sm-app svg { flex: none; }
@@ -78,7 +78,7 @@
 .sm-recents { display: flex; flex-direction: column; gap: 1px; }
 .sm-recent {
   display: flex; align-items: center; gap: 10px; width: 100%;
-  padding: 7px 9px; border-radius: 6px; color: var(--text); text-align: left;
+  padding: 7px 9px; border-radius: var(--radius-ctl); color: var(--text); text-align: left;
 }
 .sm-recent:hover { background: var(--sm-hover); }
 .sm-recent.sel { background: var(--sm-sel); }
@@ -96,7 +96,7 @@
 .sm-results { display: flex; flex-direction: column; gap: 1px; }
 .sm-result {
   display: flex; align-items: center; gap: 10px; width: 100%;
-  padding: 8px 9px; border-radius: 6px; color: var(--text); text-align: left;
+  padding: 8px 9px; border-radius: var(--radius-ctl); color: var(--text); text-align: left;
 }
 .sm-result:hover { background: var(--sm-hover); }
 .sm-result.sel { background: var(--sm-sel); }
@@ -129,7 +129,7 @@
 }
 .sm-foot-btn {
   display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 8px;
-  border-radius: 6px; color: var(--text); white-space: nowrap; font-size: 12px;
+  border-radius: var(--radius-ctl); color: var(--text); white-space: nowrap; font-size: 12px;
 }
 .sm-foot-btn:hover { background: var(--sm-hover); }
-.sm-foot-btn:active { background: var(--active); }
+.sm-foot-btn:active { background: var(--pressed); }
