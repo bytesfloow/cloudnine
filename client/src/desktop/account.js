@@ -23,8 +23,23 @@ export async function changePasswordFlow() {
   }
 }
 
-export async function logoutFlow() {
-  if (!(await confirmDialog({ title: '退出登录', message: '确定要退出当前会话吗？' }))) return;
+// 退出登录与锁定共用一段收尾：注销会话、清空窗口、回到登录页
+async function signOut() {
   await api.logout().catch(() => {});
   setState({ user: null, windows: [], focusId: null });
+}
+
+export async function logoutFlow() {
+  if (!(await confirmDialog({ title: '退出登录', message: '确定要退出当前会话吗？' }))) return;
+  await signOut();
+}
+
+// 开始菜单电源位：「锁定」= 回到登录页（docs §1.3 底部账户区）
+export async function lockFlow() {
+  if (!(await confirmDialog({
+    title: '锁定',
+    message: '锁定后回到登录页，需要重新输入密码。',
+    okText: '锁定',
+  }))) return;
+  await signOut();
 }

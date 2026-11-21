@@ -8,12 +8,14 @@
   border-top: 1px solid var(--line); z-index: 10000;
   font-size: 12px; user-select: none;
 }
-/* 开始按钮：位置先留出，阶段 1 · T4 才接开始菜单（现在是不可点的占位） */
+/* 开始按钮：单击开/合开始菜单（docs §1.2） */
 .tb-start {
   width: 34px; height: 30px; flex: none; display: flex; align-items: center; justify-content: center;
   border-radius: 6px; color: var(--accent); opacity: .9;
 }
-.tb-start:hover { background: var(--hover); }
+.tb-start:hover, .tb-start.open { background: var(--hover); opacity: 1; }
+.tb-start:active { background: var(--active); }
+.tb-start:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
 .tb-pinned { display: flex; align-items: center; gap: 2px; flex: none; }
 .tb-app {

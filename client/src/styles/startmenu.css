@@ -1,0 +1,135 @@
+/* ============ 开始菜单（阶段 1 · T4） ============ */
+/* 纯色材质：不加 backdrop-filter、不用半透明背景（docs §0 决策 6 已锁定）。
+   亮/暗两套主题各给一组变量，规则本身只有一份。 */
+:root[data-theme='light'] {
+  --sm-bg: #f3f3f5;
+  --sm-input-bg: #ffffff;
+  --sm-input-line: rgba(0, 0, 0, 0.14);
+  --sm-hover: #e7e8ec;
+  --sm-sel: #dfe8f8;
+  --sm-foot-bg: #ebecf0;
+  --sm-icon: #4a4f57;
+}
+:root[data-theme='dark'] {
+  --sm-bg: #242428;
+  --sm-input-bg: #2f2f35;
+  --sm-input-line: rgba(255, 255, 255, 0.14);
+  --sm-hover: #303036;
+  --sm-sel: #2a4666;
+  --sm-foot-bg: #1e1e22;
+  --sm-icon: #b9bcc4;
+}
+
+/* 锚定左下角，在任务栏之上；高度随视口收敛，不溢出桌面 */
+.startmenu {
+  position: absolute; left: 6px; bottom: calc(100% + 8px);
+  width: 580px; max-width: calc(100vw - 12px);
+  height: min(620px, calc(100vh - var(--taskbar-h) - var(--menubar-h) - 28px));
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--sm-bg); color: var(--text);
+  border: 1px solid var(--line); border-radius: 11px;
+  box-shadow: var(--shadow); z-index: 10002;
+  text-align: left; animation: sm-in .12s ease-out;
+}
+@keyframes sm-in { from { opacity: 0; transform: translateY(8px); } }
+
+/* 搜索框 */
+.sm-search { flex: none; padding: 14px 16px 8px; }
+.sm-search-field {
+  display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px;
+  border-radius: 18px; border: 1px solid var(--sm-input-line);
+  background: var(--sm-input-bg); color: var(--text-2);
+}
+.sm-search-field:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.sm-search-icon { display: inline-flex; flex: none; color: var(--text-2); }
+.sm-search-input {
+  flex: 1 1 auto; min-width: 0; height: 100%; padding: 0;
+  border: none; background: transparent; color: var(--text);
+  font-size: 13px; box-shadow: none; user-select: text;
+}
+.sm-search-input:focus { border: none; box-shadow: none; }
+.sm-search-input::placeholder { color: var(--text-2); }
+
+/* 内容区：只有这里滚动，搜索框与账户区固定 */
+.sm-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 2px 16px 12px; }
+.sm-section + .sm-section { margin-top: 6px; }
+.sm-section-title {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin: 10px 2px 7px; font-size: 12px; font-weight: 600; color: var(--text-2);
+}
+.sm-section-title span { font-size: 11px; font-weight: 400; }
+
+/* 已固定：4 列 × 2 行（7 项），不包含「预览」 */
+.sm-pinned { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px 4px; }
+.sm-app {
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+  padding: 10px 4px 9px; border-radius: 7px; border: 1px solid transparent;
+  color: var(--text);
+}
+.sm-app svg { flex: none; }
+.sm-app:hover { background: var(--sm-hover); }
+.sm-app.sel { background: var(--sm-sel); border-color: var(--line); }
+.sm-app-label {
+  width: 100%; text-align: center; font-size: 12px; line-height: 1.3;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* 最近使用的文件 */
+.sm-recents { display: flex; flex-direction: column; gap: 1px; }
+.sm-recent {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 7px 9px; border-radius: 6px; color: var(--text); text-align: left;
+}
+.sm-recent:hover { background: var(--sm-hover); }
+.sm-recent.sel { background: var(--sm-sel); }
+.sm-recent-icon { display: inline-flex; flex: none; color: var(--sm-icon); }
+.sm-recent-name {
+  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-size: 12.5px;
+}
+.sm-recent-dir {
+  flex: 0 1 auto; max-width: 45%; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-size: 11px; color: var(--text-2);
+}
+
+/* 搜索结果（应用 + 命令） */
+.sm-results { display: flex; flex-direction: column; gap: 1px; }
+.sm-result {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 8px 9px; border-radius: 6px; color: var(--text); text-align: left;
+}
+.sm-result:hover { background: var(--sm-hover); }
+.sm-result.sel { background: var(--sm-sel); }
+.sm-result-icon { display: inline-flex; flex: none; color: var(--sm-icon); }
+.sm-result-label {
+  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-size: 12.5px;
+}
+.sm-result-hint {
+  flex: 0 1 auto; max-width: 40%; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-size: 11px; color: var(--text-2);
+}
+.sm-result-kind { flex: none; font-size: 11px; color: var(--text-2); }
+
+/* 空态 / 加载中 */
+.sm-empty {
+  padding: 24px 18px 20px; text-align: center;
+  color: var(--text-2); font-size: 12.5px; line-height: 1.8;
+}
+
+/* 底部账户区 */
+.sm-footer {
+  flex: none; display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px; border-top: 1px solid var(--line); background: var(--sm-foot-bg);
+}
+.sm-avatar { width: 28px; height: 28px; font-size: 13px; flex: none; }
+.sm-user {
+  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-size: 12.5px; font-weight: 600;
+}
+.sm-foot-btn {
+  display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 8px;
+  border-radius: 6px; color: var(--text); white-space: nowrap; font-size: 12px;
+}
+.sm-foot-btn:hover { background: var(--sm-hover); }
+.sm-foot-btn:active { background: var(--active); }

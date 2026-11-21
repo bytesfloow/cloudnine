@@ -312,14 +312,19 @@ export function toggleWindow(id) {
   focusWindow(id);
 }
 
-// 应用启动器（任务栏固定项 / 开始菜单）：该类型有最小化窗口 → 还原最上层那个；否则新建。
-// 与 openWindow 的差别就在这一步：multi: true 的类型 openWindow 永远新建，
+// 应用启动器（任务栏固定项 / 开始菜单）：
+// 1) 同类型有可见窗口 → 置顶（已经是前台则什么都不做，绝不叠新的）；
+// 2) 只剩最小化窗口 → 还原最上层那个；
+// 3) 一个都没有 → 新建。
+// 与 openWindow 的差别就在这两步：multi: true 的类型 openWindow 永远新建，
 // 启动器若直接调它，最小化的旧窗口就会被永远埋在内存里（docs §5.3 ①）。
-export function activateOrOpen(type, props = {}) {
-  const win = state.windows
-    .filter((w) => w.type === type && w.minimized)
-    .sort((a, b) => b.z - a.z)[0];
-  if (win) return focusWindow(win.id);
+// match 用来区分同类型里身份不同的窗口（如 finder 中带 props.trash 的回收站窗口）。
+export function activateOrOpen(type, props = {}, match = null) {
+  const pool = state.windows.filter((w) => w.type === type && (!match || match(w)));
+  const visible = pool.filter((w) => !w.minimized).sort((a, b) => b.z - a.z)[0];
+  if (visible) return focusWindow(visible.id);
+  const minimized = pool.filter((w) => w.minimized).sort((a, b) => b.z - a.z)[0];
+  if (minimized) return focusWindow(minimized.id);
   return openWindow(type, props);
 }
 

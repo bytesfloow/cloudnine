@@ -512,6 +512,8 @@ try {
   const badgeNames = [`${badgeBase}-a.bin`, `${badgeBase}-b.bin`];
   const dropName = `uitest-drop-${Date.now()}.txt`;
   const tbDirName = `uitest-tb-dir-${Date.now()}`;
+  // 开始菜单「最近使用的文件」用例的预置文件（带内容，点击后要真的在记事本里打开）
+  const smRecentName = `uitest-start-recent-${Date.now()}.md`;
   if (!MOBILE) {
   // ---------- 桌面直览：主目录里的真实文件直接铺在桌面上 ----------
   section('桌面直览（主目录）');
@@ -1475,6 +1477,295 @@ try {
       check('重新登录成功（任务栏回到桌面）', !!(await page.$('.taskbar')), '未回到桌面');
     }
   }
+
+  // ---------- 5.10 开始菜单（阶段 1 · T4） ----------
+  section('开始菜单（固定项 / 搜索 / 最近文件 / 账户区）');
+  {
+    const smSid = await loginViaApi();
+    // 重新载入：清空前面留下的窗口与弹层，得到干净的桌面外壳
+    await page.reload({ waitUntil: 'networkidle2', timeout: 45000 });
+    await page.waitForSelector('.taskbar', { timeout: 15000 });
+    await sleep(900);
+
+    // 预置一个「最近使用的文件」：内容非空，点击后应真的在记事本里打开
+    const smRecentPath = homeRel ? `${homeRel}/${smRecentName}` : smRecentName;
+    if (smSid) {
+      await apiFetch('POST', '/api/fs/write', { path: smRecentPath, content: '# 开始菜单最近文件自测\n\nT4\n' }, `cloudnine_sid=${smSid}`);
+      await apiFetch('POST', '/api/fs/recent', { path: smRecentPath, name: smRecentName }, `cloudnine_sid=${smSid}`);
+    }
+    await page.reload({ waitUntil: 'networkidle2', timeout: 45000 });
+    await page.waitForSelector('.taskbar', { timeout: 15000 });
+    await sleep(800);
+
+    const startBtn = await page.$('.tb-start');
+    check('开始按钮是可点击按钮（占位 span 已替换）',
+      !!startBtn && await page.$eval('.tb-start', (el) => el.tagName === 'BUTTON' && !el.getAttribute('aria-hidden')));
+    check('开始菜单初始关闭', !(await page.$('.startmenu')));
+
+    const openStart = async () => {
+      await page.evaluate(() => document.querySelector('.tb-start')?.click());
+      await page.waitForSelector('.startmenu', { timeout: 8000 });
+      await sleep(250);
+    };
+    const clickStartApp = async (key) => {
+      const ok = await page.evaluate((k) => {
+        const el = document.querySelector(`.startmenu .sm-app[data-app="${k}"]`);
+        if (!el) return false;
+        el.click();
+        return true;
+      }, key);
+      await sleep(900);
+      return ok;
+    };
+    const closeAllWindows = async () => {
+      await page.evaluate(() => document.querySelectorAll('.window .tc-close').forEach((b) => b.click()));
+      await page.waitForFunction(() => document.querySelectorAll('.window').length === 0, { timeout: 10000 }).catch(() => {});
+      await sleep(300);
+    };
+
+    await openStart();
+    check('单击开始按钮打开开始菜单', !!(await page.$('.startmenu')));
+    check('搜索框自动聚焦',
+      await page.evaluate(() => document.activeElement?.classList.contains('sm-search-input')));
+
+    const pinnedKeys = await page.$$eval('.startmenu .sm-app', (els) => els.map((e) => e.dataset.app));
+    const pinnedLabels = await page.$$eval('.startmenu .sm-app-label', (els) => els.map((e) => e.innerText.trim()));
+    check('已固定严格 7 项', pinnedKeys.length === 7, `${pinnedKeys.length}: ${pinnedKeys.join(',')}`);
+    check('已固定 7 项的名称与顺序正确',
+      JSON.stringify(pinnedLabels) === JSON.stringify(['文件资源管理器', '终端', '记事本', '传输', '分享管理', '磁盘监控', '回收站']),
+      pinnedLabels.join(','));
+    check('已固定不含「预览」', !pinnedLabels.includes('预览'), pinnedLabels.join(','));
+
+    const geo = await page.evaluate(() => {
+      const sm = document.querySelector('.startmenu');
+      const smRect = sm.getBoundingClientRect();
+      const tbRect = document.querySelector('.taskbar').getBoundingClientRect();
+      return {
+        gap: Math.round(tbRect.top - smRect.bottom),
+        smZ: Number(getComputedStyle(sm).zIndex),
+        tbZ: Number(getComputedStyle(document.querySelector('.taskbar')).zIndex),
+        bg: getComputedStyle(sm).backgroundColor,
+        backdrop: getComputedStyle(sm).backdropFilter,
+      };
+    });
+    check('开始菜单锚定在任务栏正上方', geo.gap >= 4 && geo.gap <= 12, `间距 ${geo.gap}px`);
+    check('开始菜单层级高于任务栏', geo.smZ > geo.tbZ, `${geo.smZ} vs ${geo.tbZ}`);
+    check('开始菜单为纯色材质（不透明背景 + 无 backdrop-filter）',
+      /^rgb\(/.test(geo.bg) && geo.backdrop === 'none', JSON.stringify(geo));
+
+    check('最近使用的文件区列出已记录文件',
+      (await page.$$eval('.startmenu .sm-recent-name', (els) => els.map((e) => e.innerText.trim()))).includes(smRecentName),
+      smRecentName);
+
+    // 与任务栏托盘共用 store.popover 单槽位
+    await page.evaluate(() => document.querySelector('.tray-account')?.click());
+    await sleep(300);
+    check('打开托盘弹层后开始菜单自动收起（单槽位）',
+      !(await page.$('.startmenu')) && !!(await page.$('.tb-popover')), '仍有两层同时打开');
+    await page.evaluate(() => document.querySelector('.tray-account')?.click());
+    await sleep(250);
+
+    // Esc
+    await openStart();
+    await page.keyboard.press('Escape');
+    await sleep(300);
+    check('Esc 关闭开始菜单', !(await page.$('.startmenu')));
+    // 点击外部
+    await openStart();
+    await page.mouse.click(1180, 300);
+    await sleep(300);
+    check('点击菜单外部关闭开始菜单', !(await page.$('.startmenu')));
+    // 再次单击开始按钮
+    await openStart();
+    await page.evaluate(() => document.querySelector('.tb-start')?.click());
+    await sleep(300);
+    check('开始菜单已打开时再点按钮关闭', !(await page.$('.startmenu')));
+
+    // 搜索：实时过滤
+    await openStart();
+    await page.click('.sm-search-input');
+    await page.keyboard.type('终');
+    await sleep(350);
+    const termResults = await page.$$eval('.startmenu .sm-result-label', (els) => els.map((e) => e.innerText.trim()));
+    check('搜索实时过滤应用名', termResults.length === 1 && termResults[0] === '终端', termResults.join(','));
+    // ↑↓ + Enter
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.terminal-window', { timeout: 10000 }).catch(() => {});
+    check('↑↓ + Enter 在结果间选取并启动', !!(await page.$('.terminal-window')), '未打开终端');
+    check('启动应用后开始菜单自动关闭', !(await page.$('.startmenu')));
+    await closeAllWindows();
+
+    // 搜索：无结果 → 空态；清空 → 恢复
+    await openStart();
+    await page.click('.sm-search-input');
+    await page.keyboard.type('zzzz-not-exist');
+    await sleep(350);
+    const emptyText = await page.$eval('.startmenu .sm-empty', (el) => el.innerText).catch(() => '');
+    check('无结果时显示空态提示', /没有找到/.test(emptyText), emptyText);
+    check('无结果时不显示已固定项', (await page.$$('.startmenu .sm-app')).length === 0);
+    await page.keyboard.down('Control');
+    await page.keyboard.press('KeyA');
+    await page.keyboard.up('Control');
+    await page.keyboard.press('Backspace');
+    await sleep(350);
+    check('清空搜索后恢复已固定 7 项', (await page.$$('.startmenu .sm-app')).length === 7);
+    check('清空搜索后空态消失', !(await page.$('.startmenu .sm-empty')));
+
+    // 搜索命令 + 方向键在多条结果间移动：验证 Enter 执行的是第二条（命令）
+    await page.click('.sm-search-input');
+    await page.keyboard.type('文件');
+    await sleep(350);
+    const fileResults = await page.$$eval('.startmenu .sm-result-label', (els) => els.map((e) => e.innerText.trim()));
+    check('搜索结果同时包含应用与命令',
+      fileResults.length >= 2 && fileResults.includes('文件资源管理器') && fileResults.includes('新建文件夹'),
+      fileResults.join(','));
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    await sleep(600);
+    const cmdDlgTitle = await page.$eval('.dialog h3', (el) => el.innerText.trim()).catch(() => '');
+    check('↑↓ 选中命令后 Enter 执行（新建文件夹）', cmdDlgTitle === '新建文件夹', cmdDlgTitle);
+    await page.evaluate(() => [...document.querySelectorAll('.dialog-actions .btn')].find((b) => b.innerText.trim() === '取消')?.click());
+    await sleep(300);
+    check('取消命令对话框后不残留弹窗', !(await page.$('.dialog')));
+
+    // 7 个固定应用逐个启动 + 最小化后从开始菜单还原（不能叠新窗口）
+    const SM_APPS = [
+      ['finder', '文件资源管理器', '.window .finder'],
+      ['terminal', '终端', '.window .terminal-window'],
+      ['editor', '记事本', '.window .editor-window'],
+      ['transfers', '传输', '.window .transfers-window'],
+      ['shares', '分享管理', '.window .shares-window'],
+      ['disk', '磁盘监控', '.window .disk-window'],
+      ['trash', '回收站', '.window .finder'],
+    ];
+    for (const [key, label, sel] of SM_APPS) {
+      await closeAllWindows();
+      await openStart();
+      const clicked = await clickStartApp(key);
+      await page.waitForSelector(sel, { timeout: 12000 }).catch(() => {});
+      await sleep(500);
+      const opened = await page.evaluate((s) => ({
+        wins: document.querySelectorAll('.window').length,
+        matched: !!document.querySelector(s),
+        title: document.querySelector('.window .window-title')?.innerText.trim() || '',
+      }), sel);
+      check(`开始菜单启动「${label}」`, clicked && opened.wins === 1 && opened.matched, JSON.stringify(opened));
+      if (key === 'trash') check('「回收站」打开的是废纸篓视图', opened.title === '废纸篓', opened.title);
+
+      await page.evaluate(() => document.querySelector('.window .tc-min')?.click());
+      await sleep(400);
+      check(`「${label}」可最小化`,
+        await page.evaluate(() => document.querySelectorAll('.window.minimized').length === 1));
+
+      await openStart();
+      await clickStartApp(key);
+      await sleep(900);
+      const restored = await page.evaluate(() => ({
+        wins: document.querySelectorAll('.window').length,
+        hidden: document.querySelectorAll('.window.minimized').length,
+        focused: document.querySelectorAll('.window.focused').length,
+      }));
+      check(`「${label}」已最小化时点击开始菜单 = 还原而非新开`,
+        restored.wins === 1 && restored.hidden === 0 && restored.focused === 1, JSON.stringify(restored));
+    }
+    await closeAllWindows();
+
+    // 已打开且可见时，再点同一项 = 聚焦，不叠窗
+    await openStart();
+    await clickStartApp('terminal');
+    await page.waitForSelector('.terminal-window', { timeout: 10000 }).catch(() => {});
+    await openStart();
+    await clickStartApp('terminal');
+    await sleep(900);
+    const refocus = await page.evaluate(() => ({
+      wins: document.querySelectorAll('.window').length,
+      focused: document.querySelectorAll('.window.focused').length,
+    }));
+    check('已打开且可见的应用再点 = 聚焦而非新开', refocus.wins === 1 && refocus.focused === 1, JSON.stringify(refocus));
+    await closeAllWindows();
+
+    // 最近文件点击：真实打开对应文件
+    await openStart();
+    const recentOpened = await page.evaluate((n) => {
+      const el = [...document.querySelectorAll('.startmenu .sm-recent')].find((x) => x.innerText.includes(n));
+      if (!el) return false;
+      el.click();
+      return true;
+    }, smRecentName);
+    await page.waitForSelector('.editor-window', { timeout: 10000 }).catch(() => {});
+    await sleep(900);
+    const recentTitle = await page.$eval('.window .window-title', (el) => el.innerText.trim()).catch(() => '');
+    const recentContent = await page.$eval('.editor-window .cm-content', (el) => el.innerText).catch(() => '');
+    check('点击最近使用的文件真实打开（记事本 + 文件名）',
+      recentOpened && recentTitle === smRecentName, `title=${recentTitle}`);
+    check('最近文件的内容已加载', /开始菜单最近文件自测/.test(recentContent), recentContent.slice(0, 60));
+    await closeAllWindows();
+
+    // 关于本系统
+    await openStart();
+    await page.evaluate(() => {
+      [...document.querySelectorAll('.startmenu .sm-foot-btn')].find((b) => b.innerText.includes('关于本系统'))?.click();
+    });
+    await sleep(500);
+    check('底部「关于本系统」打开关于对话框', !!(await page.$('.dialog .about-body')), '未出现 .about-body');
+    await page.evaluate(() => document.querySelector('.dialog-actions .btn-primary')?.click());
+    await sleep(300);
+    check('关于对话框可关闭', !(await page.$('.dialog')));
+
+    // 亮色 / 暗色两套主题下各截一张
+    const accOpen = () => page.evaluate(() => document.querySelector('.tray-account')?.click());
+    const accClick = (label) => page.evaluate((l) => {
+      [...document.querySelectorAll('.tb-popover .account-popover .dropdown-item')].find((b) => b.innerText.includes(l))?.click();
+    }, label);
+    await accOpen();
+    await sleep(250);
+    await accClick('深色主题');
+    await sleep(350);
+    await openStart();
+    check('暗色主题下开始菜单正常显示', (await page.evaluate(() => document.documentElement.dataset.theme)) === 'dark');
+    await shot('开始菜单-暗色');
+    await page.keyboard.press('Escape');
+    await sleep(250);
+
+    await accOpen();
+    await sleep(250);
+    await accClick('浅色主题');
+    await sleep(350);
+    await openStart();
+    check('亮色主题下开始菜单正常显示', (await page.evaluate(() => document.documentElement.dataset.theme)) === 'light');
+    await shot('开始菜单-亮色');
+    await page.keyboard.press('Escape');
+    await sleep(250);
+
+    await accOpen();
+    await sleep(250);
+    await accClick('跟随系统');
+    await sleep(250);
+
+    // 锁定 = 回到登录页（与退出登录同一流程）
+    await openStart();
+    await page.evaluate(() => {
+      [...document.querySelectorAll('.startmenu .sm-foot-btn')].find((b) => b.innerText.trim() === '锁定')?.click();
+    });
+    await sleep(400);
+    const lockTitle = await page.$eval('.dialog h3', (el) => el.innerText.trim()).catch(() => '');
+    check('「锁定」二次确认出现（文案为锁定）', lockTitle === '锁定', lockTitle);
+    await page.evaluate(() => document.querySelector('.dialog-actions .btn-primary')?.click());
+    await sleep(1800);
+    const lockLoggedOut = !!(await page.$('.auth-card'));
+    check('锁定后回到登录页', lockLoggedOut, '未出现登录页');
+    if (lockLoggedOut) {
+      const inputs = await page.$$('.auth-card input');
+      if (inputs.length >= 2) {
+        await inputs[0].click(); await page.keyboard.type(USERNAME);
+        await inputs[1].click(); await page.keyboard.type(PASSWORD);
+      }
+      await page.click('.auth-card .btn-primary');
+      await sleep(2500);
+      check('锁定后可用原账号重新登录', !!(await page.$('.taskbar')), '未回到桌面');
+    }
+  }
   } // end !MOBILE
 
   // ---------- 6. 控制台错误 ----------
@@ -1489,7 +1780,7 @@ try {
   if (!flag('keep')) {
     section('清理测试产物');
     const sid2 = await loginViaApi();
-    const names = [proofName, editName, pasteName, notifyName, btnUploadName, imgName, deskName, dirName, probeName, newDirName, dropName, tbDirName, ...badgeNames].filter(Boolean);
+    const names = [proofName, editName, pasteName, notifyName, btnUploadName, imgName, deskName, dirName, probeName, newDirName, dropName, tbDirName, smRecentName, ...badgeNames].filter(Boolean);
     for (const n of names) {
       const r = await apiFetch('GET', `/api/fs/search?path=/&q=${encodeURIComponent(n)}`, undefined, `cloudnine_sid=${sid2}`);
       const hit = (r.json?.results || []).find((x) => x.name === n);

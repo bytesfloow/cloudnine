@@ -16,6 +16,7 @@
        desktop.css     137-184  桌面底图、桌面图标网格、提示语
        menubar.css     185-258  顶部菜单栏、下拉菜单、弹出面板
        taskbar.css     367-383  任务栏（原 Dock）
+       startmenu.css   ——       开始菜单（阶段 1 · T4 新增，纯色材质）
        overlays.css    384-458  右键菜单、对话框、快速预览外壳、通知
      窗口
        window.css      259-366  窗口框架、标题栏按钮、缩放把手、错误兜底
@@ -35,6 +36,7 @@
 @import './menubar.css';
 @import './window.css';
 @import './taskbar.css';
+@import './startmenu.css';
 @import './overlays.css';
 @import './finder.css';
 @import './terminal.css';

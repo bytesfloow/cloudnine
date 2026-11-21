@@ -6,6 +6,7 @@ import {
 } from '../store.js';
 import { addUpload, uploadStats } from '../transfers.js';
 import { changePasswordFlow, logoutFlow } from './account.js';
+import StartMenu from './StartMenu.jsx';
 import { IconFiles, IconTerminal, IconEditor, IconTransfer, IconBell, IconWindows } from '../icons.jsx';
 
 // 固定应用区：图标常驻，单击 = 无窗口则新建 / 有窗口切到最上层 / 已聚焦则最小化
@@ -89,10 +90,22 @@ export default function Taskbar() {
 
   return (
     <div className="taskbar" onContextMenu={blankMenu}>
-      {/* 开始按钮：位置先留出，阶段 1 · T4 才接开始菜单 */}
-      <span className="tb-start" title="开始菜单（阶段 1 · T4 接入）" aria-hidden="true">
+      {/* 开始按钮：单击开/合开始菜单；菜单与按钮共用 store.popover 的 'start' 槽位 */}
+      <button
+        type="button"
+        className={`tb-start${s.popover?.kind === 'start' ? ' open' : ''}`}
+        title="开始"
+        aria-label="开始"
+        aria-haspopup="dialog"
+        aria-expanded={s.popover?.kind === 'start'}
+        onClick={(e) => {
+          e.stopPropagation();
+          openPopover(s.popover?.kind === 'start' ? null : 'start');
+        }}
+      >
         <IconWindows size={17} />
-      </span>
+      </button>
+      <StartMenu />
 
       <div className="tb-pinned">
         {PINNED.map(({ type, label, Icon }) => {
