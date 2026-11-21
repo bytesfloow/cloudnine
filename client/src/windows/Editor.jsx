@@ -194,7 +194,7 @@ export default function EditorWindow({ win }) {
   saveAsRef.current = saveAs;
   useEffect(() => {
     function onKey(e) {
-      if ((e.ctrlKey || e.metaKey) && !e.altKey && String(e.key).toLowerCase() === 's') {
+      if (e.ctrlKey && !e.altKey && String(e.key).toLowerCase() === 's') {
         const st = getState();
         if (st.focusId && st.focusId !== win.id) return; // 仅当前焦点窗口响应
         e.preventDefault();

@@ -167,16 +167,20 @@ export default function TerminalWindow({ win }) {
     }
   }), [win.id, tabs, active]);
 
-  // Ctrl+Shift+T / Ctrl+Shift+W（捕获阶段：先于 Desktop 的全局 Ctrl+W 关窗逻辑）
+  // Ctrl+W / Ctrl+Shift+W 关标签，Ctrl+Shift+T 新建标签（捕获阶段：先于 Desktop 的全局关窗逻辑）。
+  // C1：只认 ctrlKey；C7：焦点在终端时 Ctrl+W 的优先级是「先关标签」而不是关窗口。
+  // stopPropagation 同时挡住 xterm 把 ^W 送给 shell，以及 Desktop 的 Ctrl+W 关窗分支。
   useEffect(() => {
     function onKey(e) {
-      if (!(e.ctrlKey || e.metaKey) || e.altKey || !e.shiftKey) return;
+      if (!e.ctrlKey || e.altKey) return;
       const k = String(e.key).toLowerCase();
-      if (k !== 't' && k !== 'w') return;
+      const closeTab = k === 'w';
+      const newTab = k === 't' && e.shiftKey;
+      if (!closeTab && !newTab) return;
       if (getState().focusId !== win.id) return; // 仅当前焦点窗口响应
       e.preventDefault();
       e.stopPropagation();
-      act(k === 't' ? 'newTab' : 'closeTab');
+      act(newTab ? 'newTab' : 'closeTab');
     }
     document.addEventListener('keydown', onKey, true);
     return () => document.removeEventListener('keydown', onKey, true);
@@ -185,7 +189,7 @@ export default function TerminalWindow({ win }) {
 
   const tabMenu = [
     { label: '新建标签页', hint: 'Ctrl+Shift+T', action: () => act('newTab') },
-    { label: '关闭当前标签', hint: 'Ctrl+Shift+W', action: () => act('closeTab') },
+    { label: '关闭当前标签', hint: 'Ctrl+W', action: () => act('closeTab') },
     '-',
     { label: '清屏', action: () => act('clear') },
     { label: '重置终端', action: () => act('clear', 'reset') },

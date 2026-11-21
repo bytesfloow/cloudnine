@@ -463,10 +463,10 @@ try {
         if (rowEl) {
           await rowEl.tap();
           await sleep(2000);
-          check('移动端打开图片快速预览', !!(await page.$('.m-quicklook .preview-stage img')), '未找到 .m-quicklook .preview-stage img');
+          check('移动端打开图片快速预览', !!(await page.$('.m-preview .preview-stage img')), '未找到 .m-preview .preview-stage img');
 
           const box = await (await page.$('.preview-stage')).boundingBox();
-          const tf = () => page.$eval('.m-quicklook .preview-stage img', (el) => el.style.transform).catch(() => '');
+          const tf = () => page.$eval('.m-preview .preview-stage img', (el) => el.style.transform).catch(() => '');
           const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
           const cdp = await page.createCDPSession();
 
@@ -513,7 +513,7 @@ try {
             `缩小后 ${t4} → 上滑后 ${t5}`);
 
           // 工具条「适应」复位
-          const zBtns = await page.$$('.m-quicklook .preview-zoom .btn');
+          const zBtns = await page.$$('.m-preview .preview-zoom .btn');
           check('移动端缩放工具存在', zBtns.length >= 4, `按钮数 ${zBtns.length}`);
           if (zBtns.length >= 3) {
             await zBtns[2].click();
@@ -561,6 +561,11 @@ try {
   const gridBase = `uitest-grid-${Date.now()}`;
   const gridNames = Array.from({ length: 22 }, (_, i) => `${gridBase}-${String(i + 1).padStart(2, '0')}.txt`);
   const badgeFileName = `uitest-badge-refresh-${Date.now()}.txt`;
+  // T10 快捷键用例的产物（文件 / 目录都走清理阶段兜底删除）
+  const keyTxt = `uitest-key-${Date.now()}.txt`;
+  const keyF5 = `uitest-key-f5-${Date.now()}.txt`;
+  const keyDir = `uitest-key-dir-${Date.now()}`;
+  const keyNewDir = `uitest-key-new-${Date.now()}`;
   if (!MOBILE) {
   // ---------- 桌面直览：主目录里的真实文件直接铺在桌面上 ----------
   section('桌面直览（主目录）');
@@ -880,7 +885,7 @@ try {
     selected: document.querySelectorAll('.desktop-icon[data-entry].selected').length,
     total: document.querySelectorAll('.desktop-icon[data-entry]').length,
   }));
-  check('桌面 Cmd/Ctrl+A 全选', selAll.selected === selAll.total && selAll.total > 0, JSON.stringify(selAll));
+  check('桌面 Ctrl+A 全选（⌘ 已不参与）', selAll.selected === selAll.total && selAll.total > 0, JSON.stringify(selAll));
   await shot('桌面多选');
 
   // 文件条目的右键菜单：结构 + 每个动作的真实效果
@@ -944,14 +949,17 @@ try {
   check('「打开」真的打开编辑器窗口', !!(await page.$('.window .editor-window')), '未找到 .editor-window');
   await closeWins();
 
-  // 预览 → 快速预览浮层
+  // 预览 → 预览窗口（T10：macOS 空格预览浮层已删除，预览改为真正的窗口）
   await ctxOpenIcon(deskName);
   await ctxClick(0, '预览');
-  await sleep(1200);
-  check('「预览」打开快速预览浮层', !!(await page.$('.quicklook-overlay')), '未找到 .quicklook-overlay');
-  await page.keyboard.press('Escape');
-  await sleep(300);
-  check('快速预览可关闭', !(await page.$('.quicklook-overlay')));
+  await sleep(1500);
+  check('「预览」打开预览窗口而不是预览浮层',
+    !!(await page.$('.window .preview-window')) && !(await page.$('.quicklook-overlay')),
+    '未找到 .preview-window 或仍存在已删除的预览浮层');
+  const prevTitle = await page.evaluate(() =>
+    document.querySelector('.window .preview-window')?.closest('.window')?.querySelector('.window-title')?.innerText.trim() || '');
+  check('预览窗口标题是正确文件名', prevTitle === deskName, prevTitle);
+  await closeWins();
 
   // 打开方式 → 编辑器 / 预览
   await ctxOpenIcon(deskName);
@@ -1683,9 +1691,11 @@ try {
     }, cmdFile);
     await sleep(400);
     const itemLabels = await ctxLabels(0);
-    check('条目右键（文件）项与改造前一致：打开/快速预览/剪切/复制/重命名/删除/压缩…/发送到/属性',
-      ['打开', '快速预览', '剪切', '复制', '重命名', '删除', '压缩…', '发送到', '属性'].every((k) => itemLabels.includes(k))
+    check('条目右键（文件）项与改造前一致：打开/预览/剪切/复制/重命名/删除/压缩…/发送到/属性',
+      ['打开', '预览', '剪切', '复制', '重命名', '删除', '压缩…', '发送到', '属性'].every((k) => itemLabels.includes(k))
       && itemLabels.some((t) => t.startsWith('分享…')), itemLabels.join(','));
+    check('条目右键不再出现「快速预览」旧文案',
+      !itemLabels.some((t) => t.includes('快速预览')), itemLabels.join(','));
     check('条目右键不再出现「显示简介」「移入废纸篓」旧文案',
       !itemLabels.some((t) => /显示简介|移入废纸篓/.test(t)), itemLabels.join(','));
     await ctxClick(0, '发送到');
@@ -1702,8 +1712,8 @@ try {
     });
     await sleep(400);
     const dirLabels = await ctxLabels(0);
-    check('目录条目右键含「打开方式」子菜单、无「快速预览」',
-      dirLabels.includes('打开方式') && !dirLabels.includes('快速预览'), dirLabels.join(','));
+    check('目录条目右键含「打开方式」子菜单、无「预览」',
+      dirLabels.includes('打开方式') && !dirLabels.includes('预览'), dirLabels.join(','));
     await ctxClick(0, '打开方式');
     const openWith = await ctxLabels(1);
     check('「打开方式 ▸」内含 在终端中打开', openWith.includes('在终端中打开'), openWith.join(','));
@@ -3243,6 +3253,381 @@ try {
     await page.evaluate(() => document.querySelectorAll('.window .tc-close').forEach((b) => b.click()));
     await sleep(600);
   }
+
+  // ---------- 5.11 快捷键表（阶段 2 · T10）----------
+  // 验收依据：docs/win11-interaction-spec.md §3.1 / §3.2 / §3.3（C1-C13）
+  section('快捷键（Win11 语义 / 空格预览已移除）');
+  if (sid) {
+    // 干净起点：关掉所有窗口回桌面
+    await page.evaluate(() => document.querySelectorAll('.window .tc-close').forEach((b) => b.click()));
+    await sleep(800);
+
+    const hp = (n) => (homeRel ? `${homeRel}/${n}` : n);
+    const combo = async (mods, code, wait = 500) => {
+      for (const m of mods) await page.keyboard.down(m);
+      await page.keyboard.press(code);
+      for (const m of [...mods].reverse()) await page.keyboard.up(m);
+      await sleep(wait);
+    };
+    // 合成 keydown 只关心浏览器默认行为是否被拦（真实按键用于验证动作）
+    const prevented = (init) => page.evaluate((i) => {
+      const ev = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...i });
+      (document.activeElement || document.body).dispatchEvent(ev);
+      return ev.defaultPrevented;
+    }, init);
+    const deskNames = () => page.$$eval('.desktop-icon[data-entry]', (els) => els.map((e) => e.dataset.entry));
+    const deskSelected = () => page.$$eval('.desktop-icon[data-entry].selected', (els) => els.length);
+    const clickDesk = async (n) => {
+      await page.evaluate((name) => {
+        document.querySelector(`.desktop-icon[data-entry="${name}"]`)
+          ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      }, n);
+      await sleep(300);
+    };
+    const closeWindows = async () => {
+      await page.evaluate(() => document.querySelectorAll('.window .tc-close').forEach((b) => b.click()));
+      await sleep(800);
+    };
+
+    // 预置：一个文本文件 + 一个子目录（快捷键用例的靶子）
+    await apiFetch('POST', '/api/fs/write', { path: hp(keyTxt), content: 'shortcut key test\n' }, `cloudnine_sid=${sid}`);
+    await apiFetch('POST', '/api/fs/mkdir', { path: hp(keyDir) }, `cloudnine_sid=${sid}`);
+    await ctxOpenBlank();
+    await ctxClick(0, '刷新');
+    await sleep(1200);
+    check('快捷键用例的靶子文件已出现在桌面', (await deskNames()).includes(keyTxt));
+
+    // ---- C5：空格不再触发预览，改为切换当前选中项 ----
+    await clickDesk(keyTxt);
+    const selOne = await deskSelected();
+    await page.keyboard.press('Space');
+    await sleep(400);
+    const selSpaceOff = await deskSelected();
+    const overlayAfterSpace = await page.evaluate(() => ({
+      overlay: !!document.querySelector('.quicklook-overlay'),
+      previewWin: !!document.querySelector('.window .preview-window'),
+    }));
+    check('C5 空格切换选中项（1→0）且不弹任何预览',
+      selOne === 1 && selSpaceOff === 0 && !overlayAfterSpace.overlay && !overlayAfterSpace.previewWin,
+      `before=${selOne} after=${selSpaceOff} ${JSON.stringify(overlayAfterSpace)}`);
+    await page.keyboard.press('Space');
+    await sleep(400);
+    check('C5 再按空格重新选中（0→1）', (await deskSelected()) === 1, `selected=${await deskSelected()}`);
+    await shot('快捷键-空格切换选中');
+
+    // ---- C12：macOS 空格预览浮层（组件 + 样式）彻底移除成本组断言 ----
+    const qlResidue = await page.evaluate(() => ({
+      overlay: document.querySelectorAll('.quicklook-overlay, .quicklook, .quicklook-content').length,
+      classHit: [...document.querySelectorAll('[class]')].filter((el) => {
+        const c = typeof el.className === 'string' ? el.className : '';
+        return /quicklook/i.test(c);
+      }).length,
+    }));
+    check('C12 渲染树里已无空格预览浮层 / 旧样式类',
+      qlResidue.overlay === 0 && qlResidue.classHit === 0, JSON.stringify(qlResidue));
+
+    // ---- C1：metaKey（⌘）不再参与任何快捷键 ----
+    const metaPrev = await prevented({ key: 'a', metaKey: true });
+    await sleep(400);
+    check('C1 ⌘A 不再全选（metaKey 不参与）',
+      metaPrev === false && (await deskSelected()) === 1, `prevented=${metaPrev} selected=${await deskSelected()}`);
+    await combo(['Control'], 'KeyA', 400);
+    const allSel = await page.evaluate(() => ({
+      selected: document.querySelectorAll('.desktop-icon[data-entry].selected').length,
+      total: document.querySelectorAll('.desktop-icon[data-entry]').length,
+    }));
+    check('C1/C9 Ctrl+A 仍是桌面全选', allSel.selected === allSel.total && allSel.total > 0, JSON.stringify(allSel));
+
+    // ---- C2 / C3：Ctrl+N 新建资源管理器窗口 ----
+    await page.evaluate(() => {
+      const el = document.querySelector('.desktop-icons');
+      const o = { bubbles: true, clientX: 700, clientY: 600 };
+      el.dispatchEvent(new MouseEvent('mousedown', o));
+      el.dispatchEvent(new MouseEvent('mouseup', o));
+    });
+    await sleep(300);
+    const winsBeforeN = (await page.$$('.window')).length;
+    // 合成按键验证「浏览器默认行为被拦」（真实按键只能证明动作生效，在无头 Chrome 里看不到默认行为）
+    const ctrlNPrev = await prevented({ key: 'n', ctrlKey: true });
+    await sleep(1300);
+    const winsAfterSyntheticN = (await page.$$('.window')).length;
+    // 真实按键走同一条路径，再验一次窗口数 +1
+    await combo(['Control'], 'KeyN', 1500);
+    const winsAfterN = (await page.$$('.window')).length;
+    check('C2/C3 Ctrl+N 在桌面新建文件资源管理器窗口（不是新建文件夹）',
+      ctrlNPrev && winsAfterSyntheticN === winsBeforeN + 1 && winsAfterN === winsAfterSyntheticN + 1
+      && !!(await page.$('.window .finder')) && !(await page.$('.dialog')),
+      `prevented=${ctrlNPrev} ${winsBeforeN}→${winsAfterSyntheticN}→${winsAfterN}`);
+    await shot('快捷键-Ctrl+N 新建文件窗口');
+    // 留一个文件窗口继续用例，关掉刚多开的那一个
+    await page.evaluate(() => document.querySelector('.window.focused .tc-close')?.click());
+    await sleep(800);
+
+    // ---- F5：刷新当前视图（必须 preventDefault，否则整页刷新） ----
+    await apiFetch('POST', '/api/fs/write', { path: hp(keyF5), content: 'f5\n' }, `cloudnine_sid=${sid}`);
+    await page.evaluate(() => document.querySelector('.window.focused .finder-content')?.click());
+    await sleep(300);
+    const f5Prev = await prevented({ key: 'F5' });
+    await sleep(1300);
+    check('F5 刷新当前视图（新文件出现）且不刷新整页',
+      f5Prev && !!(await page.$(`.finder-item[data-name="${keyF5}"]`)),
+      `prevented=${f5Prev} item=${!!(await page.$(`.finder-item[data-name="${keyF5}"]`))}`);
+
+    // ---- 高危回归 4：输入框内空格 / Delete / Backspace 不能吃掉打字 ----
+    await page.evaluate(() => document.querySelector('.finder-search input')?.focus());
+    await page.keyboard.type('a b');
+    const typed1 = await page.$eval('.finder-search input', (el) => el.value);
+    await page.keyboard.press('Backspace');
+    await sleep(300);
+    const typed2 = await page.$eval('.finder-search input', (el) => el.value);
+    const addrAfterBs = await page.$eval('.finder-address', (el) => el.innerText).catch(() => '');
+    check('输入框内 Backspace 只删字符（不触发后退）',
+      typed1 === 'a b' && typed2 === 'a ' && !!addrAfterBs.trim(), `'${typed1}'→'${typed2}'`);
+    await page.keyboard.press('Delete');
+    await sleep(300);
+    check('输入框内 Delete 不弹「移入废纸篓」', !(await page.$('.dialog')));
+    await page.keyboard.type(' c');
+    await sleep(300);
+    check('输入框内空格仍能正常输入', (await page.$eval('.finder-search input', (el) => el.value)) === 'a  c',
+      await page.$eval('.finder-search input', (el) => el.value));
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => document.activeElement?.blur?.());
+    await sleep(400);
+
+    // ---- F3：聚焦搜索框 ----
+    await page.keyboard.press('F3');
+    await sleep(500);
+    check('F3 聚焦搜索框', await page.evaluate(() => !!document.activeElement?.closest?.('.finder-search')));
+    await page.evaluate(() => document.activeElement?.blur?.());
+    await sleep(200);
+
+    // ---- Alt+↑ / Alt+← / Alt+→：目录历史 ----
+    const addrText = () => page.$eval('.finder-address', (el) => el.innerText).catch(() => '');
+    await page.evaluate((n) => {
+      document.querySelector(`.finder-item[data-name="${n}"]`)
+        ?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    }, keyDir);
+    await sleep(1200);
+    const addrInDir = await addrText();
+    await combo(['Alt'], 'ArrowUp', 1200);
+    const addrParent = await addrText();
+    check('Alt+↑ 回到上一级目录', /uitest-key-dir/.test(addrInDir) && !/uitest-key-dir/.test(addrParent),
+      `${addrInDir.replace(/\n/g, ' ')} → ${addrParent.replace(/\n/g, ' ')}`);
+    await combo(['Alt'], 'ArrowLeft', 1200);
+    const addrBack = await addrText();
+    check('Alt+← 后退（真的回到刚才的目录）', /uitest-key-dir/.test(addrBack), addrBack.replace(/\n/g, ' '));
+    await combo(['Alt'], 'ArrowRight', 1200);
+    const addrFwd = await addrText();
+    check('Alt+→ 前进（回到上级目录）', !/uitest-key-dir/.test(addrFwd), addrFwd.replace(/\n/g, ' '));
+    await shot('快捷键-Alt 方向键导航');
+
+    // ---- Ctrl+L：编辑地址栏（前往文件夹） ----
+    const ctrlLPrev = await prevented({ key: 'l', ctrlKey: true });
+    await combo(['Control'], 'KeyL', 600);
+    const goTitle = await page.$eval('.dialog h3', (el) => el.innerText.trim()).catch(() => '');
+    check('Ctrl+L 打开「前往文件夹」（且拦下浏览器地址栏）',
+      ctrlLPrev && goTitle === '前往文件夹', `prevented=${ctrlLPrev} dialog=${goTitle}`);
+    await page.keyboard.press('Escape');
+    await sleep(500);
+
+    // ---- Enter：打开选中项 ----
+    await page.evaluate((n) => {
+      document.querySelector(`.finder-item[data-name="${n}"]`)
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    }, keyTxt);
+    await sleep(350);
+    await page.keyboard.press('Enter');
+    await sleep(1600);
+    const enterTitle = await page.evaluate(() =>
+      document.querySelector('.window .editor-window')?.closest('.window')?.querySelector('.window-title')?.innerText.trim() || '');
+    check('Enter 打开选中项（.txt 进记事本且标题正确）', enterTitle === keyTxt, enterTitle);
+    await page.evaluate(() => {
+      const w = [...document.querySelectorAll('.window')].find((x) => x.querySelector('.editor-window'));
+      w?.querySelector('.tc-close')?.click();
+    });
+    await sleep(900);
+
+    // ---- Alt+Enter：属性 ----
+    await page.evaluate((n) => {
+      document.querySelector(`.finder-item[data-name="${n}"]`)
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    }, keyTxt);
+    await sleep(350);
+    await combo(['Alt'], 'Enter', 1400);
+    const infoTitle = await page.evaluate(() =>
+      document.querySelector('.window .info-window')?.closest('.window')?.querySelector('.window-title')?.innerText.trim() || '');
+    check('Alt+Enter 打开属性窗口（标题含文件名）', infoTitle.includes(keyTxt), infoTitle);
+    await page.evaluate(() => {
+      const w = [...document.querySelectorAll('.window')].find((x) => x.querySelector('.info-window'));
+      w?.querySelector('.tc-close')?.click();
+    });
+    await sleep(800);
+
+    // ---- C4：Backspace = 后退（文件窗口内） ----
+    await page.evaluate((n) => {
+      document.querySelector(`.finder-item[data-name="${n}"]`)
+        ?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    }, keyDir);
+    await sleep(1200);
+    const dirAddr = await addrText();
+    await page.keyboard.press('Backspace');
+    await sleep(1200);
+    const afterBsAddr = await addrText();
+    check('C4 文件窗口内 Backspace = 后退（目录真的变了）',
+      /uitest-key-dir/.test(dirAddr) && !/uitest-key-dir/.test(afterBsAddr),
+      `${dirAddr.replace(/\n/g, ' ')} → ${afterBsAddr.replace(/\n/g, ' ')}`);
+    const dirStill = await apiFetch('GET', `/api/fs/stat?path=${encodeURIComponent(hp(keyDir))}`, undefined, `cloudnine_sid=${sid}`);
+    check('C4 Backspace 没有把选中的条目删掉（磁盘上仍在）',
+      dirStill.status === 200, `status=${dirStill.status}`);
+    await closeWindows();
+
+    // ---- C4：桌面 Backspace 不删除，Delete 仍删除 ----
+    await clickDesk(keyTxt);
+    const deskBsPrev = await prevented({ key: 'Backspace' });
+    await page.keyboard.press('Backspace');
+    await sleep(600);
+    check('C4 桌面 Backspace 不再删除（无确认框、文件还在）',
+      deskBsPrev && !(await page.$('.dialog')) && !!(await page.$(`.desktop-icon[data-entry="${keyTxt}"]`)),
+      `prevented=${deskBsPrev}`);
+    await page.keyboard.press('Delete');
+    await sleep(700);
+    const delDialog = await page.$('.dialog-actions .btn-primary');
+    check('C4 Delete 仍弹「移入废纸篓」', !!delDialog);
+    // Esc = 关闭最上层弹窗（docs §3.1），且不能执行删除
+    await page.keyboard.press('Escape');
+    await sleep(800);
+    check('Esc 关闭确认弹窗且未执行删除',
+      !(await page.$('.dialog')) && !!(await page.$(`.desktop-icon[data-entry="${keyTxt}"]`)));
+
+    // ---- C2：Ctrl+Shift+N 新建文件夹 ----
+    const ctrlShiftNPrev = await prevented({ key: 'n', ctrlKey: true, shiftKey: true });
+    await combo(['Control', 'Shift'], 'KeyN', 700);
+    const nfTitle = await page.$eval('.dialog h3', (el) => el.innerText.trim()).catch(() => '');
+    check('C2 Ctrl+Shift+N 打开「新建文件夹」（且拦下无痕窗口）',
+      ctrlShiftNPrev && nfTitle === '新建文件夹', `prevented=${ctrlShiftNPrev} dialog=${nfTitle}`);
+    await page.evaluate(() => document.querySelector('.dialog input')?.focus());
+    await page.keyboard.type(keyNewDir);
+    await page.keyboard.press('Enter');
+    await sleep(1800);
+    check('C2 新建的文件夹真实出现在桌面', !!(await page.$(`.desktop-icon[data-entry="${keyNewDir}"]`)), keyNewDir);
+
+    // ---- C10：Ctrl 按下时不启动框选；不按 Ctrl 时框选正常 ----
+    const marqueeStart = (ctrl) => page.evaluate((c) => {
+      const el = document.querySelector('.desktop-icons');
+      el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, ctrlKey: c, clientX: 520, clientY: 320 }));
+      document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 780, clientY: 560 }));
+    }, ctrl);
+    const marqueeEnd = () => page.evaluate(() => document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true })));
+    await marqueeStart(true);
+    await sleep(350);
+    const marqueeCtrl = await page.evaluate(() => !!document.querySelector('.marquee'));
+    await marqueeEnd();
+    await sleep(250);
+    await marqueeStart(false);
+    await sleep(350);
+    const marqueePlain = await page.evaluate(() => !!document.querySelector('.marquee'));
+    await marqueeEnd();
+    await sleep(300);
+    check('C10 Ctrl+拖动不启动框选，普通拖动框选正常',
+      marqueeCtrl === false && marqueePlain === true, `ctrl=${marqueeCtrl} plain=${marqueePlain}`);
+
+    // ---- C9：Ctrl 多选生效，⌘（meta）点击不再多选 ----
+    await clickDesk(keyTxt);
+    await page.evaluate((n) => {
+      document.querySelector(`.desktop-icon[data-entry="${n}"]`)
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
+    }, keyF5);
+    await sleep(400);
+    check('C9 Ctrl+点击多选（2 项）', (await deskSelected()) === 2, `selected=${await deskSelected()}`);
+    await clickDesk(keyTxt);
+    await page.evaluate((n) => {
+      document.querySelector(`.desktop-icon[data-entry="${n}"]`)
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: true }));
+    }, keyF5);
+    await sleep(400);
+    check('C9 ⌘+点击按普通单击处理（只剩 1 项）', (await deskSelected()) === 1, `selected=${await deskSelected()}`);
+
+    // ---- C8：拖拽复制修饰键 Alt → Ctrl ----
+    const dragMode = async (n, extra) => page.evaluate((name, mod) => {
+      const el = document.querySelector(`.desktop-icon[data-entry="${name}"]`);
+      if (!el) return '';
+      const dt = new DataTransfer();
+      el.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt, ...mod }));
+      return dt.getData('application/x-cloudnine');
+    }, n, extra);
+    const modeOf = (raw) => { try { return JSON.parse(raw).mode; } catch { return '(无)'; } };
+    const ctrlDrag = modeOf(await dragMode(keyTxt, { ctrlKey: true }));
+    const altDrag = modeOf(await dragMode(keyTxt, { altKey: true }));
+    check('C8 Ctrl 拖动 = 复制，Alt 拖动回到移动',
+      ctrlDrag === 'copy' && altDrag === 'move', `ctrl=${ctrlDrag} alt=${altDrag}`);
+
+    // ---- 三处「预览」入口都开预览窗口（不是浮层） ----
+    await page.evaluate((n) => {
+      document.querySelector(`.desktop-icon[data-entry="${n}"]`)
+        ?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 640, clientY: 420 }));
+    }, keyTxt);
+    await sleep(400);
+    await ctxClick(0, '预览');
+    await sleep(1400);
+    check('入口① 桌面右键「预览」打开预览窗口',
+      !!(await page.$('.window .preview-window')) && !(await page.$('.quicklook-overlay')),
+      `preview=${!!(await page.$('.window .preview-window'))}`);
+    await closeWindows();
+
+    const openFinderWin = async () => {
+      await combo(['Control'], 'KeyN', 1500);
+      return !!(await page.$('.window .finder'));
+    };
+    await openFinderWin();
+    await page.evaluate((n) => {
+      document.querySelector(`.finder-item[data-name="${n}"]`)
+        ?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 640, clientY: 420 }));
+    }, keyTxt);
+    await sleep(400);
+    await ctxClick(0, '预览');
+    await sleep(1400);
+    check('入口② 文件右键「预览」打开预览窗口', !!(await page.$('.window .preview-window')));
+    await closeWindows();
+
+    // ---- C6：Ctrl+M 已删除（不最小化） ----
+    await openFinderWin();
+    await page.evaluate(() => document.querySelector('.window.focused .finder-content')?.click());
+    await sleep(300);
+    const minimizedBeforeM = await page.$$eval('.window.minimized', (els) => els.length);
+    await combo(['Control'], 'KeyM', 700);
+    const minimizedAfterM = await page.$$eval('.window.minimized', (els) => els.length);
+    const finderVisible = await page.evaluate(() => !!document.querySelector('.window:not(.minimized) .finder'));
+    check('C6 Ctrl+M 不再最小化窗口',
+      minimizedAfterM === minimizedBeforeM && finderVisible, `minimized=${minimizedBeforeM}→${minimizedAfterM}`);
+
+    // ---- R15：Ctrl+W 关窗口（且拦下浏览器关标签） ----
+    const ctrlWPrev = await prevented({ key: 'w', ctrlKey: true });
+    await combo(['Control'], 'KeyW', 800);
+    check('Ctrl+W 关闭当前窗口且拦下浏览器关标签',
+      ctrlWPrev && !(await page.$('.window .finder')), `prevented=${ctrlWPrev}`);
+
+    // ---- C7：终端里 Ctrl+W 先关标签，最后一个标签才关窗口 ----
+    const termEntry = await page.$('.tb-app[title="终端"]');
+    if (termEntry) {
+      await termEntry.click();
+      await sleep(1800);
+      const tabsAtStart = (await page.$$('.window .term-tab')).length;
+      await page.evaluate(() => document.querySelector('.window.focused .term-tabs')?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
+      await combo(['Control', 'Shift'], 'KeyT', 800);
+      const tabsAfterNew = (await page.$$('.window .term-tab')).length;
+      check('终端 Ctrl+Shift+T 新建标签（捕获阶段逻辑未被覆盖）',
+        tabsAfterNew === tabsAtStart + 1, `${tabsAtStart}→${tabsAfterNew}`);
+      await combo(['Control'], 'KeyW', 800);
+      const tabsAfterW = (await page.$$('.window .term-tab')).length;
+      const termWinAfterW = !!(await page.$('.window .terminal-window'));
+      check('C7 终端里 Ctrl+W 先关标签（窗口还在）',
+        tabsAfterW === tabsAfterNew - 1 && termWinAfterW, `tabs=${tabsAfterW} window=${termWinAfterW}`);
+      await combo(['Control'], 'KeyW', 900);
+      check('C7 最后一个标签关闭后窗口才关闭', !(await page.$('.window .terminal-window')));
+    } else {
+      check('任务栏存在「终端」入口（C7 用例）', false);
+    }
+  }
   } // end !MOBILE
 
   // ---------- 6. 控制台错误 ----------
@@ -3257,7 +3642,7 @@ try {
   if (!flag('keep')) {
     section('清理测试产物');
     const sid2 = await loginViaApi();
-    const names = [proofName, editName, pasteName, notifyName, btnUploadName, imgName, deskName, dirName, zipName, probeName, newDirName, dropName, tbDirName, smRecentName, wmTextName, wmSaveName, wmSaveAsName, badgeFileName, ...gridNames, ...badgeNames].filter(Boolean);
+    const names = [proofName, editName, pasteName, notifyName, btnUploadName, imgName, deskName, dirName, zipName, probeName, newDirName, dropName, tbDirName, smRecentName, wmTextName, wmSaveName, wmSaveAsName, badgeFileName, keyTxt, keyF5, keyDir, keyNewDir, ...gridNames, ...badgeNames].filter(Boolean);
     for (const n of names) {
       const r = await apiFetch('GET', `/api/fs/search?path=/&q=${encodeURIComponent(n)}`, undefined, `cloudnine_sid=${sid2}`);
       const hit = (r.json?.results || []).find((x) => x.name === n);

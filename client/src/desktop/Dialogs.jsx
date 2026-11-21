@@ -22,6 +22,21 @@ export function Notifications() {
 export default function Dialogs() {
   const s = useStore();
   const dlg = s.dialog;
+
+  // Esc 关闭最上层弹窗（docs §3.1：子菜单 → 菜单 → 开始菜单 → 弹窗逐级关闭）。
+  // 表单弹窗由 FormBody 自己处理（它还要处理 Enter），这里兜底其余几类；
+  // 「未保存的更改」三选一里 Esc 必须等价于「取消」，不能落到「不保存」。
+  useEffect(() => {
+    if (!dlg) return undefined;
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      resolveDialog(dlg.kind === 'confirm3' ? 'cancel' : null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [dlg?.id]);
+
   if (!dlg) return null;
   return (
     <div className="dialog-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget && dlg.kind !== 'confirm3') resolveDialog(null); }}>

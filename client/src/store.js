@@ -63,7 +63,6 @@ let state = {
   notifications: [],
   dialog: null,        // 当前模态对话框（队列首）
   contextMenu: null,   // {x,y,items,id}
-  quickLook: null,     // {paths:[], index}
   popover: null,       // 外壳弹层（开始菜单 / 任务栏托盘）{kind, anchor}
 
   transfers: [],       // 上传项
@@ -222,19 +221,6 @@ export const closeContextMenu = () => setState({ contextMenu: null });
 export const openPopover = (kind) =>
   setState({ popover: kind ? { kind } : null, contextMenu: null });
 export const closePopover = () => setState({ popover: null });
-
-// ---------- 快速预览 ----------
-export function openQuickLook(paths, index = 0) {
-  setState({ quickLook: { paths, index } });
-}
-export const closeQuickLook = () => setState({ quickLook: null });
-export function quickLookNav(delta) {
-  setState((s) => {
-    if (!s.quickLook) return null;
-    const n = (s.quickLook.index + delta + s.quickLook.paths.length) % s.quickLook.paths.length;
-    return { quickLook: { ...s.quickLook, index: n } };
-  });
-}
 
 // ---------- 窗口管理 ----------
 // 手动调整过的窗口几何按类型持久化到 localStorage，下次打开同类型窗口时恢复
@@ -418,7 +404,8 @@ export function updateWindowProps(id, patch) {
 export const setClipboard = (mode, paths, cwd) =>
   setState({ clipboard: mode == null ? null : { mode, paths, cwd } });
 
-// ---------- 访达选择上报（供快速预览等全局功能使用） ----------
+// ---------- 文件窗口选择上报（外壳级快捷键 / 后续预览窗格使用） ----------
+// macOS 空格预览浮层已删除，这里只保留选择上报本身，不再有浮层消费者。
 export const setFinderSel = (windowId, paths) =>
   setState((s) => ({ finderSel: { ...s.finderSel, [windowId]: paths } }));
 

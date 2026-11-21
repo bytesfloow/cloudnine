@@ -26,7 +26,7 @@ export default function MobileApp() {
   const [phase, setPhase] = useState('closed'); // closed | open | closing（缩放动画状态）
   const [origin, setOrigin] = useState('50% 85%'); // 应用打开/关闭动画的缩放原点（图标位置）
   const [dir, setDir] = useState(s.homeRel || '');
-  const [quickLookPath, setQuickLookPath] = useState(null);
+  const [previewPath, setPreviewPath] = useState(null);
   const [editorPath, setEditorPath] = useState(null);
   const closeTimer = useRef(null);
   useEffect(() => () => clearTimeout(closeTimer.current), []);
@@ -49,7 +49,7 @@ export default function MobileApp() {
 
   function openMobileFile(path, name) {
     if (TEXT_EDITABLE(name)) { setEditorPath(path); return; }
-    setQuickLookPath(path);
+    setPreviewPath(path);
   }
 
   const title = APP_TITLES[app] || '';
@@ -87,38 +87,38 @@ export default function MobileApp() {
 
       <HomeIndicator onHome={goHome} />
 
-      {quickLookPath && (
-        <div className="m-quicklook">
-          <div className="m-ql-head">
-            <span className="m-ql-title ellipsis">{basename(quickLookPath)}</span>
-            <div className="m-ql-actions">
-              <button className="m-ql-close" onClick={() => setQuickLookPath(null)} aria-label="关闭" title="关闭">
+      {previewPath && (
+        <div className="m-preview">
+          <div className="m-preview-head">
+            <span className="m-preview-title ellipsis">{basename(previewPath)}</span>
+            <div className="m-preview-actions">
+              <button className="m-preview-close" onClick={() => setPreviewPath(null)} aria-label="关闭" title="关闭">
                 <IconClose size={14} />
               </button>
             </div>
           </div>
-          <div className="m-ql-body">
+          <div className="m-preview-body">
             {/* 下载按钮并入底部缩放工具条（旋转右侧），顶栏只留关闭图标 */}
             <PreviewContent
-              path={quickLookPath}
+              path={previewPath}
               compact
-              onDownload={() => window.open(api.downloadUrl(quickLookPath))}
+              onDownload={() => window.open(api.downloadUrl(previewPath))}
             />
           </div>
         </div>
       )}
 
       {editorPath && (
-        <div className="m-quicklook">
-          <div className="m-ql-head">
-            <span className="m-ql-title ellipsis">{basename(editorPath)}</span>
-            <div className="m-ql-actions">
-              <button className="m-ql-close" onClick={() => setEditorPath(null)} aria-label="关闭" title="关闭">
+        <div className="m-preview">
+          <div className="m-preview-head">
+            <span className="m-preview-title ellipsis">{basename(editorPath)}</span>
+            <div className="m-preview-actions">
+              <button className="m-preview-close" onClick={() => setEditorPath(null)} aria-label="关闭" title="关闭">
                 <IconClose size={14} />
               </button>
             </div>
           </div>
-          <div className="m-ql-body">
+          <div className="m-preview-body">
             <EditorWindow win={{ id: 'mobile-editor', type: 'editor', props: { path: editorPath, name: basename(editorPath) }, title: basename(editorPath) }} />
           </div>
         </div>

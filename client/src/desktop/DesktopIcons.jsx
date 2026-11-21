@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  useStore, getState, setState, openWindow, openContextMenu, openQuickLook, bus, notify,
+  useStore, getState, setState, openWindow, openContextMenu, bus, notify,
   setDesktopSel, setDesktopSort, setDesktopShowHidden, setDesktopIconSize, setClipboard, joinPath, basename, confirmDialog,
 } from '../store.js';
 import { api } from '../api.js';
@@ -128,6 +128,12 @@ export default function DesktopIcons() {
     else openWindow('finder', { cwd: '' });
   }
 
+  // 打开预览窗口（macOS 空格预览浮层已删除）：path/name 定位文件，siblings 供 ←/→ 切换
+  function openPreview(paths) {
+    if (!paths.length) return;
+    openWindow('preview', { path: paths[0], name: basename(paths[0]), siblings: paths, index: 0 });
+  }
+
   // 系统图标（根目录 / 回收站）右键：文案按 §2.2.1 统一为「打开」「打开回收站」「清空回收站」
   function sysMenu(e, key) {
     if (key !== '__trash__') {
@@ -154,7 +160,8 @@ export default function DesktopIcons() {
   function clickItem(e, entry, idx) {
     setSysSel(null); // 选中文件时取消系统图标的选中态
     setState({ focusId: null }); // 点桌面图标：焦点回到桌面
-    if (e.metaKey || e.ctrlKey) {
+    // C9：多选修饰键只认 Ctrl（⌘ 不再参与），Shift 连选保留
+    if (e.ctrlKey) {
       setDesktopSel((prev) => (prev.includes(entry.name) ? prev.filter((n) => n !== entry.name) : [...prev, entry.name]));
       setAnchor(idx);
     } else if (e.shiftKey && anchor != null) {
@@ -168,7 +175,8 @@ export default function DesktopIcons() {
 
   // 橡皮筋框选
   function startMarquee(e) {
-    if (e.button !== 0 || e.metaKey || e.ctrlKey) return;
+    // C10：框选修饰键只认 Ctrl
+    if (e.button !== 0 || e.ctrlKey) return;
     if (e.target.closest('.desktop-icon, .desktop-sysicon, input, button')) return;
     // 空白处只做橡皮筋框选，别让浏览器同时启动原生文本拖选（拖动会越过新开的窗口）
     e.preventDefault();
@@ -257,7 +265,7 @@ export default function DesktopIcons() {
     openContextMenu(e.clientX, e.clientY, [
       { label: '打开', action: () => openEntry(entry, cwd) },
       { label: '打开方式', items: openIn },
-      ...(entry.type !== 'dir' ? [{ label: '预览', action: () => openQuickLook(filesOnly.length ? filesOnly : [path], 0) }] : []),
+      ...(entry.type !== 'dir' ? [{ label: '预览', action: () => openPreview(filesOnly.length ? filesOnly : [path]) }] : []),
       '-',
       { label: '重命名', action: startRename, disabled: multi },
       { label: '复制', action: () => copyToClipboard(paths, cwd) },
@@ -333,11 +341,11 @@ export default function DesktopIcons() {
   function onDragStart(e, entry) {
     const names = sel.includes(entry.name) ? sel : [entry.name];
     const paths = names.map((n) => joinPath(cwd, n));
-    e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ paths, cwd, mode: e.altKey ? 'copy' : 'move' }));
+    e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ paths, cwd, mode: e.ctrlKey ? 'copy' : 'move' }));
     e.dataTransfer.effectAllowed = 'copyMove';
   }
 
-  // 拖到文件夹上：移入该文件夹（按住 Alt 为复制）
+  // 拖到文件夹上：移入该文件夹（C8：按住 Ctrl 为复制，Win 语义）
   async function onDropOnFolder(e, entry) {
     e.preventDefault();
     e.stopPropagation();
@@ -396,9 +404,25 @@ export default function DesktopIcons() {
       case 'rename': return startRename();
       case 'trash': return doTrash();
       case 'refresh': return load();
-      case 'quickLook': {
+      case 'open': {
+        // Enter：打开选中项（多选时逐个打开，与 Win11 一致）
+        selectedEntries.forEach((en) => openEntry(en, cwd));
+        return;
+      }
+      case 'toggleSel': {
+        // C5：空格 = 切换当前选中项，不再触发预览
+        const cur = anchor != null ? files[anchor] : null;
+        if (!cur) return;
+        setDesktopSel((prev) => (prev.includes(cur.name) ? prev.filter((n) => n !== cur.name) : [...prev, cur.name]));
+        return;
+      }
+      case 'properties': {
+        if (selectedEntries.length === 1) openWindow('info', { path: joinPath(cwd, selectedEntries[0].name) });
+        return;
+      }
+      case 'preview': {
         const previewFiles = selectedEntries.filter((e) => e.type !== 'dir').map((e) => joinPath(cwd, e.name));
-        if (previewFiles.length) openQuickLook(previewFiles, 0);
+        openPreview(previewFiles);
         return;
       }
       case 'toggleHidden': return setDesktopShowHidden(!getState().desktopShowHidden);
@@ -420,7 +444,7 @@ export default function DesktopIcons() {
           return setDesktopSort({ ...st, key: action.slice(5) });
         }
     }
-  }), [cwd, selectedPaths, selectedEntries, files]);
+  }), [cwd, selectedPaths, selectedEntries, files, anchor]);
 
   // ---------- 渲染 ----------
   return (

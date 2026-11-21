@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
-  useStore, getState, bus, openWindow, openContextMenu, openQuickLook, openFile,
+  useStore, getState, bus, openWindow, openContextMenu, openFile,
   promptDialog, confirmDialog, notify, setClipboard, setWindowTitle, updateWindowProps,
   setState, setFinderSel, basename, dirname, joinPath, fmtSize, fileCat, TEXT_EDITABLE,
 } from '../store.js';
@@ -110,21 +110,10 @@ export default function Finder({ win }) {
     act(action, arg);
   }));
 
-  // F3 / F5：窗口内自带的键盘入口（§2.3 的 focus-search / refresh）。
-  // 只在本窗口获得焦点时响应；act 经 ref 取最新的闭包，避免拿到旧的 cwd。
-  const actRef = useRef(act);
-  actRef.current = act;
-  useEffect(() => {
-    const onKey = (e) => {
-      if (getState().focusId !== win.id) return;
-      if (e.key === 'F3') { e.preventDefault(); actRef.current('focus-search'); }
-      else if (e.key === 'F5') { e.preventDefault(); actRef.current('refresh'); }
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  });
+  // F3 / F5 / Alt+←→↑ / Ctrl+L / Enter / Alt+Enter 已统一由桌面壳的全局 keydown 派发到
+  // win-action（见 desktop/Desktop.jsx §3.2），窗口内不再重复挂监听，避免同一次按键执行两次。
 
-  // 选择状态上报（空格快速预览）：上报完整相对路径而不是裸文件名，
+  // 选择状态上报（外壳级选择操作 / 后续预览窗格）：上报完整相对路径而不是裸文件名，
   // 否则在子文件夹按空格会请求 /api/fs/stat?path=1.jpg 这类不存在的路径。
   useEffect(() => {
     const paths = [...sel]
@@ -170,11 +159,27 @@ export default function Finder({ win }) {
       case 'download': if (selPaths.length === 1 && selectedEntries[0]?.type !== 'dir') downloadPath(selPaths[0]); else if (selPaths.length) downloadZip(selPaths); return;
       case 'compress': if (selPaths.length) return compressDialog(selPaths); return;
       case 'share': if (selectedEntries[0]) return shareDialog({ path: joinPath(cwd, selectedEntries[0].name), name: selectedEntries[0].name, entry: selectedEntries[0] }); return;
-      case 'quickLook': {
+      // 预览窗口（macOS 空格预览浮层已删除）：path/name 定位文件，siblings 供 ←/→ 切换
+      case 'preview': {
         const files = selectedEntries.filter((e) => e.type !== 'dir').map((e) => joinPath(cwd, e.name));
-        if (files.length) openQuickLook(files, 0);
+        return openPreview(files);
+      }
+      // Enter：打开选中项（多选时逐个打开，与 Win11 一致）
+      case 'open': {
+        selectedEntries.forEach((en) => openEntry(en));
         return;
       }
+      // 空格：切换当前选中项（不再触发预览）
+      case 'toggleSel': return toggleCurrent();
+      // Alt+Enter：属性
+      case 'showInfo': {
+        const one = selectedEntries.length === 1 ? selectedEntries[0] : null;
+        if (one) openWindow('info', { path: one.path || joinPath(cwd, one.name) });
+        return;
+      }
+      // Alt+← / →：目录历史后退 / 前进
+      case 'goBack': return back();
+      case 'goForward': return fwd();
       case 'emptyTrash': return emptyTrash();
       case 'restore': return restoreSelected();
       default: return;
@@ -211,7 +216,8 @@ export default function Finder({ win }) {
   // ---------- 选择 ----------
   function clickItem(e, entry, idx) {
     const sorted = visible();
-    if (e.metaKey || e.ctrlKey) {
+    // C9：多选修饰键只认 Ctrl（⌘ 不再参与），Shift 连选保留
+    if (e.ctrlKey) {
       setSel((s) => { const n = new Set(s); if (n.has(entry.name)) n.delete(entry.name); else n.add(entry.name); return n; });
       setAnchor(idx);
     } else if (e.shiftKey && anchor != null) {
@@ -225,7 +231,8 @@ export default function Finder({ win }) {
 
   // 橡皮筋框选
   function startMarquee(e) {
-    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.target.closest('.finder-item, input, button, .rename-input')) return;
+    // C10：框选修饰键只认 Ctrl
+    if (e.button !== 0 || e.ctrlKey || e.target.closest('.finder-item, input, button, .rename-input')) return;
     // 空白处只做橡皮筋框选，别让浏览器同时启动原生文本拖选
     e.preventDefault();
     const box = bodyRef.current.getBoundingClientRect();
@@ -254,6 +261,23 @@ export default function Finder({ win }) {
       return;
     }
     openFile(joinPath(cwd, entry.name), entry.name);
+  }
+
+  // 打开预览窗口（macOS 空格预览浮层已删除）：path/name 定位文件，siblings 供 ←/→ 切换
+  function openPreview(paths) {
+    if (!paths.length) return;
+    openWindow('preview', { path: paths[0], name: basename(paths[0]), siblings: paths, index: 0 });
+  }
+
+  // 空格：切换当前项（锚点）的选中态
+  function toggleCurrent() {
+    const cur = anchor != null ? visible()[anchor] : null;
+    if (!cur) return;
+    setSel((prev) => {
+      const n = new Set(prev);
+      if (n.has(cur.name)) n.delete(cur.name); else n.add(cur.name);
+      return n;
+    });
   }
 
   // ---------- 新建 / 上传 / 重命名 / 剪贴板 ----------
@@ -367,7 +391,7 @@ export default function Finder({ win }) {
       { label: '清空回收站…', danger: true, action: emptyTrash },
     ] : [
       { label: '打开', action: () => openEntry(entry) },
-      ...(entry.type !== 'dir' ? [{ label: '快速预览', action: () => openQuickLook([paths], 0) }] : []),
+      ...(entry.type !== 'dir' ? [{ label: '预览', action: () => openPreview([paths]) }] : []),
       // 仅目录有「在终端中打开」；文件侧的打开方式（编辑器/预览）属于桌面右键，不在这里凭空添加
       ...(entry.type === 'dir' ? [{ label: '打开方式', items: [
         { label: '在终端中打开', action: () => openWindow('terminal', { cwd: paths }) },
@@ -437,7 +461,7 @@ export default function Finder({ win }) {
   // ---------- 拖拽 ----------
   function onItemDragStart(e, entry) {
     const paths = sel.has(entry.name) ? [...sel].map((n) => joinPath(cwd, n)) : [joinPath(cwd, entry.name)];
-    e.dataTransfer.setData('application/x-cloudnine', JSON.stringify({ paths, cwd, mode: e.altKey ? 'copy' : 'move' }));
+    e.dataTransfer.setData('application/x-cloudnine', JSON.stringify({ paths, cwd, mode: e.ctrlKey ? 'copy' : 'move' }));
     e.dataTransfer.effectAllowed = 'copyMove';
   }
   async function onDropToDir(e, targetDir) {

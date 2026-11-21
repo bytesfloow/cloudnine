@@ -111,8 +111,8 @@ async function uploadFiles(files, target) {
 export function installPasteUpload() {
   const onPaste = async (e) => {
     const st = getState();
-    // 模态层（确认框、二选一框、快速预览、右键菜单）打开时不接管，避免后台误触发上传
-    if (!st.user || st.dialog || st.quickLook || st.contextMenu) return;
+    // 模态层（确认框、二选一框、右键菜单）打开时不接管，避免后台误触发上传
+    if (!st.user || st.dialog || st.contextMenu) return;
     if (isEditableTarget(e.target)) return;
     const d = e.clipboardData;
     if (!d) return;
