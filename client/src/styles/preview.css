@@ -38,9 +38,9 @@
   .preview-hint .hint-fine { display: none; }
   .preview-hint .hint-coarse { display: inline; }
 }
-.preview-media, .preview-pdf { width: 100%; height: 100%; background: #000; border: none; }
+.preview-media, .preview-pdf { width: 100%; height: 100%; background: var(--media-bg); border: none; }
 .preview-audio { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; }
-.audio-art { width: 110px; height: 110px; border-radius: var(--radius-win); background: linear-gradient(135deg, #c56bff, #30a5ff); display: flex; align-items: center; justify-content: center; font-size: 44px; color: #fff; }
+.audio-art { width: 110px; height: 110px; border-radius: var(--radius-win); background: linear-gradient(135deg, var(--art-a), var(--art-b)); display: flex; align-items: center; justify-content: center; font-size: 44px; color: var(--on-accent); }
 .preview-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .preview-text { display: flex; flex-direction: column; gap: 8px; padding: 12px; overflow: auto; }
 .preview-pre {
@@ -55,9 +55,10 @@
 }
 .preview-csv th, .archive-table th, .list-table th { color: var(--text-2); font-size: 11.5px; position: sticky; top: 0; background: var(--panel-bg); }
 .preview-archive { overflow: auto; padding: 12px; }
-.preview-office { overflow: auto; padding: 16px; background: #fff; color: #222; }
+/* Office 预览模拟纸张：白纸黑字是文档本身的样子，不跟主题变（--paper-* 是固定色令牌） */
+.preview-office { overflow: auto; padding: 16px; background: var(--paper-bg); color: var(--paper-fg); }
 .preview-office table { border-collapse: collapse; }
-.preview-office td { border: 1px solid #ccc; padding: 3px 8px; }
+.preview-office td { border: 1px solid var(--paper-line); padding: 3px 8px; }
 .md-render { overflow: auto; padding: 14px 18px; line-height: 1.65; font-size: 13.5px; }
 .md-render h1, .md-render h2, .md-render h3 { margin: 14px 0 8px; }
 .md-render p { margin: 8px 0; }

@@ -58,7 +58,7 @@ const G = ({ size = 20, d, fill = 'currentColor', ...rest }) => (
 
 export const IconTerminal = ({ size = 26 }) => (
   <svg width={size} height={size} viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
-    <rect x="4" y="7" width="40" height="34" rx="7" fill="#2b2b30" />
+    <rect x="4" y="7" width="40" height="34" rx="7" fill="#2b2b30" className="it-term-body" />
     <path d="M12 18l6 5-6 5" stroke="#5be07f" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" fill="none" />
     <path d="M22 29h12" stroke="#e8e8ec" strokeWidth="3" strokeLinecap="round" />
   </svg>

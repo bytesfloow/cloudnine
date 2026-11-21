@@ -1,5 +1,5 @@
-/* 滚动条 */
+/* 滚动条：亮色用深灰半透明，暗色用白半透明（色值在 base.css 的两套令牌里） */
 ::-webkit-scrollbar { width: 9px; height: 9px; }
-::-webkit-scrollbar-thumb { background: rgba(127,127,140,.4); border-radius: 5px; border: 2px solid transparent; background-clip: content-box; }
-::-webkit-scrollbar-thumb:hover { background: rgba(127,127,140,.7); background-clip: content-box; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 5px; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); background-clip: content-box; }
 ::-webkit-scrollbar-corner { background: transparent; }

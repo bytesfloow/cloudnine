@@ -1,6 +1,8 @@
 /* ============ 开始菜单（阶段 1 · T4） ============ */
 /* 纯色材质：不加背景模糊、不用半透明背景（docs §0 决策 6 已锁定）。
-   亮色按 Fluent 色阶：面板 #F3F3F3（同任务栏），输入框与弹层表面 #FFFFFF，描边 #E5E5E5。 */
+   亮色按 Fluent 色阶：面板 #F3F3F3（同任务栏），输入框与弹层表面 #FFFFFF，描边 #E5E5E5。
+   暗色按 Fluent Layer1/Layer2：面板 #202020、输入框与选中态 #2B2B2B / 强调色淡底，描边 #3A3A3A。
+   这两块是开始菜单专用令牌，键名与亮/暗一一对应（不写在 base.css 是为了让菜单可以单独调参）。 */
 :root[data-theme='light'] {
   --sm-bg: #f3f3f3;
   --sm-input-bg: #ffffff;
@@ -11,13 +13,14 @@
   --sm-icon: #4a4f57;
 }
 :root[data-theme='dark'] {
-  --sm-bg: #242428;
-  --sm-input-bg: #2f2f35;
-  --sm-input-line: rgba(255, 255, 255, 0.14);
-  --sm-hover: #303036;
-  --sm-sel: #2a4666;
-  --sm-foot-bg: #1e1e22;
-  --sm-icon: #b9bcc4;
+  --sm-bg: #202020;
+  --sm-input-bg: #2b2b2b;
+  --sm-input-line: #3a3a3a;
+  /* 悬停 / 选中都给实色：面板本身 #202020，叠一层不透明的灰即「亮一档」 */
+  --sm-hover: #2a2a2a;
+  --sm-sel: #1b2b40;
+  --sm-foot-bg: #1c1c1c;
+  --sm-icon: #a6a6a6;
 }
 
 /* 锚定左下角，在任务栏之上；高度随视口收敛，不溢出桌面 */

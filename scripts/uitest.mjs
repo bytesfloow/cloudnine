@@ -62,6 +62,9 @@ const USERNAME = arg('user', 'uitest');
 const PASSWORD = arg('password', 'Uitest12345');
 const SESSION = arg('session', null);   // 已有会话 token（测试已部署实例时免密码）
 const MOBILE = flag('mobile');
+// 冷启动主题（'light' | 'dark'，不传则用应用默认）。
+// 仅用于「同一套用例分别在亮/暗两套主题下各跑一遍」：真正的主题切换用例仍在流程里自行切。
+const BOOT_THEME = arg('theme', null);
 const imgName = `uitest-preview-${Date.now()}.png`; // 图片预览自测用图（桌面/移动两分支都会用到）
 const probeName = `uitest-probe-${Date.now()}.txt`; // 探针文件：保证文件页至少有一个条目可断言
 const newDirName = `uitest-desktop-dir-renamed-${Date.now()}`; // 桌面重命名用例的目标名
@@ -210,6 +213,13 @@ const consoleErrors = [];
 page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
 page.on('pageerror', (e) => consoleErrors.push(`pageerror: ${e.message} @ ${e.stack || '(无堆栈)'}`));
 
+// 冷启动主题：必须在任何页面脚本之前写入 localStorage（store.js 开机读它）
+if (BOOT_THEME === 'light' || BOOT_THEME === 'dark') {
+  await page.evaluateOnNewDocument((t) => {
+    try { localStorage.setItem('cloudnine-theme', t); } catch { /* 忽略 */ }
+  }, BOOT_THEME);
+}
+
 // 探针：统计浏览器原生 HTML5 拖拽事件。
 // 图片预览里一旦触发原生拖拽，浏览器会接管指针（页面收不到 pointermove，图片拖不动），
 // 同时还会拖出一份半透明重影，所以这里必须保持为 0。
@@ -247,7 +257,7 @@ async function shot(label) {
   return name;
 }
 
-console.log(`${BOLD}CloudNine UI 自测${RESET}  目标: ${URL_BASE}  视口: ${MOBILE ? '移动 390×844' : '桌面 1440×900'}`);
+console.log(`${BOLD}CloudNine UI 自测${RESET}  目标: ${URL_BASE}  视口: ${MOBILE ? '移动 390×844' : '桌面 1440×900'}  冷启动主题: ${BOOT_THEME || '默认(亮色)'}`);
 
 try {
   // ---------- 1. 打开页面 ----------
@@ -1877,6 +1887,16 @@ try {
         backdrop: getComputedStyle(bar).backdropFilter || 'none',
       };
     });
+    // 基线必须在亮色下取：--theme dark 冷启动跑同一套用例时，这里先切回亮色
+    if ((await page.evaluate(() => document.documentElement.dataset.theme)) !== 'light') {
+      await page.evaluate(() => document.querySelector('.tray-account')?.click());
+      await sleep(250);
+      await page.evaluate(() => [...document.querySelectorAll('.tb-popover .account-popover .dropdown-item')]
+        .find((b) => b.innerText.includes('浅色主题'))?.click());
+      await sleep(450);
+      await page.keyboard.press('Escape');
+      await sleep(200);
+    }
     const lightCmd = await cmdStyle();
 
     // ---------- 阶段 3 · T13：Fluent 亮色视觉断言 ----------
@@ -2210,12 +2230,16 @@ try {
     await sleep(500);
 
     // 阶段 3 · T13 的截图要求亮色：先把主题锁定为浅色（后续用例会自行切换）
+    // 账户弹层里点主题不会自动关面板（Win11 快捷设置就是这个行为，不改），
+    // 所以这里切完必须显式按 Escape 关掉，否则后面的「托盘弹层能开关」用例会读到上一个状态。
     if ((await page.evaluate(() => document.documentElement.dataset.theme)) !== 'light') {
       await page.evaluate(() => document.querySelector('.tray-account')?.click());
       await sleep(250);
       await page.evaluate(() => [...document.querySelectorAll('.tb-popover .account-popover .dropdown-item')]
         .find((b) => b.innerText.includes('浅色主题'))?.click());
       await sleep(400);
+      await page.keyboard.press('Escape');
+      await sleep(200);
     }
 
     const closeTransfers = () => page.evaluate(() => {

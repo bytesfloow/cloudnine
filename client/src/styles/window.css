@@ -59,9 +59,11 @@
 /* 悬停/按下底色复用主题变量 --hover/--active，保证关闭键的红色规则（后置）在两套主题下都胜出 */
 .tc:hover { background: var(--hover); }
 .tc:active { background: var(--pressed); }
-.tc-close:hover { background: #c42b1c; }
-.tc-close:active { background: #b92718; }
-.tc-close:hover::before, .tc-close:active::before { background-color: #fff; }
+/* 关闭键的红底是 Win11 官方取值（#c42b1c / 按下 #b92718），两套主题同色（docs §6 W3），
+   色值收在 --danger / --danger-active 里，暗色下不会退化成亮红 */
+.tc-close:hover { background: var(--danger); }
+.tc-close:active { background: var(--danger-active); }
+.tc-close:hover::before, .tc-close:active::before { background-color: var(--on-danger); }
 .window:not(.focused) .tc::before { opacity: .45; }
 .window:not(.focused) .tc:hover::before { opacity: 1; }
 .window-title {

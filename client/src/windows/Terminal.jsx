@@ -17,12 +17,19 @@ const b64ToBytes = (s) => {
 const outDecoder = new TextDecoder('utf-8');
 const b64ToUtf8 = (s) => outDecoder.decode(b64ToBytes(s), { stream: true });
 
-// xterm 配色：只跟随 applyTheme 写入的 data-theme（纯色背景，与窗口表面一致）。
-// 主题切换广播 theme-changed → 下方 useEffect 订阅后刷新 term.options.theme。
+// xterm 配色：画布由 xterm 自己绘制，CSS 类量不到，只能把主题令牌读成实色。
+// 令牌在 base.css 的亮/暗两块里各有一份（--term-bg / --term-fg / --term-cursor），
+// 这里不再出现任何色值 —— 改配色只改 CSS，JS 里也扫不到硬编码。
 function termTheme() {
-  return document.documentElement.dataset.theme === 'dark'
-    ? { background: '#1f1f1f', foreground: '#e8e8ec', cursor: '#5be07f' }
-    : { background: '#ffffff', foreground: '#1b1b1b', cursor: '#0a7cff' };
+  const read = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const theme = {};
+  const bg = read('--term-bg');
+  const fg = read('--term-fg');
+  const cursor = read('--term-cursor');
+  if (bg) theme.background = bg;
+  if (fg) theme.foreground = fg;
+  if (cursor) theme.cursor = cursor;
+  return theme;
 }
 
 // 单个终端会话视图（桌面窗口与移动端复用）

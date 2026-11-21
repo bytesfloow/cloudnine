@@ -5,6 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="robots" content="noindex" />
     <title>文件分享</title>
+    <script>
+      /* 与 index.html 同一套首帧主题解析（分享页无登录态，主题只来自本地偏好 / 系统） */
+      (function () {
+        var resolved = 'light';
+        try {
+          var saved = localStorage.getItem('cloudnine-theme') || 'auto';
+          resolved = saved === 'auto'
+            ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+            : (saved === 'dark' ? 'dark' : 'light');
+        } catch (e) { /* 忽略 */ }
+        document.documentElement.dataset.theme = resolved;
+        document.documentElement.style.colorScheme = resolved;
+      })();
+    </script>
   </head>
   <body>
     <div id="share-root"></div>

@@ -36,7 +36,7 @@
   border: 1px solid var(--line); background: var(--panel-bg); color: var(--text-2);
 }
 .alt-tab-item.sel { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
-.alt-tab-icon { display: inline-flex; flex: none; color: var(--accent); opacity: .75; }
+.alt-tab-icon { display: inline-flex; flex: none; color: var(--accent-text); opacity: .75; }
 .alt-tab-item.sel .alt-tab-icon { opacity: 1; }
 .alt-tab-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .alt-tab-title {

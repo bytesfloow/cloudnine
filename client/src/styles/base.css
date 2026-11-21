@@ -1,15 +1,14 @@
 /* ============ 主题变量 ============ */
-/* Fluent 设计令牌（阶段 3 · T13）：
+/* Fluent 设计令牌（阶段 3 · T13 亮色 / T14 暗色）：
    - 圆角：窗口 / 菜单 / 弹层统一 8px（--radius-win / --radius-menu）；
      按钮、输入框、列表行等控件 4px（--radius-ctl，Win11 控件圆角）。
    - 材质：纯色，全域不使用背景模糊（docs §0 决策 6）。
-   - 字体：Segoe UI Variable Display → Segoe UI → system-ui → 微软雅黑。 */
+   - 字体：Segoe UI Variable Display → Segoe UI → system-ui → 微软雅黑。
+   - 令牌三层：① 与主题无关的固定色（壁纸上的桌面文字、媒体黑底、文档纸面）
+     只写在 :root；② 语义色在 light / dark 两块里各写一份，**键名完全一致**，
+     切换主题时不留任何「某键只在一边存在」的缝；③ 组件里一律走令牌，
+     CSS 与 JS 里不再出现字面色值（xterm 画布也改读令牌，见 Terminal.jsx）。 */
 :root {
-  --accent: #0a7cff;
-  --accent-soft: rgba(10, 124, 255, 0.12);
-  /* 纯色版 --accent-soft：Aero Snap 预览矩形要求「不半透明」（docs §5.2） */
-  --accent-soft-solid: #dbe9fb;
-  --danger: #c42b1c;
   --radius-win: 8px;
   --radius-menu: 8px;
   --radius-ctl: 4px;
@@ -17,7 +16,35 @@
   --taskbar-h: 40px;
   --font: 'Segoe UI Variable Display', 'Segoe UI', system-ui, 'Microsoft YaHei', sans-serif;
   --mono: 'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace;
+
+  /* ---------- 与主题无关的固定色 ---------- */
+  /* 两套主题的壁纸都是深色，压在壁纸上的桌面文字恒为浅色 */
+  --desk-text: #ffffff;
+  --desk-text-2: rgba(255, 255, 255, 0.78);
+  --desk-text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+  --desk-hover: rgba(255, 255, 255, 0.14);
+  --desk-icon: #eef1f8;
+  /* 图标投影是 filter: drop-shadow()，只能接受颜色值，不能塞整条 box-shadow */
+  --desk-icon-shadow: rgba(0, 0, 0, 0.25);
+  --desk-err: #ffb3a7;
+  /* 媒体黑底 / 文档纸面：刻意不随主题变化（视频黑边、Office 纸面在暗色下也是白纸） */
+  --media-bg: #000000;
+  --paper-bg: #ffffff;
+  --paper-fg: #222222;
+  --paper-line: #cccccc;
+  /* 应用图标 / 音频封面 / 头像的品牌渐变 */
+  --art-a: #c56bff;
+  --art-b: #30a5ff;
+  --avatar-a: #30a5ff;
+  --avatar-b: #7a5cff;
+  /* 填充色块上的文字：强调色 / 危险色填充恒为深底白字 */
+  --on-accent: #ffffff;
+  --on-accent-2: rgba(255, 255, 255, 0.86);
+  --on-danger: #ffffff;
+  /* 深色机身的图标（终端）在暗色表面上需要一圈描边，亮色下为 transparent（不变） */
+  --icon-rim: transparent;
 }
+
 /* 亮色色阶按 Fluent：背景 #F3F3F3 系 / 表面 #FFFFFF / 描边 #E5E5E5 系 / 文字三级灰阶。
    材质全部为不透明纯色（无 rgba 表面、无背景模糊）。 */
 :root[data-theme='light'] {
@@ -43,16 +70,41 @@
   --input-bg: #ffffff;
   --bar-bg: #f3f3f3;
   --cap-glyph: #1f1f1f;
+  /* 强调色：--accent 是「填充」（按钮 / 选中行，配 --on-accent 白字），
+     --accent-text 是「深色表面上的强调文字 / 图标」（链接、激活态标签） */
+  --accent: #0a7cff;
+  --accent-text: #0a7cff;
+  --accent-hover: #0a6ee0;
+  --accent-active: #0963c9;
+  --accent-soft: rgba(10, 124, 255, 0.12);
+  /* 纯色版强调色淡底：Aero Snap 预览矩形要求「不半透明」（docs §5.2） */
   --accent-soft-solid: #dbe9fb;
+  /* 强调色渐变的对应端（进度条光泽） */
+  --accent-hi: #4aa8ff;
   --danger: #c42b1c;
+  --danger-active: #b92718;
   /* 语义色（亮色修正：原来的 macOS 亮橙色/亮绿色当正文时对比度不够） */
   --ok: #1f7d36;
+  --ok-2: #35c75a;
   --ok-soft: #e6f4ea;
   --warn: #8a5a00;
   --warn-strong: #b45309;
   --warn-soft: #fdf3e0;
+  --warn-fill: #f0883a;
   --danger-text: #c0271c;
   --danger-soft: #fdeceb;
+  /* 模态遮罩 / 滚动条 / 进度条光泽 / 加载圈轨道 */
+  --scrim: rgba(0, 0, 0, 0.32);
+  --scrollbar-thumb: rgba(127, 127, 140, 0.4);
+  --scrollbar-thumb-hover: rgba(127, 127, 140, 0.7);
+  --sheen: rgba(255, 255, 255, 0.4);
+  --spinner-track: rgba(127, 127, 140, 0.3);
+  /* 下拉箭头：data URI 里的描边色也必须跟着主题走，所以整条 url 做成令牌 */
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23808088' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* xterm 画布（JS 读令牌，见 Terminal.jsx 的 termTheme） */
+  --term-bg: #ffffff;
+  --term-fg: #1b1b1b;
+  --term-cursor: #0a7cff;
   /* 窗口阴影三层：常规 / 悬停焦点 / 模态；弹层单独一层（--shadow-menu） */
   --shadow-win: 0 8px 16px rgba(0, 0, 0, 0.08), 0 0 2px rgba(0, 0, 0, 0.06), 0 2px 6px rgba(0, 0, 0, 0.04);
   --shadow-win-focus: 0 16px 32px rgba(0, 0, 0, 0.12), 0 0 2px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.06);
@@ -62,36 +114,69 @@
   --shadow: var(--shadow-modal);
   --shadow-soft: var(--shadow-menu);
 }
+
+/* 暗色色阶按 Fluent 暗色：背景 #202020（Layer1）/ 表面 #2B2B2B（Layer2）/
+   描边 #3A3A3A 系 / 文字三级 89% · 60% · 46% 白。
+   - 文字三级取 46% 而不是 40%：40% 白（#797979）在 #202020 上只有 3.8:1、
+     在最亮的表面（#2b2b2b 命令栏）上 3.3:1，禁用态的四组对比度里会唯一不达标。
+     46%（#949494）在 #2b2b2b 上 4.67:1、#202020 上 5.37:1，与正文 13:1 拉开足够差距。
+   - 强调色不换色相：#0a7cff 暗一档为 #0a6ee0（填充，白字 4.9:1），
+     深色表面上的文字/图标用亮一档的 #6cb8ff（7.7:1）。
+   - 材质同样是不透明纯色：表面色一律给实色，只有状态叠加层（hover/active）
+     与语义色淡底用 rgba —— 它们叠在不透明表面上，不会透出后面的东西。 */
 :root[data-theme='dark'] {
   --wallpaper: radial-gradient(1200px 800px at 20% 10%, #1d3a6e 0%, transparent 60%),
                radial-gradient(1000px 700px at 80% 20%, #3d2a63 0%, transparent 55%),
                radial-gradient(900px 900px at 50% 100%, #0e4a44 0%, transparent 50%),
                linear-gradient(160deg, #12131a 0%, #191b26 50%, #10161a 100%);
-  --bg: #1a1a1a;
-  --text: #f2f2f5;
-  --text-2: #b9b9bf;
-  --text-3: #8f8f96;
+  --bg: #202020;
+  --text: #e7e7e7;
+  --text-2: #a6a6a6;
+  --text-3: #949494;
   --win-bg: #202020;
   --win-border: #3a3a3a;
-  --panel-bg: #262626;
-  --sidebar-bg: #232323;
-  --hover: rgba(255, 255, 255, 0.07);
-  --active: rgba(255, 255, 255, 0.12);
-  --pressed: rgba(255, 255, 255, 0.18);
+  --panel-bg: #2b2b2b;
+  --sidebar-bg: #242424;
+  --hover: rgba(255, 255, 255, 0.06);
+  --active: rgba(255, 255, 255, 0.10);
+  --pressed: rgba(255, 255, 255, 0.16);
   --line: #3a3a3a;
   --menu-bg: #2b2b2b;
   --input-bg: #2b2b2b;
-  --bar-bg: #1f1f1f;
-  --cap-glyph: #ececf0;
-  --accent-soft-solid: #1c2947;
-  --danger: #ff5f57;
+  --bar-bg: #2b2b2b;
+  --cap-glyph: #e7e7e7;
+  --icon-rim: rgba(255, 255, 255, 0.34);
+  /* 强调色填充上的次级文字：暗色下提到 95% 白（在 #0a6ee0 上 4.5:1），
+     86%（亮色那档）在同样的填充上只有 4.0:1 —— 暗色按钮本身更暗，白字余量本来就不多 */
+  --on-accent-2: rgba(255, 255, 255, 0.95);
+  --accent: #0a6ee0;
+  --accent-text: #6cb8ff;
+  /* 悬停提亮到亮色主题的强调色（Fluent 暗色按钮悬停变亮），按下再压深一档 */
+  --accent-hover: #0a7cff;
+  --accent-active: #0963c9;
+  --accent-soft: #1b2b40;
+  --accent-soft-solid: #1c3350;
+  --accent-hi: #4aa8ff;
+  --danger: #c42b1c;
+  --danger-active: #b92718;
   --ok: #4cc26a;
-  --ok-soft: rgba(76, 194, 106, .16);
+  --ok-2: #62d47e;
+  --ok-soft: #24382b;
   --warn: #e0a85a;
   --warn-strong: #ffb066;
-  --warn-soft: rgba(224, 168, 90, .16);
-  --danger-text: #ff8a80;
-  --danger-soft: rgba(255, 95, 87, .16);
+  --warn-soft: #3a3126;
+  --warn-fill: #e0a85a;
+  --danger-text: #ff99a4;
+  --danger-soft: #3d2a2c;
+  --scrim: rgba(0, 0, 0, 0.55);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.22);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.38);
+  --sheen: rgba(255, 255, 255, 0.16);
+  --spinner-track: rgba(255, 255, 255, 0.18);
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23a6a6a6' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  --term-bg: #1f1f1f;
+  --term-fg: #e8e8ec;
+  --term-cursor: #5be07f;
   --shadow-win: 0 8px 16px rgba(0, 0, 0, 0.36), 0 0 2px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.28);
   --shadow-win-focus: 0 16px 32px rgba(0, 0, 0, 0.46), 0 0 2px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.34);
   --shadow-modal: 0 32px 64px rgba(0, 0, 0, 0.55), 0 0 2px rgba(0, 0, 0, 0.6), 0 8px 24px rgba(0, 0, 0, 0.4);
@@ -119,7 +204,7 @@ input, select, textarea {
 input::placeholder, textarea::placeholder { color: var(--text-3); }
 input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 input:disabled, select:disabled, textarea:disabled { color: var(--text-3); background: var(--panel-bg); }
-a { color: var(--accent); text-decoration: none; }
+a { color: var(--accent-text); text-decoration: none; }
 .mono { font-family: var(--mono); font-size: 12px; }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -133,12 +218,15 @@ a { color: var(--accent); text-decoration: none; }
 .btn:active:not(:disabled) { background: var(--pressed); border-color: var(--line); }
 /* 禁用态走灰阶，不用 opacity：文字保持可读，避免「半透明文字叠背景」的随机对比度 */
 .btn:disabled { color: var(--text-3); background: transparent; border-color: var(--line); cursor: default; }
-.btn-primary { background: var(--accent); border-color: transparent; color: #fff; }
-.btn-primary:hover:not(:disabled) { background: #0a6ee0; }
-.btn-primary:active:not(:disabled) { background: #0963c9; }
-.btn-danger { background: var(--danger); border-color: transparent; color: #fff; }
+.btn-primary { background: var(--accent); border-color: transparent; color: var(--on-accent); }
+.btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.btn-primary:active:not(:disabled) { background: var(--accent-active); }
+.btn-danger { background: var(--danger); border-color: transparent; color: var(--on-danger); }
 /* 主按钮禁用：退成中性灰块（与 Fluent 禁用按钮一致），不拿低透明度白字凑数 */
 .btn-primary:disabled { color: var(--text-3); background: var(--hover); border-color: var(--line); opacity: 1; }
 .btn-small { padding: 3px 9px; font-size: 12px; }
 .btn-icon { width: 26px; height: 26px; padding: 0; }
 
+/* 终端图标的机身是深灰（#2b2b30），压在暗色任务栏 / 开始菜单上会融成一片；
+   暗色下补一圈 1.5px 描边（2/48 单位），亮色 --icon-rim 是 transparent，视觉与 T13 一致。 */
+.it-term-body { stroke: var(--icon-rim); stroke-width: 2; }

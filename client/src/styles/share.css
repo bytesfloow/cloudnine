@@ -19,7 +19,8 @@
 .share-list { display: flex; flex-direction: column; gap: 6px; max-height: 46vh; overflow-y: auto; }
 .share-preview { display: flex; justify-content: center; background: var(--input-bg); border-radius: var(--radius-win); padding: 10px; min-height: 120px; max-height: 46vh; overflow: auto; }
 .share-preview img, .share-preview video { max-width: 100%; max-height: 44vh; border-radius: var(--radius-win); }
-.share-preview iframe { width: 100%; height: 44vh; border: none; border-radius: var(--radius-win); background: #fff; }
+/* iframe 里是 PDF 等浏览器内置查看器：底子仍是纸面白（--paper-bg 是固定色令牌） */
+.share-preview iframe { width: 100%; height: 44vh; border: none; border-radius: var(--radius-win); background: var(--paper-bg); }
 .share-preview .preview-pre { width: 100%; }
 .share-upload { display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
 .share-footer { color: var(--text-2); font-size: 11px; margin-top: 18px; }
