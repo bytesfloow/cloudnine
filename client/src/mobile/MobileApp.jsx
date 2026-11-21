@@ -127,7 +127,7 @@ export default function MobileApp() {
   );
 }
 
-// ---------- 文件（移动形态：目录直览 + 废纸篓模式） ----------
+// ---------- 文件（移动形态：目录直览 + 回收站模式） ----------
 function FinderMobile({ dir, setDir, openFile }) {
   const s = useStore();
   const isTrash = dir === '__trash__';
@@ -216,7 +216,7 @@ function FinderMobile({ dir, setDir, openFile }) {
     } catch (e2) { notify({ type: 'error', title: '粘贴失败', body: e2.message }); }
   }
   async function emptyTrash() {
-    if (!await confirmDialog({ title: '清倒废纸篓', message: '将彻底删除全部项目，不可恢复。', danger: true, okText: '清倒' })) return;
+    if (!await confirmDialog({ title: '清空回收站', message: '将彻底删除全部项目，不可恢复。', danger: true, okText: '清空' })) return;
     await api.trashEmpty(); setState({ trashCount: 0 });
     bus.emit('fs:changed', '__trash__');
   }
@@ -247,8 +247,8 @@ function FinderMobile({ dir, setDir, openFile }) {
       { label: shareBlockReason(entry) ? `分享…（${shareBlockReason(entry)}）` : '分享…', disabled: !!shareBlockReason(entry), action: () => shareFlowMobile(joinPath(dir, entry.name), entry.name, entry) },
       { label: '下载', disabled: entry.type === 'dir', action: () => { const a = document.createElement('a'); a.href = api.downloadUrl(joinPath(dir, entry.name)); a.click(); } },
       '-',
-      { label: '移入废纸篓', danger: true, action: async () => {
-        if (!await confirmDialog({ title: '移入废纸篓', message: `“${entry.name}”将移入废纸篓。`, okText: '移入' })) return;
+      { label: '移入回收站', danger: true, action: async () => {
+        if (!await confirmDialog({ title: '移入回收站', message: `“${entry.name}”将移入回收站。`, okText: '移入' })) return;
         const trashed = await api.trash([joinPath(dir, entry.name)]);
         reportTrashFailed(trashed); // 字段不存在时无动作，兼容旧服务端
         bus.emit('fs:changed', dir); bus.emit('fs:changed', '__trash__');
@@ -259,7 +259,7 @@ function FinderMobile({ dir, setDir, openFile }) {
   const clip = s.clipboard;
   const actions = isTrash ? [
     { key: 'refresh', label: '刷新', icon: <IconRefresh />, action: load },
-    { key: 'empty', label: '清空废纸篓', icon: <IconTrash />, danger: true, action: emptyTrash },
+    { key: 'empty', label: '清空回收站', icon: <IconTrash />, danger: true, action: emptyTrash },
   ] : [
     { key: 'newdir', label: '新建文件夹', icon: <IconNewFolder />, action: newFolder },
     { key: 'upload', label: '上传文件', icon: <IconUpload />, action: () => pickMobileUpload(false, dir) },
@@ -280,7 +280,7 @@ function FinderMobile({ dir, setDir, openFile }) {
     <div className="m-finder">
       <div className="m-toolbar-wrap">
         <div className="m-toolbar" ref={barRef}>
-          <span className="m-path ellipsis">{isTrash ? '废纸篓' : (dir ? `根目录/${dir}` : '根目录')}</span>
+          <span className="m-path ellipsis">{isTrash ? '回收站' : (dir ? `根目录/${dir}` : '根目录')}</span>
           {inlineActions.map((a) => (
             <button key={a.key} className="tb-btn" onClick={a.action} title={a.label} aria-label={a.label} disabled={a.disabled}>
               {a.icon}
@@ -325,7 +325,7 @@ function FinderMobile({ dir, setDir, openFile }) {
 
       {loading ? <div className="finder-loading"><div className="boot-spinner" /></div>
         : error ? <div className="finder-empty"><p>{error}</p></div>
-        : shown.length === 0 ? <div className="finder-empty"><p>{isTrash ? '废纸篓是空的' : searchMode ? '没有匹配项' : '此文件夹是空的'}</p></div>
+        : shown.length === 0 ? <div className="finder-empty"><p>{isTrash ? '回收站是空的' : searchMode ? '没有匹配项' : '此文件夹是空的'}</p></div>
         : view === 'list' ? (
           <div className="m-list">
             {shown.map((entry) => (
@@ -539,7 +539,7 @@ function TransfersMobile() {
   );
 }
 
-// ---------- 设置（分组列表：废纸篓 / 外观 / 分享管理 / 磁盘 / 退出登录） ----------
+// ---------- 设置（分组列表：回收站 / 外观 / 分享管理 / 磁盘 / 退出登录） ----------
 function SettingsApp({ openApp }) {
   const s = useStore();
   const [shares, setShares] = useState(null);
@@ -555,7 +555,7 @@ function SettingsApp({ openApp }) {
       <div className="m-setgroup">
         <button className="m-setrow" onClick={(e) => openApp('trash', e)}>
           <span className="m-set-ic" style={{ background: 'linear-gradient(180deg,#a9adb6,#7d828c)' }}><Glyph name="trash" size={16} /></span>
-          <span className="m-set-label">废纸篓</span>
+          <span className="m-set-label">回收站</span>
           <span className="m-set-value">{s.trashCount > 0 ? `${s.trashCount} 项` : '空'}</span>
           <IconChevron size={11} />
         </button>

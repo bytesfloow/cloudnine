@@ -266,3 +266,68 @@ export function openEntry(entry, cwd) {
 
 // 是否为可解压的归档包
 export const isArchive = (entry) => entry.type !== 'dir' && fileCat(entry.name) === 'archive';
+
+// ---------- 打开方式 ▸ ----------
+// 桌面图标右键与文件资源管理器条目右键共用这一份，两处的集合才不会分叉
+// （docs §1.5：用编辑器打开 / 用预览打开 / 在终端中打开（目录））。
+// siblings：预览窗口左右切换用的同批文件；不传则只预览这一个。
+export function openWithItems(path, entry, { siblings = [] } = {}) {
+  if (entry?.type === 'dir') {
+    return [{ label: '在终端中打开', action: () => openWindow('terminal', { cwd: path }) }];
+  }
+  const list = siblings.length ? siblings : [path];
+  return [
+    { label: '用编辑器打开', action: () => openWindow('editor', { path, name: basename(path) }) },
+    {
+      label: '用预览打开',
+      action: () => openWindow('preview', { path, siblings: list, index: Math.max(0, list.indexOf(path)) }),
+    },
+  ];
+}
+
+// ---------- 「最近」里的过期记录 ----------
+// api.recents() 是历史记录：文件被删 / 改名后条目还在，点进去才失败。
+// 服务端不改，所以前端只补「用户点击」这一下：先确认条目还在（一次目录列举，
+// 200 就是父目录健在），还在就照常打开、不在才剔除 —— 绝不为列表里的每条记录
+// 预发请求，那会把列表加载变成 N 次往返。
+// 用 list（而非 stat）：文件已删时 stat 会回 500，list 只是少一个条目，
+// 不会在控制台留一条吓人的报错。
+const deadRecents = new Set();
+
+// 已被判定不存在的最近记录（虚拟路径集合，仅本次会话有效）
+export const isDeadRecent = (path) => deadRecents.has(path);
+
+// 载入「最近」时过滤掉已判定失效的条目
+export const dropDeadRecents = (items = []) => (items || []).filter((x) => !deadRecents.has(x.path));
+
+function markRecentMissing(item) {
+  deadRecents.add(item.path);
+  notify({
+    type: 'warn',
+    title: '文件已不在了',
+    body: `「${item.name}」可能已被删除或移动，已从「最近」中移除。`,
+    ms: 6000,
+  });
+  return 'missing';
+}
+
+// 点击「最近」条目：返回 'opened' | 'missing'（已剔除，调用方应从列表移除）| 'failed'
+export async function openRecentItem(item) {
+  const parent = dirname(item.path);
+  const name = basename(item.path) || item.name;
+  let hit = null;
+  try {
+    const r = await api.list(parent);
+    hit = (r?.entries || []).find((e) => e.name === name) || null;
+  } catch (e) {
+    // 连父目录都不在了（404 / ENOENT）：同样算记录失效
+    if (e?.status === 404 || e?.code === 'ENOENT') return markRecentMissing(item);
+    // 网络 / 权限等临时问题：友好提示，但不把记录删掉（文件可能还在）
+    notify({ type: 'warn', title: '暂时打不开', body: e?.message || '请稍后重试。', ms: 6000 });
+    return 'failed';
+  }
+  if (!hit) return markRecentMissing(item);
+  if (hit.type === 'dir') openWindow('finder', { cwd: item.path });
+  else await openFile(item.path, item.name);
+  return 'opened';
+}

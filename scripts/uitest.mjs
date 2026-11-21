@@ -1721,6 +1721,99 @@ try {
     await page.keyboard.press('Escape');
     await sleep(250);
 
+    // ---------- T12 ①：文件条目补「打开方式 ▸」，三项逐个实测 ----------
+    // 桌面侧的同一份断言在「桌面右键菜单」小节：文件 = 用编辑器打开 / 用预览打开，
+    // 目录 = 在终端中打开。两处都调 fsops.openWithItems，集合必须逐项一致。
+    const closeTopWin = async (sel) => {
+      await page.evaluate((s) => {
+        const w = document.querySelector(s)?.closest('.window');
+        w?.querySelector('.tc-close')?.click();
+      }, sel);
+      await sleep(900);
+    };
+    const openItemMenu = async (name) => {
+      await page.evaluate((n) => {
+        const el = document.querySelector(`.finder-item[data-name="${n}"]`);
+        el?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 480, clientY: 380 }));
+      }, name);
+      await sleep(400);
+    };
+
+    await openItemMenu(cmdFile);
+    const fileItemLabels = await ctxLabels(0);
+    check('文件条目右键有「打开方式」子菜单', fileItemLabels.includes('打开方式'), fileItemLabels.join(','));
+    await ctxClick(0, '打开方式');
+    const fileOpenWith = await ctxLabels(1);
+    check('文件条目「打开方式 ▸」= 用编辑器打开 / 用预览打开（与桌面逐项一致）',
+      JSON.stringify(fileOpenWith) === JSON.stringify(['用编辑器打开', '用预览打开']), fileOpenWith.join(','));
+    await ctxClick(1, '用编辑器打开');
+    await sleep(1500);
+    check('文件窗口「打开方式 › 用编辑器打开」真的打开编辑器', !!(await page.$('.window .editor-window')), '未找到 .editor-window');
+    await closeTopWin('.editor-window');
+
+    await openItemMenu(cmdFile);
+    await ctxClick(0, '打开方式');
+    await ctxClick(1, '用预览打开');
+    await sleep(1500);
+    check('文件窗口「打开方式 › 用预览打开」真的打开预览窗口', !!(await page.$('.window .preview-window')), '未找到 .preview-window');
+    await closeTopWin('.preview-window');
+
+    await openItemMenu('docs');
+    await ctxClick(0, '打开方式');
+    const dirOpenWith = await ctxLabels(1);
+    check('目录条目「打开方式 ▸」= 在终端中打开（与桌面逐项一致）',
+      JSON.stringify(dirOpenWith) === JSON.stringify(['在终端中打开']), dirOpenWith.join(','));
+    await ctxClick(1, '在终端中打开');
+    await sleep(1800);
+    check('文件窗口「打开方式 › 在终端中打开」真的打开终端（目录项仍在）', !!(await page.$('.window .terminal-window')), '未找到 .terminal-window');
+    await closeTopWin('.terminal-window');
+    check('关闭子窗口后文件窗口仍在（三项实测没有误关主窗口）', !!(await page.$('.finder')), '未找到 .finder');
+
+    // ---------- T12 ②：「最近」剔除已删文件（点击时才校验，失败给友好提示） ----------
+    const recentName = `uitest-recent-${Date.now()}.txt`;
+    const recentRel = homeRel ? `${homeRel}/${recentName}` : recentName;
+    await apiFetch('POST', '/api/fs/write', { path: recentRel, content: 'recent probe\n' }, `cloudnine_sid=${dsid}`);
+    await clickCmd('查看');
+    await ctxClick(0, '刷新');
+    await sleep(900);
+    await page.evaluate((n) => {
+      const el = document.querySelector(`.finder-item[data-name="${n}"]`);
+      el?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    }, recentName);
+    await sleep(1600);
+    check('双击打开文件（openFile → addRecent，这是「最近」记录的来源）',
+      !!(await page.$('.window .editor-window')), '未找到 .editor-window');
+    await closeTopWin('.editor-window');
+    // 磁盘上真的删掉它：服务端 /api/fs/recent 的历史记录不会跟着消失（不改 server/ 的原因）
+    await apiFetch('POST', '/api/fs/delete', { paths: [recentRel] }, `cloudnine_sid=${dsid}`);
+
+    await page.evaluate(() => [...document.querySelectorAll('.sb-item')].find((b) => b.innerText.trim() === '最近')?.click());
+    await sleep(1300);
+    check('「最近」里仍列出这条历史记录（前置条件：过期条目确实会出现）',
+      await page.evaluate((n) => !!document.querySelector(`.finder-item[data-name="${n}"]`), recentName), recentName);
+
+    await page.evaluate((n) => {
+      const el = document.querySelector(`.finder-item[data-name="${n}"]`);
+      el?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    }, recentName);
+    await sleep(1500);
+    const redNotifs = await page.$$eval('.notification.n-error', (els) => els.map((e) => e.innerText.split('\n')[0]));
+    check('点击过期条目没有红色报错（无 .notification.n-error，也没有对话框）',
+      redNotifs.length === 0 && !(await page.$('.dialog')), `red=${JSON.stringify(redNotifs)}`);
+    const warnNotifs = await page.$$eval('.notification.n-warn .n-title', (els) => els.map((e) => e.innerText.trim()));
+    check('过期条目给出友好提示（.notification.n-warn「文件已不在了」）',
+      warnNotifs.some((t) => /文件已不在/.test(t)), warnNotifs.join(','));
+    check('过期条目已从「最近」列表移除',
+      !(await page.evaluate((n) => !!document.querySelector(`.finder-item[data-name="${n}"]`), recentName)), recentName);
+    check('移除后没有打开任何错误窗口（未把找不到的文件塞进编辑器/预览）',
+      !(await page.$('.window .editor-window')) && !(await page.$('.window .preview-window')),
+      '仍有编辑器/预览窗口');
+    await shot('最近列表剔除已删文件');
+
+    // 回到主目录，后续用例仍在主目录上做（「最近」是虚拟视图）
+    await page.evaluate(() => [...document.querySelectorAll('.sb-item')].find((b) => b.innerText.trim() === '主目录')?.click());
+    await sleep(900);
+
     // Ctrl+F / F3 仍能聚焦搜索框（R5）
     const activeIsSearch = () => page.evaluate(() => !!document.activeElement?.closest?.('.finder-search'));
     await page.evaluate(() => document.activeElement?.blur?.());

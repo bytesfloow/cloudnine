@@ -8,7 +8,7 @@ import { FileIcon, IconGlobe, IconTrash } from '../icons.jsx';
 import {
   createItem, uploadTo, uploadDropped, copyToClipboard, cutToClipboard, pasteInto,
   trashItems, renameItem, downloadItem, downloadItems, compressItems, extractItem,
-  shareItem, shareBlockReason, copyPathText, openEntry, isArchive,
+  shareItem, shareBlockReason, copyPathText, openEntry, isArchive, openWithItems,
 } from '../fsops.js';
 
 // 桌面 = 用户主目录的直视图：每一个图标都是主目录里的真实文件 / 文件夹。
@@ -249,19 +249,7 @@ export default function DesktopIcons() {
     const paths = multi ? selectedPaths : [path];
     const targets = multi ? selectedEntries : [entry];
     const filesOnly = targets.filter((x) => x.type !== 'dir').map((x) => joinPath(cwd, x.name));
-    const openIn = entry.type === 'dir' ? [
-      { label: '在终端中打开', action: () => openWindow('terminal', { cwd: path }) },
-    ] : [
-      { label: '用编辑器打开', action: () => openWindow('editor', { path, name: entry.name }) },
-      {
-        label: '用预览打开',
-        action: () => openWindow('preview', {
-          path,
-          siblings: filesOnly.length ? filesOnly : [path],
-          index: Math.max(0, (filesOnly.length ? filesOnly : [path]).indexOf(path)),
-        }),
-      },
-    ];
+    const openIn = openWithItems(path, entry, { siblings: filesOnly });
     openContextMenu(e.clientX, e.clientY, [
       { label: '打开', action: () => openEntry(entry, cwd) },
       { label: '打开方式', items: openIn },

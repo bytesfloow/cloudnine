@@ -74,6 +74,8 @@
 .n-body { color: var(--text-2); font-size: 12px; margin-top: 3px; word-break: break-all; }
 .notification.n-success .n-title { color: #28a745; }
 .notification.n-error .n-title { color: var(--danger); }
+/* 提示类（如「最近」里的文件已不存在）：琥珀色提醒，不是红色报错 */
+.notification.n-warn .n-title { color: #c78f1c; }
 /* 可点击通知（如「开始上传」）的轻量提示，暗示点击可打开传输窗口 */
 .notification.n-actionable:hover { border-color: var(--accent); }
 .n-action { margin-top: 7px; font-size: 11.5px; font-weight: 600; color: var(--accent); }

@@ -57,7 +57,7 @@ export const APP_LIST = [
   { key: 'terminal', name: '终端', bg: 'linear-gradient(180deg,#48484c,#17171a)' },
   { key: 'upload', name: '上传', bg: 'linear-gradient(180deg,#ffc94d,#ff9500)' },
   { key: 'transfers', name: '传输', bg: 'linear-gradient(180deg,#41c95f,#1fad3d)' },
-  { key: 'trash', name: '废纸篓', bg: 'linear-gradient(180deg,#a9adb6,#7d828c)' },
+  { key: 'trash', name: '回收站', bg: 'linear-gradient(180deg,#a9adb6,#7d828c)' },
   { key: 'settings', name: '设置', bg: 'linear-gradient(180deg,#b8bcc6,#878d99)' },
 ];
 const DOCK_KEYS = ['finder', 'terminal', 'upload', 'transfers'];

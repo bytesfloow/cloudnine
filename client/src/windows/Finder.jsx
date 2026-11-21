@@ -9,7 +9,7 @@ import { addUpload, pickFiles } from '../transfers.js';
 import {
   createItem, uploadTo, copyToClipboard, cutToClipboard, pasteInto, trashItems, renameItem,
   downloadItem, downloadItems, compressItems, extractItem, shareItem, shareBlockReason, copyPathText, isArchive,
-  syncTrashCount,
+  syncTrashCount, openWithItems, openRecentItem, dropDeadRecents,
 } from '../fsops.js';
 import FinderToolbar from './finder/FinderToolbar.jsx';
 import FinderCommandBar from './finder/FinderCommandBar.jsx';
@@ -67,7 +67,8 @@ export default function Finder({ win }) {
         setFree(null);
       } else if (recentRef.current) {
         const r = await api.recents();
-        setEntries(r.items.map((x) => ({ name: x.name, type: 'file', size: 0, mtimeMs: x.at, path: x.path, isRecent: true })));
+        // 已判定失效（文件被删 / 改名）的记录不再出现；正常条目不改一发请求
+        setEntries(dropDeadRecents(r.items).map((x) => ({ name: x.name, type: 'file', size: 0, mtimeMs: x.at, path: x.path, isRecent: true })));
         setFree(null);
       } else {
         const r = await api.list(dir);
@@ -253,14 +254,23 @@ export default function Finder({ win }) {
   }
 
   // ---------- 打开 ----------
+  // 「最近」是虚拟视图：条目的真实路径存在 entry.path（而不是 cwd + 名字）
+  const pathOf = (entry) => entry.path || joinPath(cwd, entry.name);
+
   function openEntry(entry) {
-    if (entry.isRecent) return openFile(entry.path, entry.name);
+    if (entry.isRecent) return openRecent(entry);
     if (entry.trashId) return;
     if (entry.type === 'dir') {
       navigate(searchMode ? dirname(entry.path) : joinPath(cwd, entry.name));
       return;
     }
     openFile(joinPath(cwd, entry.name), entry.name);
+  }
+
+  // 点击过期条目：只在点击这一下才发一次请求（绝不预发）。文件不在了 → 友好提示 + 从「最近」剔除
+  async function openRecent(entry) {
+    const r = await openRecentItem(entry);
+    if (r === 'missing') setEntries((prev) => (prev || []).filter((e) => e.path !== entry.path));
   }
 
   // 打开预览窗口（macOS 空格预览浮层已删除）：path/name 定位文件，siblings 供 ←/→ 切换
@@ -380,10 +390,11 @@ export default function Finder({ win }) {
   // ---------- 右键菜单 ----------
   // 结构对齐 docs §1.5（新建 ▸ / 打开方式 ▸ / 发送到 ▸），项与改造前逐条一致：
   // 只是把「在终端中打开」「下载」「复制路径」从平铺收进子菜单，不增不减。
+  // 「打开方式 ▸」与桌面图标右键共用 fsops.openWithItems，两处集合逐项一致。
   function itemMenu(e, entry) {
     e.preventDefault(); e.stopPropagation();
     if (!sel.has(entry.name)) setSel(new Set([entry.name]));
-    const paths = joinPath(cwd, entry.name);
+    const paths = pathOf(entry);
     const items = isTrash ? [
       { label: '放回原处', action: restoreSelected, disabled: !sel.size },
       { label: '彻底删除…', danger: true, action: deleteForeverSelected, disabled: !sel.size },
@@ -392,10 +403,8 @@ export default function Finder({ win }) {
     ] : [
       { label: '打开', action: () => openEntry(entry) },
       ...(entry.type !== 'dir' ? [{ label: '预览', action: () => openPreview([paths]) }] : []),
-      // 仅目录有「在终端中打开」；文件侧的打开方式（编辑器/预览）属于桌面右键，不在这里凭空添加
-      ...(entry.type === 'dir' ? [{ label: '打开方式', items: [
-        { label: '在终端中打开', action: () => openWindow('terminal', { cwd: paths }) },
-      ] }] : []),
+      // 文件 = 用编辑器打开 / 用预览打开，目录 = 在终端中打开（§1.5，与桌面右键同一份）
+      { label: '打开方式', items: openWithItems(paths, entry) },
       '-',
       { label: '剪切', action: () => setClipboard('cut', [paths], cwd) },
       { label: '复制', action: () => setClipboard('copy', [paths], cwd) },
