@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
-  useStore, getState, setState, openWindow, openContextMenu, openQuickLook, bus,
-  setDesktopSel, setDesktopSort, setDesktopShowHidden, joinPath, basename, confirmDialog,
+  useStore, getState, setState, openWindow, openContextMenu, openQuickLook, bus, notify,
+  setDesktopSel, setDesktopSort, setDesktopShowHidden, setClipboard, joinPath, basename, confirmDialog,
 } from '../store.js';
 import { api } from '../api.js';
 import { FileIcon, IconGlobe, IconTrash } from '../icons.jsx';
@@ -138,19 +138,20 @@ export default function DesktopIcons() {
     else openWindow('finder', { cwd: '' });
   }
 
+  // 系统图标（根目录 / 回收站）右键：文案按 §2.2.1 统一为「打开」「打开回收站」「清空回收站」
   function sysMenu(e, key) {
     if (key !== '__trash__') {
       openContextMenu(e.clientX, e.clientY, [
-        { label: '打开根目录', action: () => openWindow('finder', { cwd: '' }) },
+        { label: '打开', action: () => openWindow('finder', { cwd: '' }) },
         { label: '在终端中打开', action: () => openWindow('terminal', { cwd: '' }) },
       ]);
       return;
     }
     openContextMenu(e.clientX, e.clientY, [
-      { label: '打开废纸篓', action: () => openWindow('finder', { trash: true }) },
+      { label: '打开回收站', action: () => openWindow('finder', { trash: true }) },
       ...(s.trashCount > 0 ? ['-', {
-        label: '清倒废纸篓', danger: true, action: async () => {
-          if (!await confirmDialog({ title: '清倒废纸篓', message: `将彻底删除废纸篓中的 ${s.trashCount} 项，此操作不可撤销。`, danger: true, okText: '清倒' })) return;
+        label: '清空回收站', danger: true, action: async () => {
+          if (!await confirmDialog({ title: '清空回收站', message: `将彻底删除回收站中的 ${s.trashCount} 项，此操作不可撤销。`, danger: true, okText: '清空' })) return;
           await api.trashEmpty();
           setState({ trashCount: 0 });
           bus.emit('fs:changed', '__trash__');
@@ -244,25 +245,39 @@ export default function DesktopIcons() {
     const paths = multi ? selectedPaths : [path];
     const targets = multi ? selectedEntries : [entry];
     const filesOnly = targets.filter((x) => x.type !== 'dir').map((x) => joinPath(cwd, x.name));
+    const openIn = entry.type === 'dir' ? [
+      { label: '在终端中打开', action: () => openWindow('terminal', { cwd: path }) },
+    ] : [
+      { label: '用编辑器打开', action: () => openWindow('editor', { path, name: entry.name }) },
+      {
+        label: '用预览打开',
+        action: () => openWindow('preview', {
+          path,
+          siblings: filesOnly.length ? filesOnly : [path],
+          index: Math.max(0, (filesOnly.length ? filesOnly : [path]).indexOf(path)),
+        }),
+      },
+    ];
     openContextMenu(e.clientX, e.clientY, [
       { label: '打开', action: () => openEntry(entry, cwd) },
-      ...(entry.type !== 'dir' ? [{ label: '快速预览', action: () => openQuickLook(filesOnly.length ? filesOnly : [path], 0) }] : []),
+      { label: '打开方式', items: openIn },
+      ...(entry.type !== 'dir' ? [{ label: '预览', action: () => openQuickLook(filesOnly.length ? filesOnly : [path], 0) }] : []),
       '-',
       { label: '重命名', action: startRename, disabled: multi },
       { label: '复制', action: () => copyToClipboard(paths, cwd) },
       { label: '剪切', action: () => cutToClipboard(paths, cwd) },
+      { label: '删除', danger: true, action: () => doTrash(paths, targets.map((x) => x.name)) },
       '-',
-      ...(entry.type !== 'dir' ? [{ label: '下载', action: () => downloadItem(path) }] : []),
-      ...(paths.length > 1 ? [{ label: '打包下载', action: () => downloadItems(paths) }] : []),
       { label: '压缩…', action: () => compressItems(paths, cwd) },
       ...(isArchive(entry) ? [{ label: '解压到…', action: () => extractItem(path, cwd) }] : []),
+      { label: '发送到', items: [
+        { label: '下载', disabled: entry.type === 'dir', action: () => downloadItem(path) },
+        { label: '打包下载', disabled: paths.length < 2, action: () => downloadItems(paths) },
+        { label: '复制路径', action: () => copyPathText(path) },
+      ] },
       '-',
       { label: shareBlockReason(entry) ? `分享…（${shareBlockReason(entry)}）` : '分享…', disabled: !!shareBlockReason(entry), action: () => shareItem(path, entry.name, entry) },
-      { label: '显示简介', action: () => openWindow('info', { path }) },
-      { label: '复制路径', action: () => copyPathText(path) },
-      ...(entry.type === 'dir' ? [{ label: '在终端中打开', action: () => openWindow('terminal', { cwd: path }) }] : []),
-      '-',
-      { label: '移入废纸篓', danger: true, action: () => doTrash(paths, targets.map((x) => x.name)) },
+      { label: '属性', action: () => openWindow('info', { path }) },
     ]);
   }
 
@@ -270,27 +285,45 @@ export default function DesktopIcons() {
     if (e.target.closest('.desktop-icon, .desktop-sysicon, input, button')) return;
     e.preventDefault();
     const cb = getState().clipboard;
+    const sort = s.desktopSort;
     openContextMenu(e.clientX, e.clientY, [
-      { label: '新建文件夹', action: () => doCreate('dir') },
-      { label: '新建空白文件', action: () => doCreate('file') },
+      { label: '查看', items: [
+        { label: '显示隐藏文件', checked: s.desktopShowHidden, action: () => setDesktopShowHidden(!s.desktopShowHidden) },
+      ] },
+      { label: '排序方式', items: [
+        { label: '名称', checked: sort.key === 'name', action: () => setDesktopSort({ ...sort, key: 'name' }) },
+        { label: '大小', checked: sort.key === 'size', action: () => setDesktopSort({ ...sort, key: 'size' }) },
+        { label: '修改时间', checked: sort.key === 'mtime', action: () => setDesktopSort({ ...sort, key: 'mtime' }) },
+        { label: '类型', checked: sort.key === 'type', action: () => setDesktopSort({ ...sort, key: 'type' }) },
+        '-',
+        { label: '升序', checked: sort.asc, action: () => setDesktopSort({ ...sort, asc: true }) },
+        { label: '降序', checked: !sort.asc, action: () => setDesktopSort({ ...sort, asc: false }) },
+        '-',
+        { label: '文件夹优先', checked: sort.dirsFirst, action: () => setDesktopSort({ ...sort, dirsFirst: !sort.dirsFirst }) },
+      ] },
+      { label: '刷新', action: () => load() },
       '-',
       {
         label: cb ? (cb.mode === 'copy' ? '粘贴项目' : '移动项目到此处') : '粘贴',
         disabled: !cb,
         action: () => pasteInto(cwd),
       },
-      '-',
+      { label: '新建', items: [
+        { label: '文件夹', action: () => doCreate('dir') },
+        { label: '文本文档', action: () => doCreate('file') },
+      ] },
       { label: '上传文件…', action: () => uploadTo(cwd, false) },
       { label: '上传文件夹…', action: () => uploadTo(cwd, true) },
       '-',
-      { label: '显示隐藏文件', checked: s.desktopShowHidden, action: () => setDesktopShowHidden(!s.desktopShowHidden) },
-      { label: '文件夹优先', checked: s.desktopSort.dirsFirst, action: () => setDesktopSort({ ...s.desktopSort, dirsFirst: !s.desktopSort.dirsFirst }) },
-      { label: '按名称排列', checked: s.desktopSort.key === 'name', action: () => setDesktopSort({ ...s.desktopSort, key: 'name' }) },
-      { label: '按大小排列', checked: s.desktopSort.key === 'size', action: () => setDesktopSort({ ...s.desktopSort, key: 'size' }) },
-      { label: '按修改时间排列', checked: s.desktopSort.key === 'mtime', action: () => setDesktopSort({ ...s.desktopSort, key: 'mtime' }) },
-      { label: '按类型排列', checked: s.desktopSort.key === 'type', action: () => setDesktopSort({ ...s.desktopSort, key: 'type' }) },
-      '-',
-      { label: '刷新', action: () => load() },
+      { label: '剪贴板', items: [
+        {
+          label: cb ? `剪贴板：${cb.mode === 'cut' ? '剪切' : '复制'} ${cb.paths?.length ?? 0} 项` : '剪贴板：空',
+          disabled: true,
+        },
+        '-',
+        { label: '清空剪贴板', disabled: !cb, action: () => setClipboard(null) },
+      ] },
+      { label: '在终端中打开', action: () => openWindow('terminal', { cwd }) },
     ]);
   }
 

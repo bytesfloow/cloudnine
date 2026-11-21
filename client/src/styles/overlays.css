@@ -1,10 +1,19 @@
 /* ============ 右键菜单 ============ */
 .context-menu {
   position: fixed; min-width: 210px; z-index: 12000;
-  background: var(--menu-bg); backdrop-filter: blur(30px) saturate(170%);
+  /* 纯色材质：不用 backdrop-filter（规格 §0-6），亮/暗两套主题共用变量 */
+  background: var(--menu-bg);
   border: 1px solid var(--line); border-radius: 9px; box-shadow: var(--shadow-soft);
   padding: 4px; animation: pop .1s ease-out;
+  max-height: calc(100vh - 16px); overflow-y: auto; overscroll-behavior: contain;
 }
+/* 有子菜单的项：箭头用伪元素，不污染项的文本内容（uitest 按文本找项） */
+.context-menu .dropdown-item.ctx-has-sub::after {
+  content: '\203A'; margin-left: auto; padding-left: 14px; opacity: .75;
+}
+/* 键盘高亮与鼠标悬浮同一套观感 */
+.context-menu .dropdown-item.ctx-active:not(:disabled) { background: var(--accent); color: #fff; }
+.context-menu .dropdown-item.ctx-active.danger:not(:disabled) { background: var(--danger); color: #fff; }
 
 /* ============ 对话框 ============ */
 .dialog-overlay {

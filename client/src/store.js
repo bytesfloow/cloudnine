@@ -49,7 +49,7 @@ let state = {
 
   notifications: [],
   dialog: null,        // 当前模态对话框（队列首）
-  contextMenu: null,   // {x,y,items}
+  contextMenu: null,   // {x,y,items,id}
   quickLook: null,     // {paths:[], index}
   popover: null,       // 菜单栏弹出面板 {kind, anchor}
 
@@ -200,7 +200,8 @@ export const promptDialog = ({ title, message, fields = [], okText = '好', dang
 // ---------- 右键菜单 ----------
 export function openContextMenu(x, y, items) {
   // 同一时刻只允许一层弹出层：打开右键菜单时先收起菜单栏下拉/通知面板
-  setState({ contextMenu: { x, y, items }, popover: null });
+  // id 用于让 ContextMenu 在「菜单已打开时换一份 items」也能重置展开的层级
+  setState({ contextMenu: { x, y, items, id: nextId() }, popover: null });
 }
 export const closeContextMenu = () => setState({ contextMenu: null });
 

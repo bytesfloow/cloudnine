@@ -175,6 +175,8 @@ const browser = await puppeteer.launch({
 });
 
 const page = await browser.newPage();
+// 剪贴板断言（复制路径 / 剪贴板状态）需要显式授权
+try { await browser.defaultBrowserContext().overridePermissions(URL_BASE, ['clipboard-read', 'clipboard-write']); } catch { /* 忽略 */ }
 await page.setViewport(MOBILE
   ? { width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 }
   : { width: 1440, height: 900, deviceScaleFactor: 1 });
@@ -197,6 +199,24 @@ page.on('pageerror', (e) => consoleErrors.push(`pageerror: ${e.message} @ ${e.st
 await page.evaluateOnNewDocument(() => {
   window.__dragProbe = { start: 0 };
   document.addEventListener('dragstart', () => { window.__dragProbe.start++; }, true);
+
+  // 下载探针：记录应用真实点过的 <a download>（无头浏览器里下载请求不一定出现在 request 事件里）
+  window.__anchorClicks = [];
+  const origAnchorClick = HTMLAnchorElement.prototype.click;
+  HTMLAnchorElement.prototype.click = function () {
+    window.__anchorClicks.push({ href: this.href, download: this.download });
+    return origAnchorClick.call(this);
+  };
+
+  // 剪贴板探针：记录 writeText 的真实入参（无头环境可能因文档焦点问题拒绝写入系统剪贴板）
+  window.__clipboardWrites = [];
+  try {
+    const origWrite = Clipboard.prototype.writeText;
+    Clipboard.prototype.writeText = function (text) {
+      window.__clipboardWrites.push(String(text));
+      return origWrite.call(this, text);
+    };
+  } catch { /* 浏览器不支持时忽略 */ }
 });
 
 mkdirSync(OUT_DIR, { recursive: true });
@@ -507,6 +527,7 @@ try {
   const btnUploadName = `uitest-btnupload-${Date.now()}.txt`;
   const deskName = `uitest-desktop-${Date.now()}.txt`;
   const dirName = `uitest-desktop-dir-${Date.now()}`;
+  const zipName = `uitest-archive-${Date.now()}.zip`; // 只用于验「解压…」入口，内容不是真 zip
   // 任务栏托盘自测用的大文件（传输徽标 / 通知）；文件名带时间戳，便于清理阶段逐个删除
   const badgeBase = `uitest-badge-${Date.now()}`;
   const badgeNames = [`${badgeBase}-a.bin`, `${badgeBase}-b.bin`];
@@ -559,27 +580,213 @@ try {
   });
   await sleep(800);
 
-  // 右键桌面空白处：新建 / 上传 / 排序入口都在
-  await page.evaluate(() => {
-    const el = document.querySelector('.desktop-icons');
-    el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 700, clientY: 620 }));
-  });
-  await sleep(400); // 等 React 重渲染出右键菜单
-  const blankItems = await page.evaluate(() =>
-    [...document.querySelectorAll('.context-menu .dropdown-item')].map((b) => b.innerText.trim()));
-  check('桌面右键菜单含「新建文件夹」', blankItems.some((t) => /新建文件夹/.test(t)), blankItems.join(','));
-  check('桌面右键菜单含「上传文件…」', blankItems.some((t) => /上传文件/.test(t)), blankItems.join(','));
-  check('桌面右键菜单含排序方式', blankItems.some((t) => /按名称排列/.test(t)), blankItems.join(','));
+  // ---------- 右键菜单：子菜单 / 键盘 / 边缘收敛 ----------
+  section('右键菜单（子菜单 / 键盘 / 边缘收敛）');
+  const ctxLabels = (level = 0) => page.$$eval(
+    `.context-menu[data-ctx-level="${level}"] .dropdown-item`,
+    (els) => els.map((e) => e.dataset.label));
+  const ctxOpenBlank = async (x = 700, y = 620) => {
+    await page.evaluate((cx, cy) => {
+      document.querySelector('.desktop-icons').dispatchEvent(new MouseEvent('contextmenu', {
+        bubbles: true, cancelable: true, clientX: cx, clientY: cy,
+      }));
+    }, x, y);
+    await sleep(350);
+  };
+  const ctxClick = async (level, label) => {
+    const ok = await page.evaluate((lvl, lbl) => {
+      const b = [...document.querySelectorAll(`.context-menu[data-ctx-level="${lvl}"] .dropdown-item`)]
+        .find((x) => x.dataset.label === lbl);
+      if (!b) return false;
+      b.click();
+      return true;
+    }, level, label);
+    await sleep(350);
+    return ok;
+  };
+  const ctxHover = async (level, label) => {
+    const p = await page.evaluate((lvl, lbl) => {
+      const b = [...document.querySelectorAll(`.context-menu[data-ctx-level="${lvl}"] .dropdown-item`)]
+        .find((x) => x.dataset.label === lbl);
+      if (!b) return null;
+      const r = b.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    }, level, label);
+    if (!p) return false;
+    await page.mouse.move(p.x, p.y);
+    await sleep(300);
+    return true;
+  };
+  const ctxActive = (level = 0) => page.evaluate((lvl) =>
+    document.querySelector(`.context-menu[data-ctx-level="${lvl}"] .dropdown-item.ctx-active`)?.dataset.label || '', level);
+  const panelRect = (level) => page.evaluate((lvl) => {
+    const el = document.querySelector(`.context-menu[data-ctx-level="${lvl}"]`);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
+  }, level);
+  const dismissMenus = async () => {
+    for (let i = 0; i < 4 && await page.$('.context-menu'); i++) {
+      await page.keyboard.press('Escape');
+      await sleep(150);
+    }
+    await page.mouse.move(2, 2);
+    await sleep(150);
+  };
+
+  // 空白处根菜单结构（§1.5）
+  await ctxOpenBlank();
+  const blankItems = await ctxLabels(0);
+  check('桌面空白菜单九组入口齐备（查看/排序方式/刷新/粘贴/新建/上传×2/剪贴板/终端）',
+    ['查看', '排序方式', '刷新', '新建', '上传文件…', '上传文件夹…', '剪贴板', '在终端中打开'].every((k) => blankItems.includes(k))
+      && blankItems.some((t) => t.startsWith('粘贴')),
+    blankItems.join(','));
+  const subCount = await page.$$eval('.context-menu[data-ctx-level="0"] .ctx-has-sub', (els) => els.length);
+  check('桌面空白菜单有 4 个子菜单（查看/排序方式/新建/剪贴板）', subCount === 4, `子菜单项 ${subCount}`);
+  check('剪贴板为空时「粘贴」禁用', await page.evaluate(() =>
+    [...document.querySelectorAll('.context-menu[data-ctx-level="0"] .dropdown-item')]
+      .find((b) => b.dataset.label.startsWith('粘贴'))?.disabled));
   await shot('桌面右键菜单');
 
-  // 从右键菜单新建文件夹 → 直接出现在桌面上
-  await page.evaluate(() => {
-    const it = [...document.querySelectorAll('.context-menu .dropdown-item')].find((b) => b.innerText.trim() === '新建文件夹');
-    it?.click();
+  // 悬浮展开 + 兄弟项切换只保留一条链
+  check('悬浮「新建」展开子菜单', await ctxHover(0, '新建')
+    && JSON.stringify(await ctxLabels(1)) === JSON.stringify(['文件夹', '文本文档']),
+    (await ctxLabels(1)).join(','));
+  await ctxHover(0, '剪贴板');
+  const clipLabels = await ctxLabels(1);
+  check('移到兄弟项后旧子菜单关闭，只剩「剪贴板」子菜单',
+    clipLabels.includes('剪贴板：空') && clipLabels.includes('清空剪贴板') && !clipLabels.includes('文件夹'),
+    clipLabels.join(','));
+  check('空剪贴板时「清空剪贴板」禁用', await page.evaluate(() =>
+    [...document.querySelectorAll('.context-menu[data-ctx-level="1"] .dropdown-item')]
+      .find((b) => b.dataset.label === '清空剪贴板')?.disabled));
+
+  // 键盘：↑↓ 选择 / → 进入 / ← 退回 / Esc 逐级关闭
+  await dismissMenus();
+  await ctxOpenBlank();
+  check('菜单打开时默认高亮第一项', (await ctxActive()) === '查看', await ctxActive());
+  await page.keyboard.press('ArrowDown');
+  await sleep(200);
+  check('↓ 移动到下一项', (await ctxActive()) === '排序方式', await ctxActive());
+  await page.keyboard.press('ArrowUp');
+  await sleep(200);
+  check('↑ 回到上一项', (await ctxActive()) === '查看', await ctxActive());
+  await page.keyboard.press('ArrowRight');
+  await sleep(300);
+  check('→ 展开子菜单并进入', (await ctxLabels(1)).join(',') === '显示隐藏文件', (await ctxLabels(1)).join(','));
+  check('进入子菜单后高亮随之下移', (await ctxActive(1)) === '显示隐藏文件', await ctxActive(1));
+  await page.keyboard.press('Escape');
+  await sleep(250);
+  check('Esc 只关掉子菜单，父菜单还在', !!(await page.$('.context-menu[data-ctx-level="0"]'))
+    && !(await page.$('.context-menu[data-ctx-level="1"]')), '层级状态不对');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await sleep(250);
+  check('键盘跳过禁用的「粘贴」到达「新建」', (await ctxActive()) === '新建', await ctxActive());
+  await page.keyboard.press('ArrowRight');
+  await sleep(300);
+  await page.keyboard.press('ArrowLeft');
+  await sleep(250);
+  check('← 退回父级且子菜单收起', !(await page.$('.context-menu[data-ctx-level="1"]'))
+    && (await ctxActive()) === '新建', await ctxActive());
+  await page.keyboard.press('Escape');
+  await sleep(250);
+  check('全部关完后 Esc 关闭根菜单', !(await page.$('.context-menu')));
+  await page.mouse.move(2, 2);
+
+  // 边缘收敛：窄窗口 + 贴着右下角打开，子菜单必须翻转/收回视口
+  // 注意宽要 >767：低于这个值 App 会切到移动端形态，桌面节点就不存在了
+  await page.setViewport({ width: 800, height: 520, deviceScaleFactor: 1 });
+  await sleep(350);
+  await ctxOpenBlank(790, 510);
+  const rootRect = await panelRect(0);
+  check('根菜单贴右下角打开时仍在视口内', !!rootRect
+    && rootRect.left >= 7 && rootRect.top >= 7 && rootRect.right <= 793 && rootRect.bottom <= 513,
+    JSON.stringify(rootRect));
+  await ctxHover(0, '排序方式');
+  const subRect = await panelRect(1);
+  const sortBtn = await page.evaluate(() => {
+    const b = [...document.querySelectorAll('.context-menu[data-ctx-level="0"] .dropdown-item')]
+      .find((x) => x.dataset.label === '排序方式');
+    const r = b.getBoundingClientRect();
+    return { right: r.right, left: r.left };
   });
-  await sleep(700);
+  check('子菜单在右边缘翻到父项左侧，下边缘上移收纳', !!subRect
+    && subRect.left < sortBtn.right && subRect.right <= 793 && subRect.bottom <= 513,
+    `${JSON.stringify(subRect)} parent=${JSON.stringify(sortBtn)}`);
+  // 缩窗前把指针移开菜单：Chrome 会在布局变化后按旧坐标重新派发 hover，
+  // 那属于“鼠标换到了别的项”，会把子菜单正常收掉，不是 R10 要验的定位问题。
+  await page.mouse.move(2, 2);
+  await sleep(200);
+  await page.setViewport({ width: 780, height: 400, deviceScaleFactor: 1 });
+  await sleep(450);
+  const rootRect2 = await panelRect(0);
+  const subRect2 = await panelRect(1);
+  check('窗口缩放后根菜单与子菜单重新收敛（R10）', !!rootRect2 && !!subRect2
+    && rootRect2.right <= 773 && rootRect2.bottom <= 393
+    && subRect2.right <= 773 && subRect2.bottom <= 393,
+    `root=${JSON.stringify(rootRect2)} sub=${JSON.stringify(subRect2)}`);
+  await dismissMenus();
+  await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
+  await sleep(500);
+
+  // 排序方式 / 查看：逐项真的改状态
+  const desktopView = () => page.evaluate(() => JSON.parse(localStorage.getItem('cloudnine-desktop-view') || '{}'));
+  await ctxOpenBlank();
+  await ctxClick(0, '排序方式');
+  check('排序方式子菜单含名称/大小/修改时间/类型 + 升降序 + 文件夹优先',
+    JSON.stringify(await ctxLabels(1)) === JSON.stringify(['名称', '大小', '修改时间', '类型', '升序', '降序', '文件夹优先']),
+    (await ctxLabels(1)).join(','));
+  await ctxClick(1, '修改时间');
+  check('「排序方式›修改时间」写入桌面排序状态', (await desktopView()).sort?.key === 'mtime', JSON.stringify(await desktopView()));
+  await ctxOpenBlank();
+  await ctxClick(0, '排序方式');
+  await ctxClick(1, '大小');
+  check('「排序方式›大小」写入桌面排序状态', (await desktopView()).sort?.key === 'size', JSON.stringify(await desktopView()));
+  await ctxOpenBlank();
+  await ctxClick(0, '排序方式');
+  await ctxClick(1, '类型');
+  check('「排序方式›类型」写入桌面排序状态', (await desktopView()).sort?.key === 'type', JSON.stringify(await desktopView()));
+  await ctxOpenBlank();
+  await ctxClick(0, '排序方式');
+  await ctxClick(1, '降序');
+  check('「排序方式›降序」写入 asc=false', (await desktopView()).sort?.asc === false, JSON.stringify(await desktopView()));
+  const dirsFirstBefore = (await desktopView()).sort?.dirsFirst;
+  await ctxOpenBlank();
+  await ctxClick(0, '排序方式');
+  await ctxClick(1, '文件夹优先');
+  check('「排序方式›文件夹优先」可切换', (await desktopView()).sort?.dirsFirst === !dirsFirstBefore, JSON.stringify(await desktopView()));
+  await ctxOpenBlank();
+  await ctxClick(0, '排序方式');
+  await ctxClick(1, '文件夹优先'); // 还原
+  await ctxOpenBlank();
+  await ctxClick(0, '排序方式');
+  await ctxClick(1, '名称'); // 还原默认排序
+  await ctxOpenBlank();
+  await ctxClick(0, '排序方式');
+  await ctxClick(1, '升序');
+
+  await ctxOpenBlank();
+  await ctxClick(0, '查看');
+  check('查看子菜单本轮只有「显示隐藏文件」', (await ctxLabels(1)).join(',') === '显示隐藏文件', (await ctxLabels(1)).join(','));
+  await ctxClick(1, '显示隐藏文件');
+  check('「查看›显示隐藏文件」打开后写入状态', (await desktopView()).showHidden === true, JSON.stringify(await desktopView()));
+  await ctxOpenBlank();
+  await ctxClick(0, '查看');
+  await ctxClick(1, '显示隐藏文件');
+  check('再次点击可关闭显示隐藏文件', (await desktopView()).showHidden === false, JSON.stringify(await desktopView()));
+
+  // 刷新 / 新建 / 上传 / 终端
+  await ctxOpenBlank();
+  const refreshed = await ctxClick(0, '刷新');
+  check('「刷新」可点击且菜单收起', refreshed && !(await page.$('.context-menu')));
+
+  await ctxOpenBlank();
+  await ctxClick(0, '新建');
+  await ctxClick(1, '文件夹');
   const dlgInput = await page.$('.dialog input');
-  check('「新建文件夹」弹出命名对话框', !!dlgInput);
+  check('「新建›文件夹」弹出命名对话框', !!dlgInput);
   if (dlgInput) {
     await dlgInput.click();
     await page.keyboard.type(dirName);
@@ -593,6 +800,37 @@ try {
   const dirQ = await apiFetch('GET', `/api/fs/search?path=/&q=${encodeURIComponent(dirName)}`, undefined, `cloudnine_sid=${dsid}`);
   check('新建的文件夹确实落盘', (dirQ.json?.results || []).some((x) => x.name === dirName), `status=${dirQ.status}`);
   await shot('桌面新建文件夹');
+
+  await ctxOpenBlank();
+  await ctxClick(0, '新建');
+  await ctxClick(1, '文本文档');
+  await sleep(400);
+  const newFileTitle = await page.$eval('.dialog h3', (el) => el.innerText.trim()).catch(() => '');
+  check('「新建›文本文档」打开新建文件对话框', newFileTitle === '新建空白文件', newFileTitle);
+  await page.evaluate(() => document.querySelector('.dialog-actions .btn')?.click());
+  await sleep(400);
+
+  await ctxOpenBlank();
+  let fc = page.waitForFileChooser({ timeout: 6000 }).catch(() => null);
+  await ctxClick(0, '上传文件…');
+  const fileChooser = await fc;
+  check('「上传文件…」打开系统文件选择器', !!fileChooser);
+  await fileChooser?.cancel();
+  await sleep(200);
+  await ctxOpenBlank();
+  fc = page.waitForFileChooser({ timeout: 6000 }).catch(() => null);
+  await ctxClick(0, '上传文件夹…');
+  const dirChooser = await fc;
+  check('「上传文件夹…」打开系统文件夹选择器', !!dirChooser);
+  await dirChooser?.cancel();
+  await sleep(200);
+
+  await ctxOpenBlank();
+  await ctxClick(0, '在终端中打开');
+  await sleep(1800);
+  check('空白菜单「在终端中打开」真的开终端窗口', !!(await page.$('.window .terminal-window')), '未找到 .terminal-window');
+  await page.evaluate(() => document.querySelectorAll('.window .tc-close').forEach((b) => b.click()));
+  await sleep(700);
 
   // 桌面多选：Ctrl 点击 + 全选
   await page.evaluate(() => {
@@ -617,23 +855,243 @@ try {
   check('桌面 Cmd/Ctrl+A 全选', selAll.selected === selAll.total && selAll.total > 0, JSON.stringify(selAll));
   await shot('桌面多选');
 
-  // 文件条目的右键菜单：完整操作项
-  await page.evaluate((n) => {
-    const el = [...document.querySelectorAll('.desktop-icon[data-entry]')].find((x) => x.dataset.entry === n);
-    el?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 60, clientY: 60 }));
-  }, deskName);
-  await sleep(400);
-  const itemItems = await page.evaluate(() =>
-    [...document.querySelectorAll('.context-menu .dropdown-item')].map((b) => b.innerText.trim()));
-  check('文件右键菜单含「打开」「快速预览」', itemItems.some((x) => /打开/.test(x)) && itemItems.some((x) => /快速预览/.test(x)), itemItems.join(','));
-  check('文件右键菜单含「重命名」「复制」「剪切」', ['重命名', '复制', '剪切'].every((k) => itemItems.includes(k)), itemItems.join(','));
-  check('文件右键菜单含「下载」「压缩…」', itemItems.some((x) => /下载/.test(x)) && itemItems.some((x) => /压缩/.test(x)), itemItems.join(','));
-  check('文件右键菜单含「分享…」「显示简介」「移入废纸篓」',
-    itemItems.some((x) => /分享/.test(x)) && itemItems.some((x) => /显示简介/.test(x)) && itemItems.some((x) => /移入废纸篓/.test(x)),
+  // 文件条目的右键菜单：结构 + 每个动作的真实效果
+  const ctxOpenIcon = async (name) => {
+    const ok = await page.evaluate((n) => {
+      const el = [...document.querySelectorAll('.desktop-icon[data-entry]')].find((x) => x.dataset.entry === n);
+      if (!el) return false;
+      const r = el.getBoundingClientRect();
+      el.dispatchEvent(new MouseEvent('contextmenu', {
+        bubbles: true, cancelable: true, clientX: r.left + 20, clientY: r.top + 20,
+      }));
+      return true;
+    }, name);
+    await sleep(350);
+    return ok;
+  };
+  const closeWins = async () => {
+    await page.evaluate(() => document.querySelectorAll('.window .tc-close').forEach((b) => b.click()));
+    await sleep(800);
+  };
+
+  // 准备一个 .zip 条目（扩展名即归档类型）用于验证「解压到…」入口
+  const zipPath = homeRel ? `${homeRel}/${zipName}` : zipName;
+  await apiFetch('POST', '/api/fs/write', { path: zipPath, content: 'PK\u0003\u0004' }, `cloudnine_sid=${dsid}`);
+  await ctxOpenBlank();
+  await ctxClick(0, '刷新');
+  await sleep(1000);
+  check('刷新后新写入的 .zip 出现在桌面',
+    (await page.$$eval('.desktop-icon[data-entry]', (els) => els.map((e) => e.dataset.entry))).includes(zipName));
+
+  // 先清空选择：右键未选中项只作用于该条目，菜单才是完整可用状态
+  await page.evaluate(() => {
+    const el = document.querySelector('.desktop-icons');
+    const o = { bubbles: true, clientX: 900, clientY: 700 };
+    el.dispatchEvent(new MouseEvent('mousedown', o));
+    el.dispatchEvent(new MouseEvent('mouseup', o));
+  });
+  await sleep(300);
+  await ctxOpenIcon(deskName);
+  const itemItems = await ctxLabels(0);
+  check('文件右键菜单根层：打开/打开方式/预览/重命名/复制/剪切/删除/压缩/发送到/分享/属性',
+    ['打开', '打开方式', '预览', '重命名', '复制', '剪切', '删除', '压缩…', '发送到'].every((k) => itemItems.includes(k))
+      && itemItems.some((t) => /^分享/.test(t)) && itemItems.includes('属性'),
     itemItems.join(','));
+  const itemSubs = await page.$$eval('.context-menu[data-ctx-level="0"] .ctx-has-sub', (els) => els.map((e) => e.dataset.label));
+  check('文件菜单有「打开方式」「发送到」两个子菜单',
+    itemSubs.includes('打开方式') && itemSubs.includes('发送到'), itemSubs.join(','));
   await shot('桌面文件右键菜单');
+  await ctxHover(0, '打开方式');
+  check('「打开方式」子菜单：用编辑器打开/用预览打开',
+    JSON.stringify(await ctxLabels(1)) === JSON.stringify(['用编辑器打开', '用预览打开']), (await ctxLabels(1)).join(','));
+  await ctxHover(0, '发送到');
+  check('「发送到」子菜单：下载/打包下载/复制路径',
+    JSON.stringify(await ctxLabels(1)) === JSON.stringify(['下载', '打包下载', '复制路径']), (await ctxLabels(1)).join(','));
+  await dismissMenus();
+
+  // 打开 → 编辑器
+  await ctxOpenIcon(deskName);
+  await ctxClick(0, '打开');
+  await sleep(1500);
+  check('「打开」真的打开编辑器窗口', !!(await page.$('.window .editor-window')), '未找到 .editor-window');
+  await closeWins();
+
+  // 预览 → 快速预览浮层
+  await ctxOpenIcon(deskName);
+  await ctxClick(0, '预览');
+  await sleep(1200);
+  check('「预览」打开快速预览浮层', !!(await page.$('.quicklook-overlay')), '未找到 .quicklook-overlay');
   await page.keyboard.press('Escape');
   await sleep(300);
+  check('快速预览可关闭', !(await page.$('.quicklook-overlay')));
+
+  // 打开方式 → 编辑器 / 预览
+  await ctxOpenIcon(deskName);
+  await ctxClick(0, '打开方式');
+  await ctxClick(1, '用编辑器打开');
+  await sleep(1500);
+  check('「打开方式›用编辑器打开」生效', !!(await page.$('.window .editor-window')), '未找到 .editor-window');
+  await closeWins();
+  await ctxOpenIcon(deskName);
+  await ctxClick(0, '打开方式');
+  await ctxClick(1, '用预览打开');
+  await sleep(1500);
+  check('「打开方式›用预览打开」生效', !!(await page.$('.window .preview-window')), '未找到 .preview-window');
+  await closeWins();
+
+  // 复制 → 空白菜单剪贴板状态 → 粘贴（生成副本）→ 清空
+  await ctxOpenIcon(deskName);
+  await ctxClick(0, '复制');
+  await ctxOpenBlank();
+  await ctxClick(0, '剪贴板');
+  check('复制后「剪贴板」子菜单显示 复制 1 项',
+    (await ctxLabels(1)).includes('剪贴板：复制 1 项'), (await ctxLabels(1)).join(','));
+  check('有剪贴板内容时「粘贴」可用', await page.evaluate(() =>
+    ![...document.querySelectorAll('.context-menu[data-ctx-level="0"] .dropdown-item')]
+      .find((b) => b.dataset.label.startsWith('粘贴'))?.disabled));
+  await ctxClick(0, '粘贴项目');
+  await sleep(1400);
+  const homeList = await apiFetch('GET', `/api/fs/list?path=${encodeURIComponent(homeRel)}`, undefined, `cloudnine_sid=${dsid}`);
+  const copyEntry = (homeList.json?.entries || []).find((x) => /^uitest-desktop-.*\(1\)\.txt$/.test(x.name));
+  check('「粘贴」真的在桌面生成了一份副本', !!copyEntry, (homeList.json?.entries || []).map((x) => x.name).join(','));
+  if (copyEntry) {
+    await apiFetch('POST', '/api/fs/delete', { paths: [homeRel ? `${homeRel}/${copyEntry.name}` : copyEntry.name] }, `cloudnine_sid=${dsid}`);
+  }
+  await ctxOpenBlank();
+  await ctxClick(0, '剪贴板');
+  await ctxClick(1, '清空剪贴板');
+  await dismissMenus();
+  await ctxOpenBlank();
+  await ctxClick(0, '剪贴板');
+  check('「剪贴板›清空剪贴板」后状态行变空', (await ctxLabels(1)).includes('剪贴板：空'), (await ctxLabels(1)).join(','));
+  check('空剪贴板时「清空剪贴板」禁用', await page.evaluate(() =>
+    [...document.querySelectorAll('.context-menu[data-ctx-level="1"] .dropdown-item')]
+      .find((b) => b.dataset.label === '清空剪贴板')?.disabled));
+  await dismissMenus();
+
+  // 剪切 → 剪贴板状态 → 清空
+  await ctxOpenIcon(deskName);
+  await ctxClick(0, '剪切');
+  await ctxOpenBlank();
+  await ctxClick(0, '剪贴板');
+  check('「剪切」后「剪贴板」显示 剪切 1 项',
+    (await ctxLabels(1)).includes('剪贴板：剪切 1 项'), (await ctxLabels(1)).join(','));
+  await ctxClick(1, '清空剪贴板');
+  await dismissMenus();
+
+  // 重命名（只验证入口，Esc 取消）
+  await ctxOpenIcon(deskName);
+  await ctxClick(0, '重命名');
+  check('「重命名」进入行内输入框', !!(await page.$('.desktop-icon[data-entry] .rename-input')));
+  await page.keyboard.press('Escape');
+  await sleep(300);
+
+  // 删除（确认框，取消）
+  await ctxOpenIcon(deskName);
+  await ctxClick(0, '删除');
+  await sleep(300);
+  const delTitle = await page.$eval('.dialog h3', (el) => el.innerText.trim()).catch(() => '');
+  check('「删除」打开移入废纸篓确认框', delTitle === '移入废纸篓', delTitle);
+  await page.evaluate(() => document.querySelector('.dialog-actions .btn')?.click());
+  await sleep(500);
+
+  // 压缩…（表单，取消）
+  await ctxOpenIcon(deskName);
+  await ctxClick(0, '压缩…');
+  await sleep(400);
+  const zipDlg = await page.$('.dialog');
+  check('「压缩…」打开压缩对话框', !!zipDlg);
+  await page.evaluate(() => document.querySelector('.dialog-actions .btn')?.click());
+  await sleep(500);
+
+  // 解压…（归档文件才出现）
+  await ctxOpenIcon(zipName);
+  check('压缩包菜单含「解压到…」', (await ctxLabels(0)).includes('解压到…'), (await ctxLabels(0)).join(','));
+  await ctxClick(0, '解压到…');
+  await sleep(500);
+  const unzipTitle = await page.$eval('.dialog h3', (el) => el.innerText.trim()).catch(() => '');
+  check('「解压到…」打开解压对话框', /^解压 /.test(unzipTitle), unzipTitle);
+  await page.evaluate(() => document.querySelector('.dialog-actions .btn')?.click());
+  await sleep(500);
+
+  // 分享…（表单，取消）
+  await ctxOpenIcon(deskName);
+  await ctxClick(0, '分享…');
+  await sleep(400);
+  const shareTitle = await page.$eval('.dialog h3', (el) => el.innerText.trim()).catch(() => '');
+  check('「分享…」打开分享对话框', /^分享/.test(shareTitle), shareTitle);
+  await page.evaluate(() => document.querySelector('.dialog-actions .btn')?.click());
+  await sleep(500);
+
+  // 属性 → 现有简介窗口
+  await ctxOpenIcon(deskName);
+  await ctxClick(0, '属性');
+  await sleep(1500);
+  check('「属性」打开现有「简介」窗口', !!(await page.$('.window .info-window')), '未找到 .info-window');
+  await closeWins();
+
+  // 发送到 → 复制路径 / 下载 / 打包下载
+  await ctxOpenIcon(deskName);
+  await ctxClick(0, '发送到');
+  await ctxClick(1, '复制路径');
+  await sleep(500);
+  const notifPath = await page.evaluate(() => [...document.querySelectorAll('.notification')]
+    .some((n) => n.innerText.includes('路径已复制')));
+  const clipWrites = await page.evaluate(() => window.__clipboardWrites || []);
+  const fullPath = `/${[homeRel, deskName].filter(Boolean).join('/')}`;
+  check('「发送到›复制路径」真的把完整路径交给剪贴板',
+    notifPath || clipWrites.includes(fullPath),
+    `notif=${notifPath} want=${fullPath} writes=${clipWrites.slice(-3).join('|')}`);
+
+  await ctxOpenIcon(deskName);
+  await ctxClick(0, '发送到');
+  await ctxClick(1, '下载');
+  await sleep(1000);
+  const downloadHref = await page.evaluate(() => (window.__anchorClicks || [])
+    .map((x) => x.href).find((h) => h.includes('/api/download?path=')) || '');
+  check('「发送到›下载」真的触发单文件下载链接',
+    downloadHref.includes(encodeURIComponent(deskName)), downloadHref);
+
+  // 多选后「打包下载」：先点空白清掉旧选择，再 Ctrl 选中两项
+  await page.evaluate(() => {
+    const el = document.querySelector('.desktop-icons');
+    const o = { bubbles: true, clientX: 900, clientY: 700 };
+    el.dispatchEvent(new MouseEvent('mousedown', o));
+    el.dispatchEvent(new MouseEvent('mouseup', o));
+  });
+  await sleep(250);
+  await page.evaluate((a, b) => {
+    const els = [...document.querySelectorAll('.desktop-icon[data-entry]')];
+    const ea = els.find((x) => x.dataset.entry === a);
+    const eb = els.find((x) => x.dataset.entry === b);
+    ea?.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
+    eb?.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
+  }, deskName, dirName);
+  await sleep(300);
+  const selectedNow = await page.$$eval('.desktop-icon[data-entry].selected', (els) => els.map((e) => e.dataset.entry));
+  await ctxOpenIcon(deskName);
+  await ctxClick(0, '发送到');
+  const zipEnabled = await page.evaluate(() =>
+    ![...document.querySelectorAll('.context-menu[data-ctx-level="1"] .dropdown-item')]
+      .find((b) => b.dataset.label === '打包下载')?.disabled);
+  check('多选时「发送到›打包下载」可用', zipEnabled, `selected=${selectedNow.join(',')}`);
+  await ctxClick(1, '打包下载');
+  await sleep(1000);
+  const zipHref = await page.evaluate(() => (window.__anchorClicks || [])
+    .map((x) => x.href).find((h) => h.includes('/api/download/zip?paths=')) || '');
+  check('「发送到›打包下载」真的触发 zip 下载链接', zipHref.includes(encodeURIComponent(deskName)), zipHref);
+
+  // 目录的「打开方式」只有「在终端中打开」
+  await page.evaluate(() => document.querySelector('.desktop-icons')?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 900, clientY: 700 })));
+  await sleep(200);
+  await ctxOpenIcon(dirName);
+  await ctxClick(0, '打开方式');
+  check('目录的「打开方式」子菜单只有「在终端中打开」',
+    JSON.stringify(await ctxLabels(1)) === JSON.stringify(['在终端中打开']), (await ctxLabels(1)).join(','));
+  await ctxClick(1, '在终端中打开');
+  await sleep(1800);
+  check('目录「打开方式›在终端中打开」生效', !!(await page.$('.window .terminal-window')), '未找到 .terminal-window');
+  await closeWins();
 
   // 拖拽前先清空选择：否则拖一个已选中的文件会带走全部选中项
   await page.evaluate(() => {
@@ -723,6 +1181,60 @@ try {
   check('删除后桌面不再显示该项', !afterDel.includes(newDirName), afterDel.join(','));
   await shot('桌面删除');
 
+  // 系统图标菜单：§2.2.1 的文案（重新载入一次，让回收站数量同步）
+  await page.reload({ waitUntil: 'networkidle2', timeout: 45000 });
+  await page.waitForSelector('.desktop-icons', { timeout: 15000 });
+  await sleep(1800);
+  await page.evaluate(() => {
+    const el = [...document.querySelectorAll('.desktop-sysicon')].find((x) => x.innerText.includes('根目录'));
+    el?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 120 }));
+  });
+  await sleep(350);
+  check('根目录图标菜单：打开 / 在终端中打开',
+    JSON.stringify(await ctxLabels(0)) === JSON.stringify(['打开', '在终端中打开']), (await ctxLabels(0)).join(','));
+  await ctxClick(0, '打开');
+  await sleep(1600);
+  check('根目录菜单「打开」真的打开根目录窗口', !!(await page.$('.window .finder')), '未找到 .finder');
+  await page.evaluate(() => document.querySelectorAll('.window .tc-close').forEach((b) => b.click()));
+  await sleep(800);
+  await page.evaluate(() => {
+    const el = [...document.querySelectorAll('.desktop-sysicon')].find((x) => x.innerText.includes('根目录'));
+    el?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 120 }));
+  });
+  await sleep(350);
+  await ctxClick(0, '在终端中打开');
+  await sleep(1800);
+  check('根目录菜单「在终端中打开」生效', !!(await page.$('.window .terminal-window')), '未找到 .terminal-window');
+  await page.evaluate(() => document.querySelectorAll('.window .tc-close').forEach((b) => b.click()));
+  await sleep(800);
+  await page.evaluate(() => {
+    const el = [...document.querySelectorAll('.desktop-sysicon')].find((x) => x.innerText.includes('废纸篓'));
+    el?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 160, clientY: 120 }));
+  });
+  await sleep(350);
+  const trashMenu = await ctxLabels(0);
+  check('回收站图标菜单文案为「打开回收站」「清空回收站」',
+    trashMenu[0] === '打开回收站' && trashMenu.includes('清空回收站'), trashMenu.join(','));
+  await ctxClick(0, '打开回收站');
+  await sleep(1600);
+  check('「打开回收站」真的打开回收站窗口', !!(await page.$('.window .finder')), '未找到 .finder');
+  await page.evaluate(() => document.querySelectorAll('.window .tc-close').forEach((b) => b.click()));
+  await sleep(800);
+  await page.evaluate(() => {
+    const el = [...document.querySelectorAll('.desktop-sysicon')].find((x) => x.innerText.includes('废纸篓'));
+    el?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 160, clientY: 120 }));
+  });
+  await sleep(350);
+  await ctxClick(0, '清空回收站');
+  await sleep(400);
+  const emptyTitle = await page.$eval('.dialog h3', (el) => el.innerText.trim()).catch(() => '');
+  check('「清空回收站」打开同名确认框', emptyTitle === '清空回收站', emptyTitle);
+  await page.evaluate(() => document.querySelector('.dialog-actions .btn-danger')?.click());
+  await sleep(1400);
+  const trashLeft = await apiFetch('GET', '/api/fs/trash/count', undefined, `cloudnine_sid=${dsid}`);
+  check('确认「清空回收站」后回收站归零', trashLeft.json?.count === 0, JSON.stringify(trashLeft.json));
+  check('清空后桌面回收站徽标消失', !(await page.$('.desktop-badge')));
+
   // 焦点在桌面时，菜单栏切换为桌面菜单
   const menuLabels = await page.evaluate(() => [...document.querySelectorAll('.mb-menu-btn')].map((b) => b.innerText.trim()));
   check('桌面态菜单栏含「编辑」「显示」', menuLabels.includes('编辑') && menuLabels.includes('显示'), menuLabels.join(','));
@@ -740,6 +1252,25 @@ try {
     const titleText = winTitle ? await page.$eval('.window-title', (el) => el.innerText) : '';
     check('文件窗口打开', /文件|Finder/i.test(titleText) || !!winTitle, `title=${titleText}`);
     await shot('文件窗口');
+
+    // 回归：Finder 的扁平右键菜单（itemMenu / blankMenu / sortMenu）没被 ContextMenu 改坏
+    await page.evaluate(() => {
+      const el = document.querySelector('.finder-main');
+      el?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 420, clientY: 360 }));
+    });
+    await sleep(400);
+    const finderBlank = await ctxLabels(0);
+    check('Finder 空白右键（扁平 items + 分隔符）仍正常',
+      ['新建文件夹', '上传文件…', '显示隐藏文件', '排序方式', '刷新'].every((k) => finderBlank.includes(k)),
+      finderBlank.join(','));
+    await ctxClick(0, '排序方式');
+    await sleep(350);
+    const finderSort = await ctxLabels(0);
+    check('Finder「排序方式」二级菜单（另开扁平菜单）仍正常',
+      finderSort.some((t) => t.includes('按名称')) && finderSort.some((t) => /改为升序|改为降序/.test(t)),
+      finderSort.join(','));
+    await page.keyboard.press('Escape');
+    await sleep(250);
   } else {
     check('任务栏存在「文件资源管理器」入口', false, '未找到 .tb-app[title=文件资源管理器]');
   }
@@ -1728,6 +2259,30 @@ try {
     await page.keyboard.press('Escape');
     await sleep(250);
 
+    // 右键菜单亮/暗两套主题：纯色背景可见、没有 backdrop-filter
+    const menuStyle = async (label) => {
+      await page.evaluate(() => {
+        document.querySelector('.desktop-icons').dispatchEvent(new MouseEvent('contextmenu', {
+          bubbles: true, cancelable: true, clientX: 700, clientY: 600,
+        }));
+      });
+      await sleep(350);
+      const st = await page.evaluate(() => {
+        const el = document.querySelector('.context-menu');
+        if (!el) return null;
+        const cs = getComputedStyle(el);
+        return { bg: cs.backgroundColor, blur: cs.backdropFilter };
+      });
+      await shot(`右键菜单-${label}`);
+      await page.keyboard.press('Escape');
+      await sleep(250);
+      return st;
+    };
+    const darkMenu = await menuStyle('暗色');
+    check('暗色主题下右键菜单有纯色背景且无毛玻璃', !!darkMenu
+      && darkMenu.bg !== 'rgba(0, 0, 0, 0)' && darkMenu.bg !== 'transparent' && darkMenu.blur === 'none',
+      JSON.stringify(darkMenu));
+
     await accOpen();
     await sleep(250);
     await accClick('浅色主题');
@@ -1737,6 +2292,12 @@ try {
     await shot('开始菜单-亮色');
     await page.keyboard.press('Escape');
     await sleep(250);
+    const lightMenu = await menuStyle('亮色');
+    check('亮色主题下右键菜单有纯色背景且无毛玻璃', !!lightMenu
+      && lightMenu.bg !== 'rgba(0, 0, 0, 0)' && lightMenu.bg !== 'transparent' && lightMenu.blur === 'none',
+      JSON.stringify(lightMenu));
+    check('亮/暗主题下右键菜单背景色确实不同', !!darkMenu && !!lightMenu && darkMenu.bg !== lightMenu.bg,
+      `${darkMenu?.bg} vs ${lightMenu?.bg}`);
 
     await accOpen();
     await sleep(250);
@@ -1780,7 +2341,7 @@ try {
   if (!flag('keep')) {
     section('清理测试产物');
     const sid2 = await loginViaApi();
-    const names = [proofName, editName, pasteName, notifyName, btnUploadName, imgName, deskName, dirName, probeName, newDirName, dropName, tbDirName, smRecentName, ...badgeNames].filter(Boolean);
+    const names = [proofName, editName, pasteName, notifyName, btnUploadName, imgName, deskName, dirName, zipName, probeName, newDirName, dropName, tbDirName, smRecentName, ...badgeNames].filter(Boolean);
     for (const n of names) {
       const r = await apiFetch('GET', `/api/fs/search?path=/&q=${encodeURIComponent(n)}`, undefined, `cloudnine_sid=${sid2}`);
       const hit = (r.json?.results || []).find((x) => x.name === n);

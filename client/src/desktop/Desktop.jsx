@@ -101,7 +101,7 @@ export default function Desktop() {
         </WindowFrame>
       ))}
       <Taskbar />
-      {s.contextMenu && <ContextMenu />}
+      {s.contextMenu && <ContextMenu key={s.contextMenu.id} />}
       {s.quickLook && <QuickLook />}
     </div>
   );
