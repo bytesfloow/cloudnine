@@ -1,104 +1,73 @@
-# CloudNine — Win11 风格云服务器桌面
+# CloudNine
 
-自托管的单用户云桌面：部署到云服务器后，浏览器打开就是一个 Windows 11 风格的桌面（底部任务栏 + 开始菜单、桌面图标、可拖动窗口）。桌面本身就是主目录，文件与文件夹直接铺在桌面上，右键即可新建、上传、重命名、删除；双击文件夹才打开「文件资源管理器」窗口浏览下级。命令在「终端」里执行；手机浏览器自动切换为 iOS 风格单屏形态。
+自托管的单用户云桌面：部署到自己的服务器，浏览器打开就是一台 Windows 11 风格的桌面。桌面即主目录，文件、终端、编辑器、预览与分享都在同一个界面里完成。
 
-Node.js ≥ 18 · Express + ws · React 18 + Vite · CodeMirror 6 · node-pty
+![桌面与任务栏](docs/images/desktop.png)
+
+![文件资源管理器](docs/images/explorer.png)
+
+## 应用场景
+
+- 手里只有一台云服务器，想在浏览器里管理文件，不想再装 NAS。
+- 经常 SSH 进服务器改代码，希望文件、终端、编辑器在一个窗口里切换。
+- 需要把服务器上的文件临时发给同事，又不想开公共网盘。
+
+## 功能特色
+
+**Win11 外壳**
+
+- 底部任务栏 + 开始菜单，每个窗口一个任务栏按钮
+- 开始菜单搜索应用与命令，Esc 或点击外部收起
+- Aero Snap：Win+←/→ 半屏、Win+↑ 最大化、Win+↓ 还原；Alt+Tab 切换
+- 亮 / 暗两套 Fluent 主题，通知与右键菜单跟随
+- 手机浏览器自动切换为单屏移动形态
+
+**文件管理**
+
+- 桌面直览主目录：新建、上传、重命名、拖拽移入、拖到回收站
+- 框选与多选，批量复制、剪切、删除
+- 文件资源管理器：地址栏、命令栏、递归搜索、图标 / 列表视图
+- 压缩包解压、批量打包下载、回收站保留 30 天
+
+**终端与编辑**
+
+- 真实 PTY 终端，多标签、断线自动重连
+- CodeMirror 6 编辑器，语法高亮、保存即写入
+- 图片、音视频、PDF、Markdown、Office 文档预览，图片支持缩放手势
+
+**传输与分享**
+
+- 分片断点续传、文件夹上传
+- 单文件或多文件打包下载
+- 带密码与有效期的分享链接，可随时撤销
+
+**安全**
+
+- bcrypt 密码、登录限流、HttpOnly 会话
+- 文件接口做路径规范化与根目录边界校验
+- 分享令牌不可枚举
+
+## 技术栈
+
+| 层 | 选型 |
+| --- | --- |
+| 前端 | React 18 + Vite + CodeMirror 6 + xterm.js |
+| 后端 | Node.js ≥ 18 + Express + ws + node-pty |
+| 存储 | 本地文件系统 + JSON 数据库 |
+| 部署 | systemd + nginx，单机自托管 |
 
 ## 快速开始
 
 ```bash
-npm run install:all   # 安装 server/ 与 client/ 依赖
-npm run build         # 构建客户端
+npm run install:all   # 安装前后端依赖
+npm run build         # 构建前端
 npm start             # 启动服务，默认 :8480
 ```
 
 打开 http://localhost:8480，首次访问通过初始化向导创建唯一账号。
 
-开发模式（前端热更新）：两个终端分别跑 `npm run dev:server`（:8480）与 `npm run dev:client`（Vite :5173，已代理 `/api`、`/ws`）。
+## 部署与文档
 
-## 配置
+生产环境的配置项、环境变量、nginx 与 systemd、部署脚本、测试和安全须知见 **[docs/deploy.md](docs/deploy.md)**。
 
-优先级：环境变量 > `server/config.json` > 默认值。全部配置项见 [server/config.example.json](server/config.example.json)。
-
-| 变量 | 默认值 | 说明 |
-| --- | --- | --- |
-| `PORT` | 8480 | 监听端口 |
-| `HOST` | 0.0.0.0 | 建议只监听本地 + 反向代理 |
-| `FILE_ROOT` | Linux `/` | **可浏览的文件根目录，生产环境务必指向数据盘** |
-| `DATA_DIR` | `server/data` | 账号、会话、分享、回收站、上传临时文件 |
-| `SESSION_DAYS` | 7 | 会话有效期（「记住我」30 天） |
-| `TRUST_PROXY` | `false` | 是否信任代理头（`X-Forwarded-For` / `X-Forwarded-Proto`）。只有确实在 nginx 等反向代理后面才设为 `1`，且反代必须**覆盖写**该头（见 `scripts/nginx/cloudnine.conf`）；直连部署保持 `false`，否则客户端伪造该头就能冒充来源 IP、绕过登录限流 |
-
-忘记密码：停止服务 → 删除 `DATA_DIR/db.json` 的 `account` 字段 → 重启后重新初始化。
-
-## 部署（Linux）
-
-推荐直接使用仓库内置工具链，模板与脚本都在 `scripts/`：
-
-```bash
-# 首次部署（开发机执行，需可 SSH 到目标服务器）
-python3 scripts/deploy_cloudnine.py --host <IP> --user ubuntu --bootstrap --push
-
-# 后续部署：拉代码 → 装依赖 → 构建 → 重启 → 健康检查，任一步失败自动回滚
-python3 scripts/deploy_cloudnine.py --host <IP> --user ubuntu --push
-```
-
-手工部署时以 [scripts/systemd/cloudnine.service](scripts/systemd/cloudnine.service) 和 [scripts/nginx/cloudnine.conf](scripts/nginx/cloudnine.conf) 为模板，细节见 [scripts/bootstrap.sh](scripts/bootstrap.sh) 与 [scripts/deploy_remote.sh](scripts/deploy_remote.sh)。
-
-两个必知约束：
-
-- 若启用 `ProtectSystem=strict`，`ReadWritePaths` 必须包含 `FILE_ROOT` 与 `DATA_DIR`，否则文件管理器所有写操作都会失败。
-- 终端等价于服务器控制权：生产环境必须走 HTTPS/WSS 并限制访问来源。
-
-扩展解压格式需系统组件：`bunzip2`、`xz`、`p7zip`、`unrar`。
-
-## 测试
-
-```bash
-python3 scripts/smoke_test.py --url http://<IP>/
-node scripts/uitest.mjs --url http://<IP>/ --user <账号> --password <密码>
-```
-
-`smoke_test.py` 仅用标准库，覆盖账号、文件读写、搜索、上传下载、Range、分享、回收站、磁盘；`uitest.mjs` 用 puppeteer-core 驱动系统 Chrome 做桌面与移动视口的 UI 自测（需先安装 `puppeteer-core`，可用 `PUPPETEER_CORE` 指定路径）。测试用的 `testroot/`、`server/data/` 是本地产物，已在 `.gitignore` 中，clone 后不存在。
-
-`uitest.mjs` 每次运行会在 `shots/uitest-<时间戳>/` 下留一套分步截图与 `report.txt` 报告（`shots/` 同样在 `.gitignore` 中，不入库）。截图只用于排障：断言失败时报告会指出对应截图文件名。历史目录会自动滚动清理，默认只保留最近 3 次（`--keep-shots N` 可调整），避免 `shots/` 无限膨胀。
-
-## 功能概览
-
-- 桌面：主目录直览——真实文件/文件夹直接显示在桌面上，右键新建、上传、粘贴、排序、显示隐藏文件；多选、框选、批量操作；拖到文件夹上移入、拖到回收站删除；图标位置按排序规则自动排布
-- 文件窗口：双击桌面文件夹打开，标题即目录名；图标/列表视图、搜索、框选拖拽、右键菜单、简介与权限
-- 终端：真实 PTY、多标签、断线重连
-- 编辑与预览：CodeMirror 6 语法高亮、独立的预览窗口、图片预览支持滚轮/双指缩放与拖拽平移、图片/音视频/PDF/Markdown/CSV/Office 预览
-- 传输：分片断点续传、文件夹上传、批量打包下载、压缩解压
-- 外壳：Win11 风格——底部任务栏（每窗口一个按钮 + 托盘）、开始菜单、Aero Snap 半屏吸附、Alt+Tab 切换、亮/暗两套 Fluent 主题
-- 分享与运维：带密码/有效期的分享链接、磁盘监控、回收站、深浅主题与通知
-- 移动端：≤768px 自动切换 iPhone 风格形态，文件 App 默认图标直览
-
-### 桌面模型
-
-桌面不是「文件管理器的入口」，而是主目录本身的视图：
-
-| 行为 | 语义 |
-| --- | --- |
-| 桌面显示的内容 | 用户主目录 `~/` 的真实文件与文件夹 |
-| 图标位置 | 由排序规则决定（名称/大小/修改时间/类型、文件夹优先、升降序），不再手工摆放 |
-| 双击文件夹 | 打开「文件」窗口（标题为目录名），继续向下浏览 |
-| 拖到文件夹上 | 把文件移入该文件夹（按住 Ctrl 为复制） |
-| 拖到回收站上 | 移入回收站 |
-| 拖到桌面空白处 | 桌面内同目录移动无意义，落回原地 |
-| 外部文件拖入 | 上传到主目录 |
-
-快捷键（纯 Windows 语义，不用 Meta 组合键）：`Ctrl+A/C/X/V` 全选、复制、剪切、粘贴、`Delete` 移入回收站、`F2` 重命名、`Enter` 打开、`Space` 切换选中、`Ctrl+N` 新建文件资源管理器窗口、`Ctrl+Shift+N` 新建文件夹、`F5` 刷新、`F3`/`Ctrl+F` 搜索、`Alt+Enter` 属性、`Alt+←/→/↑` 后退/前进/上级；窗口级 `Win+←/→` 半屏、`Win+↑` 最大化、`Win+↓` 还原、`Win+D` 显示桌面、`Alt+Tab` 切换窗口、`Ctrl+W` 关窗口（终端里关标签）。
-
-功能范围与实现取舍以代码和提交历史为准；未纳入本版本的能力（如浏览器扩展、本地客户端、终端命令审计等）见对应源码注释。
-
-## 安全须知
-
-- 终端 = 服务器控制权，务必 HTTPS/WSS + 登录鉴权 + 限制来源，并用低权限专用账号运行服务。
-- 所有文件接口做路径规范化与根目录边界校验；服务进程权限即可操作的文件边界。
-- 密码 bcrypt 加盐、登录限流、Cookie HttpOnly/SameSite=Lax；分享令牌不可枚举。
-- 界面为原创实现，不含 Apple 商标/字体/素材，与 Apple 无关。
-
-## 其他文档
-
-- [LICENSE](LICENSE)
+License: [MIT](LICENSE)
