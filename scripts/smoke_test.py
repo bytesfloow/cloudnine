@@ -2,7 +2,7 @@
 """CloudNine API 冒烟/回归测试
 
 只用标准库（urllib + http.cookiejar），可在任意 Python 3.8+ 环境直接跑。
-覆盖：账号初始化 → 登录 → 文件读写 → 目录操作 → 搜索 → 上传下载 → Range → 分享 → 废纸篓 → 磁盘。
+覆盖：账号初始化 → 登录 → 文件读写 → 目录操作 → 搜索 → 上传下载 → Range → 分享 → 回收站 → 磁盘。
 
 用法：
   python3 scripts/smoke_test.py --url http://1.2.3.4/
@@ -409,15 +409,15 @@ def main() -> int:
 
             created_shares.append(body["share"]["id"])
 
-    # ---------- 6. 废纸篓 ----------
-    section("废纸篓")
+    # ---------- 6. 回收站 ----------
+    section("回收站")
     st, body, _ = c.post("/api/fs/trash", {"paths": [f"{test_dir}/copy"]})
-    check("POST /api/fs/trash 移入废纸篓", st == 200 and body.get("count") == 1, f"status={st} {body}")
+    check("POST /api/fs/trash 移入回收站", st == 200 and body.get("count") == 1, f"status={st} {body}")
 
     st, body, _ = c.get("/api/fs/trash/list")
     entries = body.get("entries", []) if st == 200 else []
     hit = [e for e in entries if e.get("origRel") == f"{test_dir}/copy"]
-    check("GET /api/fs/trash/list 废纸篓可见", st == 200 and bool(hit), f"status={st} {str(body)[:150]}")
+    check("GET /api/fs/trash/list 回收站可见", st == 200 and bool(hit), f"status={st} {str(body)[:150]}")
 
     if hit:
         st, body, _ = c.post("/api/fs/trash/restore", {"ids": [hit[0]["id"]]})
@@ -439,14 +439,14 @@ def main() -> int:
         st, body, _ = c.post("/api/fs/trash", {"paths": [test_dir]})
         check("清理测试目录", st == 200, f"status={st} {body}")
 
-        # 把测试产生的废纸篓条目彻底删除（默认保留 30 天，会一直留在废纸篓里）
+        # 把测试产生的回收站条目彻底删除（默认保留 30 天，会一直留在回收站里）
         st, body, _ = c.get("/api/fs/trash/list")
         for e in body.get("entries", []) if st == 200 else []:
             if e.get("origRel", "").startswith(".smoketest_"):
                 c.post("/api/fs/trash/delete", {"ids": [e["id"]]})
 
         st, body, _ = c.get("/api/fs/trash/count")
-        print(f"{DIM}    废纸篓当前条目: {body.get('count')}{RESET}")
+        print(f"{DIM}    回收站当前条目: {body.get('count')}{RESET}")
 
     # ---------- 汇总 ----------
     total = len(PASSED) + len(FAILED)

@@ -45,7 +45,7 @@
   text-align: center;
 }
 
-/* 系统图标（根目录 / 废纸篓）：与文件同处一个图标网格，占据左上角前两格 */
+/* 系统图标（根目录 / 回收站）：与文件同处一个图标网格，占据左上角前两格 */
 .desktop-sysicon { position: relative; }
 /* 系统图标（根目录等）用线条绘制，需在深色壁纸上保持可读 */
 .desktop-sysicon .di-icon-wrap { color: var(--desk-icon); }

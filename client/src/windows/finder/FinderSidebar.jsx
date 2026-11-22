@@ -15,7 +15,7 @@ export default function FinderSidebar({
       {/* 主目录与根目录重合（homeRel 为空）时不重复显示根目录 */}
       {getState().homeRel && <SideItem label="根目录" onClick={() => navigate('')} dropdir="" active={cwd === '' && !isTrash && !recentMode} />}
       <SideItem label="最近" onClick={() => { setRecentMode(true); setCwd(''); setSel(new Set()); }} active={recentMode} />
-      <SideItem label="废纸篓" onClick={() => navigate('__trash__')} active={isTrash} />
+      <SideItem label="回收站" onClick={() => navigate('__trash__')} active={isTrash} />
     </div>
   );
 }

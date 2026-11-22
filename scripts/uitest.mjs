@@ -592,13 +592,13 @@ try {
   check('桌面直接显示主目录里的真实文件', deskIcons.includes(deskName),
     `桌面条目: ${deskIcons.join(',') || '(空)'}`);
   const sysCount = (await page.$$('.desktop-sysicon')).length;
-  check('桌面保留根目录/废纸篓入口', sysCount === 2, `数量 ${sysCount}`);
+  check('桌面保留根目录/回收站入口', sysCount === 2, `数量 ${sysCount}`);
   await shot('桌面直览');
 
   // 系统图标：并入左上角图标网格（前两格），单击只选中、双击才打开
   const sysOrder = await page.evaluate(() => [...document.querySelector('.desktop-grid').children]
     .slice(0, 2).map((el) => el.innerText.trim().split('\n')[0]));
-  check('系统图标排在左上角前两格', sysOrder[0] === '根目录' && sysOrder[1] === '废纸篓', sysOrder.join(','));
+  check('系统图标排在左上角前两格', sysOrder[0] === '根目录' && sysOrder[1] === '回收站', sysOrder.join(','));
   await page.evaluate(() => {
     const el = [...document.querySelectorAll('.desktop-sysicon')].find((x) => x.innerText.includes('根目录'));
     el?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -1037,7 +1037,7 @@ try {
   await ctxClick(0, '删除');
   await sleep(300);
   const delTitle = await page.$eval('.dialog h3', (el) => el.innerText.trim()).catch(() => '');
-  check('「删除」打开移入废纸篓确认框', delTitle === '移入废纸篓', delTitle);
+  check('「删除」打开移入回收站确认框', delTitle === '移入回收站', delTitle);
   await page.evaluate(() => document.querySelector('.dialog-actions .btn')?.click());
   await sleep(500);
 
@@ -1212,7 +1212,7 @@ try {
   check('重命名确实落盘', (renQ.json?.results || []).some((x) => x.name === newDirName), `status=${renQ.status}`);
   await shot('桌面重命名');
 
-  // 删除：选中 → Delete → 确认 → 移入废纸篓
+  // 删除：选中 → Delete → 确认 → 移入回收站
   await page.evaluate((n) => {
     const el = [...document.querySelectorAll('.desktop-icon[data-entry]')].find((x) => x.dataset.entry === n);
     el?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -1221,7 +1221,7 @@ try {
   await page.keyboard.press('Delete');
   await sleep(600);
   const trashConfirm = await page.$('.dialog-actions .btn-primary');
-  check('Delete 弹出「移入废纸篓」确认', !!trashConfirm);
+  check('Delete 弹出「移入回收站」确认', !!trashConfirm);
   if (trashConfirm) { await trashConfirm.click(); await sleep(1500); }
   const afterDel = await page.$$eval('.desktop-icon[data-entry]', (els) => els.map((e) => e.dataset.entry));
   check('删除后桌面不再显示该项', !afterDel.includes(newDirName), afterDel.join(','));
@@ -1254,7 +1254,7 @@ try {
   await page.evaluate(() => document.querySelectorAll('.window .tc-close').forEach((b) => b.click()));
   await sleep(800);
   await page.evaluate(() => {
-    const el = [...document.querySelectorAll('.desktop-sysicon')].find((x) => x.innerText.includes('废纸篓'));
+    const el = [...document.querySelectorAll('.desktop-sysicon')].find((x) => x.innerText.includes('回收站'));
     el?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 160, clientY: 120 }));
   });
   await sleep(350);
@@ -1267,7 +1267,7 @@ try {
   await page.evaluate(() => document.querySelectorAll('.window .tc-close').forEach((b) => b.click()));
   await sleep(800);
   await page.evaluate(() => {
-    const el = [...document.querySelectorAll('.desktop-sysicon')].find((x) => x.innerText.includes('废纸篓'));
+    const el = [...document.querySelectorAll('.desktop-sysicon')].find((x) => x.innerText.includes('回收站'));
     el?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 160, clientY: 120 }));
   });
   await sleep(350);
@@ -1488,7 +1488,7 @@ try {
   // 拖到回收站：布局/命中改动后仍可用，且徽标同步
   const dragToTrashOk = await page.evaluate((n) => {
     const src = [...document.querySelectorAll('.desktop-icon[data-entry]')].find((x) => x.dataset.entry === n);
-    const trash = [...document.querySelectorAll('.desktop-sysicon')].find((x) => x.innerText.includes('废纸篓'));
+    const trash = [...document.querySelectorAll('.desktop-sysicon')].find((x) => x.innerText.includes('回收站'));
     if (!src || !trash) return false;
     const dt = new DataTransfer();
     src.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
@@ -1501,7 +1501,7 @@ try {
   check('拖到回收站图标仍可删除，徽标同步为 2', dragToTrashOk && await badgeBecomes('2'), `drop=${dragToTrashOk} badge=${await badgeCount()}`);
 
   await page.evaluate(() => {
-    const el = [...document.querySelectorAll('.desktop-sysicon')].find((x) => x.innerText.includes('废纸篓'));
+    const el = [...document.querySelectorAll('.desktop-sysicon')].find((x) => x.innerText.includes('回收站'));
     el?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 160, clientY: 120 }));
   });
   await sleep(400);
@@ -1690,7 +1690,7 @@ try {
     await clickCmd('删除');
     await sleep(450);
     const trashTitle = await page.$eval('.dialog h3', (el) => el.innerText.trim()).catch(() => '');
-    check('命令栏「删除」弹出移入回收站确认框（act: trash）', /移入废纸篓/.test(trashTitle), trashTitle);
+    check('命令栏「删除」弹出移入回收站确认框（act: trash）', /移入回收站/.test(trashTitle), trashTitle);
     await page.evaluate(() => [...document.querySelectorAll('.dialog-actions .btn')].find((b) => b.innerText.trim() === '取消')?.click());
     await sleep(300);
 
@@ -1706,8 +1706,8 @@ try {
       && itemLabels.some((t) => t.startsWith('分享…')), itemLabels.join(','));
     check('条目右键不再出现「快速预览」旧文案',
       !itemLabels.some((t) => t.includes('快速预览')), itemLabels.join(','));
-    check('条目右键不再出现「显示简介」「移入废纸篓」旧文案',
-      !itemLabels.some((t) => /显示简介|移入废纸篓/.test(t)), itemLabels.join(','));
+    check('条目右键不再出现「显示简介」「废纸篓」旧文案',
+      !itemLabels.some((t) => /显示简介|废纸篓/.test(t)), itemLabels.join(','));
     await ctxClick(0, '发送到');
     const sendTo = await ctxLabels(1);
     check('「发送到 ▸」收拢 下载 / 复制路径', ['下载', '复制路径'].every((k) => sendTo.includes(k)), sendTo.join(','));
@@ -1868,7 +1868,7 @@ try {
     // 侧栏分组名（文案统一）与回收站视图的命令栏
     const sbGroup = await page.$eval('.finder-sidebar .sb-group', (el) => el.innerText.trim());
     check('侧栏分组名已改为「快速访问」', sbGroup === '快速访问', sbGroup);
-    await page.evaluate(() => [...document.querySelectorAll('.sb-item')].find((b) => b.innerText.trim() === '废纸篓')?.click());
+    await page.evaluate(() => [...document.querySelectorAll('.sb-item')].find((b) => b.innerText.trim() === '回收站')?.click());
     await sleep(1000);
     const trashCmd = await cmdLabels();
     check('回收站视图命令栏为 还原 / 彻底删除… / 清空回收站…',
@@ -3047,7 +3047,7 @@ try {
         title: document.querySelector('.window .window-title')?.innerText.trim() || '',
       }), sel);
       check(`开始菜单启动「${label}」`, clicked && opened.wins === 1 && opened.matched, JSON.stringify(opened));
-      if (key === 'trash') check('「回收站」打开的是废纸篓视图', opened.title === '废纸篓', opened.title);
+      if (key === 'trash') check('「回收站」打开的是回收站视图', opened.title === '回收站', opened.title);
 
       await page.evaluate(() => document.querySelector('.window .tc-min')?.click());
       await sleep(400);
@@ -3717,7 +3717,7 @@ try {
       typed1 === 'a b' && typed2 === 'a ' && !!addrAfterBs.trim(), `'${typed1}'→'${typed2}'`);
     await page.keyboard.press('Delete');
     await sleep(300);
-    check('输入框内 Delete 不弹「移入废纸篓」', !(await page.$('.dialog')));
+    check('输入框内 Delete 不弹「移入回收站」', !(await page.$('.dialog')));
     await page.keyboard.type(' c');
     await sleep(300);
     check('输入框内空格仍能正常输入', (await page.$eval('.finder-search input', (el) => el.value)) === 'a  c',
@@ -3824,7 +3824,7 @@ try {
     await page.keyboard.press('Delete');
     await sleep(700);
     const delDialog = await page.$('.dialog-actions .btn-primary');
-    check('C4 Delete 仍弹「移入废纸篓」', !!delDialog);
+    check('C4 Delete 仍弹「移入回收站」', !!delDialog);
     // Esc = 关闭最上层弹窗（docs §3.1），且不能执行删除
     await page.keyboard.press('Escape');
     await sleep(800);

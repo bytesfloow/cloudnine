@@ -63,7 +63,7 @@ export async function pasteInto(cwd) {
 // ---------- 删除 / 重命名 ----------
 
 /**
- * 汇总报告「移入废纸篓」的部分失败（服务端返回 failed:[{path,error}]）。
+ * 汇总报告「移入回收站」的部分失败（服务端返回 failed:[{path,error}]）。
  * - 字段不存在或为空（旧服务端 / 全部成功）→ 什么也不做，保持原有行为；
  * - 有失败 → 只弹一条汇总提示，按原因去重合并（不要一个文件一条）。
  */
@@ -74,8 +74,8 @@ export function reportTrashFailed(result) {
   const unit = failed.length === 1 ? '该文件' : `${failed.length} 个文件`;
   notify({
     type: 'error',
-    title: failed.length === 1 ? '未能移入废纸篓' : '部分文件未能移入废纸篓',
-    body: `${unit}未能移入废纸篓${reasons.length ? `：${reasons.join('；')}` : ''}`,
+    title: failed.length === 1 ? '未能移入回收站' : '部分文件未能移入回收站',
+    body: `${unit}未能移入回收站${reasons.length ? `：${reasons.join('；')}` : ''}`,
   });
 }
 
@@ -97,15 +97,15 @@ export function syncTrashCount(result) {
   return trashCountInflight;
 }
 
-// 移入废纸篓（paths 与 names 一一对应，names 只用于确认文案）
+// 移入回收站（paths 与 names 一一对应，names 只用于确认文案）
 export async function trashItems(paths, names) {
   if (!paths.length) return false;
   const ok = await confirmDialog({
-    title: '移入废纸篓',
+    title: '移入回收站',
     message: names.length === 1
-      ? `要将“${names[0]}”移入废纸篓吗？`
-      : `要将选中的 ${names.length} 项移入废纸篓吗？`,
-    okText: '移入废纸篓',
+      ? `要将“${names[0]}”移入回收站吗？`
+      : `要将选中的 ${names.length} 项移入回收站吗？`,
+    okText: '移入回收站',
   });
   if (!ok) return false;
   try {

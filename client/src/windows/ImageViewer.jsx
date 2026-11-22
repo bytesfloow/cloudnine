@@ -8,7 +8,7 @@ export const MAX_ZOOM = 8;
 const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
 
 // 视图状态：缩放 / 旋转 / 平移
-// 预览窗口持有并下传（工具条要读同一份状态）；快速预览与移动端自持一份
+// 预览窗口持有并下传（工具条要读同一份状态）；移动端预览自持一份
 export function useImageView() {
   const [state, setState] = useState(() => ({ zoom: 1, rotate: 0, pan: { x: 0, y: 0 } }));
 

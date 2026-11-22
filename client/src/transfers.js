@@ -36,7 +36,7 @@ export function addUpload(file, destDir, relativePath = '') {
   return item.id;
 }
 
-// 打开系统文件选择器并把选中文件加入上传队列（供访达工具栏/右键菜单与粘贴上传降级复用）
+// 打开系统文件选择器并把选中文件加入上传队列（供文件资源管理器工具栏/右键菜单与粘贴上传降级复用）
 export function pickFiles(destDir, folder = false) {
   const input = document.createElement('input');
   input.type = 'file';

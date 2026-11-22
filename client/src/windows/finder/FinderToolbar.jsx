@@ -41,7 +41,7 @@ export default function FinderToolbar({
         <IconSearch />
         <input
           value={query}
-          placeholder={isTrash ? '过滤废纸篓' : '搜索（回车递归搜索）'}
+          placeholder={isTrash ? '过滤回收站' : '搜索（回车递归搜索）'}
           onChange={(e) => { if (!searchMode) setQuery(e.target.value); }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') runSearch(e.target.value);

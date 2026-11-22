@@ -151,11 +151,24 @@ export const extname = (name) => {
   const i = b.lastIndexOf('.');
   return i > 0 ? b.slice(i + 1).toLowerCase() : '';
 };
+// 无扩展名但确定是纯文本的文件名（Makefile / LICENSE / .gitignore / .env …）。
+// 这些名字本身就是「扩展名」，extname() 取不到，不能因此给个 BIN 角标。
+export const PLAIN_TEXT_NAMES = new Set([
+  'makefile', 'dockerfile', 'containerfile', 'jenkinsfile', 'vagrantfile', 'gemfile',
+  'rakefile', 'procfile', 'brewfile', 'license', 'licence', 'copying', 'notice',
+  'readme', 'changelog', 'changes', 'authors', 'contributors', 'install',
+  'makefile.am', 'makefile.in', '.gitignore', '.gitattributes', '.npmignore',
+  '.editorconfig', '.env', '.babelrc', '.eslintrc', '.prettierrc', '.dockerignore',
+]);
 export const fileCat = (name, type) => {
   if (type === 'dir') return 'dir';
-  return EXT_MAP[extname(name)] || 'bin';
+  const ext = extname(name);
+  if (ext) return EXT_MAP[ext] || 'bin';
+  // 无扩展名：认识的纯文本名归 text；其余归 plain（中性纸面、不带类型角标），
+  // 不再谎称它是 BIN——无扩展名既不等于文本，也不等于二进制。
+  return PLAIN_TEXT_NAMES.has(basename(name).toLowerCase()) ? 'text' : 'plain';
 };
-export const TEXT_EDITABLE = (name) => ['code', 'text'].includes(fileCat(name)) || ['dockerfile', 'makefile', 'license', 'readme'].includes(basename(name).toLowerCase());
+export const TEXT_EDITABLE = (name) => ['code', 'text'].includes(fileCat(name));
 
 // 主题应用
 export function applyTheme(theme) {
@@ -249,7 +262,7 @@ function saveGeom(type, rect) {
 }
 
 const WINDOW_DEFAULTS = {
-  finder: { title: '文件', w: 860, h: 560, minW: 560, minH: 380, multi: true },
+  finder: { title: '文件资源管理器', w: 860, h: 560, minW: 560, minH: 380, multi: true },
   terminal: { title: '终端', w: 760, h: 460, minW: 420, minH: 300, multi: true },
   editor: { title: '文本编辑', w: 800, h: 560, minW: 480, minH: 360, multi: true },
   preview: { title: '预览', w: 780, h: 580, minW: 420, minH: 320, multi: true },

@@ -10,7 +10,7 @@ import {
   IconSearch, IconNewFolder, IconUpload, IconGrid, IconDoc, IconPhoto, IconInfo,
 } from '../icons.jsx';
 
-// 固定应用：严格 7 项，与 Dock 原来的 7 项一一对应（docs §1.3 / §2.4）。
+// 固定应用：严格 7 项，与旧底栏 Dock 的 7 项一一对应（docs §1.3 / §2.4）。
 // 不加「预览」：preview 窗口必须带 props.path 才能工作，空参启动等于放一个点了就报错的按钮。
 const PINNED = [
   { key: 'finder', type: 'finder', label: '文件资源管理器', Icon: IconFiles },

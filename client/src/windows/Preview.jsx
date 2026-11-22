@@ -4,8 +4,8 @@ import { api } from '../api.js';
 import { FileIcon, IconChevron } from '../icons.jsx';
 import ImageViewer, { useImageView, MIN_ZOOM, MAX_ZOOM } from './ImageViewer.jsx';
 
-// 图片缩放/旋转工具组：预览窗口底部统一操作条与快速预览共用
-// onDownload：移动端快速预览把「下载」并入本工具条（旋转右侧），桌面预览窗口不用
+// 图片缩放/旋转工具组：预览窗口底部统一操作条与移动端预览共用
+// onDownload：移动端预览把「下载」并入本工具条（旋转右侧），桌面预览窗口不用
 function ZoomTools({ view, onDownload }) {
   return (
     <div className="preview-zoom">
@@ -21,14 +21,14 @@ function ZoomTools({ view, onDownload }) {
 }
 
 // 缩放/旋转/平移状态：预览窗口把缩放工具并入底部统一操作条，故由窗口持有并下传；
-// 快速预览/移动端未传 view 时，由本组件自持状态。
+// 移动端预览未传 view 时，由本组件自持状态。
 function useViewState(controlled) {
   const local = useImageView();
   return controlled || local;
 }
 
-// 预览内容组件：桌面预览窗口、快速预览、移动端共用
-// onDownload：移动端快速预览传入后，「下载」按钮出现在底部缩放工具条内
+// 预览内容组件：桌面预览窗口、移动端预览共用
+// onDownload：移动端预览传入后，「下载」按钮出现在底部缩放工具条内
 export function PreviewContent({ path, compact = false, onEdit, view, onDownload }) {
   const cat = fileCat(path, 'file');
   const v = useViewState(view);
@@ -61,7 +61,7 @@ export function PreviewContent({ path, compact = false, onEdit, view, onDownload
       <div className="preview-image">
         {/* 滚轮/双指缩放 + 拖拽平移，由 ImageViewer 承载手势 */}
         <ImageViewer src={src} alt={basename(path)} view={v} />
-        {/* 缩放工具统一放在窗口底部操作条里；独立使用时（快速预览/移动端）才自带 */}
+        {/* 缩放工具统一放在窗口底部操作条里；独立使用时（移动端）才自带 */}
         {!view && (
           <div className="preview-toolbar">
             <ZoomTools view={v} onDownload={onDownload} />

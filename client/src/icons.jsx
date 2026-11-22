@@ -72,6 +72,8 @@ const FILE_TINT = {
   text: '#4b5563',
   office: '#1a5bbf',
   bin: '#6f7a8a',
+  // 无扩展名、也不在纯文本名单里：中性灰蓝、不带角标（见 store.js fileCat）
+  plain: '#8b95a3',
 };
 
 // 角标文字：固定 3 个字符，同一字号同一基线 —— 角的「有没有」和「大小」都齐
@@ -85,6 +87,7 @@ const FILE_LABEL = {
   text: 'TXT',
   office: 'DOC',
   bin: 'BIN',
+  plain: '',
 };
 
 const SHEET = 'M8 9.5A4.5 4.5 0 0 1 12.5 5h15.7L40 16.8v21.7a4.5 4.5 0 0 1-4.5 4.5h-23A4.5 4.5 0 0 1 8 38.5z';
@@ -96,9 +99,9 @@ const FILE_FONT = "'Segoe UI', 'Microsoft YaHei', sans-serif";
 function FileSheet({ size, cat }) {
   const id = useUid('fl');
   const tint = FILE_TINT[cat] || FILE_TINT.bin;
-  const label = FILE_LABEL[cat] || FILE_LABEL.bin;
+  const label = FILE_LABEL[cat] ?? FILE_LABEL.bin;
   const sw = W(size, 2.2);
-  const detail = size >= 28; // 20px 列表里只保留纸面 + 色带，避免文字糊成噪点
+  const detail = size >= 28 && !!label; // 20px 列表里只保留纸面 + 色带；plain 类型不印字
   return (
     <Svg size={size}>
       <defs>

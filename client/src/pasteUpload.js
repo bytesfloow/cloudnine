@@ -34,8 +34,8 @@ function isEditableTarget(t) {
     || !!t.closest('.xterm, .cm-editor, .dialog, .dropdown, .popover, .context-menu');
 }
 
-// 目标目录：激活访达窗口的 cwd；无窗口 / 焦点在桌面 → 主目录（Q12）。
-// 返回 null 表示「非访达窗口获得焦点」，这种情况不接管。
+// 目标目录：激活文件资源管理器窗口的 cwd；无窗口 / 焦点在桌面 → 主目录（Q12）。
+// 返回 null 表示「非文件资源管理器窗口获得焦点」，这种情况不接管。
 function pasteTarget() {
   const s = getState();
   const win = s.windows.find((w) => w.id === s.focusId);

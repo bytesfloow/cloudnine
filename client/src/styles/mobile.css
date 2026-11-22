@@ -85,7 +85,7 @@
 }
 .m-homebar { width: 128px; height: 5px; border-radius: 3px; background: var(--text); opacity: .8; }
 
-/* 访达 */
+/* 文件资源管理器 */
 .m-finder { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .m-toolbar-wrap { flex: none; position: relative; } /* 「更多操作」下拉锚点 */
 .m-toolbar { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 10px; }
@@ -228,7 +228,7 @@
 /* 窗口内菜单属于桌面外壳（§1.6）：移动端编辑器沿用顶部工具条 + 状态栏，不显示这排菜单 */
 .m-preview .editor-winmenu { display: none; }
 
-/* 移动端快速预览：底部缩放工具收拢成居中的胶囊条 —— 按钮不再贴屏幕左边缘、也不再散落一排 */
+/* 移动端预览：底部缩放工具收拢成居中的胶囊条 —— 按钮不再贴屏幕左边缘、也不再散落一排 */
 .m-preview .preview-image { padding: 0 0 calc(12px + env(safe-area-inset-bottom, 0px)); gap: 8px; }
 .m-preview .preview-image > .preview-toolbar {
   flex-direction: column; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 0 12px;

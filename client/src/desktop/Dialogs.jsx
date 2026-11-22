@@ -152,7 +152,7 @@ function AboutBody() {
               <tr><td>运行身份</td><td>{about.runtimeUser}</td></tr>
               <tr><td>系统平台</td><td>{about.platform}</td></tr>
               <tr><td>文件根目录</td><td className="mono">{about.fileRoot}</td></tr>
-              <tr><td>废纸篓保留</td><td>{about.trashRetentionDays} 天</td></tr>
+              <tr><td>回收站保留</td><td>{about.trashRetentionDays} 天</td></tr>
             </tbody>
           </table>
         )}

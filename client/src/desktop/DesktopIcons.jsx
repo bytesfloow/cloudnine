@@ -13,7 +13,7 @@ import {
 
 // 桌面 = 用户主目录的直视图：每一个图标都是主目录里的真实文件 / 文件夹。
 // 图标位置不再手工摆放（同属一个目录，拖到空白处移动无意义），完全由排序规则决定；
-// 拖拽的语义改为「移动文件」：拖到文件夹上=移入该文件夹，拖到废纸篓上=删除。
+// 拖拽的语义改为「移动文件」：拖到文件夹上=移入该文件夹，拖到回收站上=删除。
 const DRAG_TYPE = 'application/x-cloudnine';
 
 // 桌面一次性渲染的图标上限：主目录条目极多时避免页面卡死，
@@ -47,7 +47,7 @@ export default function DesktopIcons() {
   const [dragOver, setDragOver] = useState(false);
   const [dropTarget, setDropTarget] = useState(null);
   const [anchor, setAnchor] = useState(null);
-  const [sysSel, setSysSel] = useState(null); // 选中的系统图标（根目录 / 废纸篓）
+  const [sysSel, setSysSel] = useState(null); // 选中的系统图标（根目录 / 回收站）
 
   const layerRef = useRef(null);
   const tierKey = ICON_TIERS[s.desktopIconSize] ? s.desktopIconSize : 'medium';
@@ -116,11 +116,11 @@ export default function DesktopIcons() {
   const selectedPaths = useMemo(() => selectedEntries.map((e) => joinPath(cwd, e.name)), [selectedEntries, cwd]);
   const shownFiles = files.length > MAX_ICONS ? files.slice(0, MAX_ICONS) : files;
 
-  // 系统图标（根目录 / 废纸篓）：与文件同处一个图标网格，占据左上角前两格，
+  // 系统图标（根目录 / 回收站）：与文件同处一个图标网格，占据左上角前两格，
   // 排列逻辑和 Windows 桌面快捷方式一致；双击才打开，单击只选中。
   const sysItems = [
     { key: '__root__', label: '根目录', Icon: IconGlobe, trash: false },
-    { key: '__trash__', label: '废纸篓', Icon: IconTrash, trash: true },
+    { key: '__trash__', label: '回收站', Icon: IconTrash, trash: true },
   ];
 
   function openSys(key) {
@@ -355,7 +355,7 @@ export default function DesktopIcons() {
     if (e.dataTransfer.files.length) uploadDropped(target, e.dataTransfer.files);
   }
 
-  // 拖到废纸篓上：删除
+  // 拖到回收站上：删除
   async function onDropOnTrash(e) {
     e.preventDefault();
     e.stopPropagation();

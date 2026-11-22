@@ -43,16 +43,16 @@ export default function Finder({ win }) {
   const bodyRef = useRef(null);
   const selRef = useRef(sel);
   selRef.current = sel;
-  // 「是否处于废纸篓视图」：仅跟随当前目录。废纸篓窗口初始 cwd 即 __trash__，
-  // 导航离开（主目录/最近等）后自动退出；「最近」是虚拟视图，不算废纸篓
+  // 「是否处于回收站视图」：仅跟随当前目录。回收站窗口初始 cwd 即 __trash__，
+  // 导航离开（主目录/最近等）后自动退出；「最近」是虚拟视图，不算回收站
   const isTrash = !recentMode && cwd === '__trash__';
 
   // 窗口标题与菜单状态：标题栏显示当前目录名（「最近」是虚拟视图，保留原名）
   useEffect(() => {
-    const title = recentMode ? '最近' : isTrash ? '废纸篓' : (cwd === '' ? '根目录' : basename(cwd));
+    const title = recentMode ? '最近' : isTrash ? '回收站' : (cwd === '' ? '根目录' : basename(cwd));
     setWindowTitle(win.id, title);
-    // pasteBlocked 供全局粘贴上传判断目标目录：虚拟视图/废纸篓不允许写入
-    const pasteBlocked = recentMode ? '最近使用' : searchMode ? '搜索结果' : isTrash ? '废纸篓' : null;
+    // pasteBlocked 供全局粘贴上传判断目标目录：虚拟视图/回收站不允许写入
+    const pasteBlocked = recentMode ? '最近使用' : searchMode ? '搜索结果' : isTrash ? '回收站' : null;
     updateWindowProps(win.id, { view, showHidden, cwd, pasteBlocked });
   }, [cwd, isTrash, searchMode, query, view, showHidden, recentMode]);
 
@@ -508,7 +508,7 @@ export default function Finder({ win }) {
   const crumbs = recentMode
     ? [{ label: '最近', dir: null }]
     : cwd === '__trash__'
-      ? [{ label: '废纸篓', dir: '__trash__' }]
+      ? [{ label: '回收站', dir: '__trash__' }]
       : [{ label: '根目录', dir: '' }, ...cwd.split('/').filter(Boolean).map((seg, i, arr) => ({ label: seg, dir: arr.slice(0, i + 1).join('/') }))];
 
   return (
@@ -568,7 +568,7 @@ export default function Finder({ win }) {
             </div>
           ) : shown.length === 0 ? (
             <div className="finder-empty">
-              <p>{searchMode ? '没有找到匹配的项目' : isTrash ? '废纸篓是空的' : recentMode ? '最近没有打开过文件' : '此文件夹是空的'}</p>
+              <p>{searchMode ? '没有找到匹配的项目' : isTrash ? '回收站是空的' : recentMode ? '最近没有打开过文件' : '此文件夹是空的'}</p>
             </div>
           ) : view === 'icon' ? (
             <FinderIconView
