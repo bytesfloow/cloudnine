@@ -2,15 +2,20 @@ import React from 'react';
 import { fileCat } from './store.js';
 
 /* ============================================================
-   CloudNine 图标集 · Win11 Fluent 风（阶段 3 · T15 重绘）
+   CloudNine 图标集 · Win11 Fluent 风（阶段 3 · T15 重绘 / T15b 统一）
    ------------------------------------------------------------
-   - 全部为原创 SVG 路径：不引用任何位图 / 外链 / emoji / <image>，
-     也不搬微软官方图标的路径（开始按钮是抽象四格，不是徽标）。
-   - 风格：扁平实形 + 极轻竖向渐变；无高光、无 3D 阴影、不描边套底板。
-   - 文件类图标统一「纸面 + 折角 + 底部类型色带」，色带在 20px 下退出细节、
-     只剩纯色块，保证列表视图不糊；≥28px 才画类型标记。
-   - 描边宽度按目标像素尺寸补偿（W），16 / 24 / 32 / 48 下视觉宽度都 ≥1px。
-   - props 与改造前完全一致：size / full / name / type / dir / label 均未改。
+   两套东西，各自成体系：
+
+   ① 文件类（桌面 / 资源管理器）：纸面 + 折角 + 底部类型色带，
+      色带里固定 3 个字符的类型码（IMG / PDF / ZIP / TXT / BIN…），
+      22 种扩展名归到 9 个类型，全部有角标、全部同字号同位置；
+      <28px 自动只留纯色带（20px 列表视图不糊）。
+   ② 应用 / 系统类（任务栏 / 开始菜单 / 桌面系统图标）：单色线性，
+      48 视框、同一描边宽度（W(size, 2.4)）、圆头圆角、同一个强调色，
+      不再混用底板 / 实心块 / 白纸面 —— 终端在暗色下也不会糊进背景。
+
+   全部为原创 SVG：无位图 / 外链 / emoji / <image>，也不搬微软官方路径
+   （开始按钮是抽象四格）。props 与改造前完全一致。
    ============================================================ */
 
 const Svg = ({ size = 48, children, vb = '0 0 48 48', ...rest }) => (
@@ -27,9 +32,8 @@ const W = (size, base = 2.2) => {
 };
 
 const PAPER_EDGE = '#b8c2d0';
-const DIM_INK = '#c3cad4';
 
-/* ---------------- 文件夹 ---------------- */
+/* ---------------- 文件类：文件夹（实形，暖色） ---------------- */
 
 // 带页签的文件夹剪影（左上角页签 + 一条斜边落到正面顶部）
 const FOLDER_BACK = 'M5.5 15a5 5 0 0 1 5-5h10.2l2.6 3.2h14.2a5 5 0 0 1 5 5v17.4a5 5 0 0 1-5 5h-32a5 5 0 0 1-5-5z';
@@ -55,100 +59,46 @@ export const FolderIcon = ({ size = 48 }) => {
   );
 };
 
-// 「文件」应用：同款剪影，背面换成蓝灰（Win11 资源管理器是双色文件夹）
-export const IconFiles = ({ size = 26 }) => {
-  const id = useUid('fs');
-  return (
-    <Svg size={size}>
-      <defs>
-        <linearGradient id={`${id}b`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#5d80b8" />
-          <stop offset="1" stopColor="#46689f" />
-        </linearGradient>
-        <linearGradient id={`${id}f`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#f9c85d" />
-          <stop offset="1" stopColor="#f0b137" />
-        </linearGradient>
-      </defs>
-      <path d={FOLDER_BACK} fill={`url(#${id}b)`} />
-      <path d={FOLDER_FRONT} fill={`url(#${id}f)`} />
-    </Svg>
-  );
-};
+/* ---------------- 文件类：文件（纸面 + 类型码） ---------------- */
 
-/* ---------------- 文件 ---------------- */
-
-// 文件类型色带：饱和但不刺眼，白色标记在其上 ≥3.9:1（图形对比度）
+// 9 个类型色带：白字在其上 ≥4.4:1（11px 小字也够）
 const FILE_TINT = {
-  image: '#1f8f6d',
+  image: '#1a8063',
   video: '#c2376b',
   audio: '#7a4fd0',
   pdf: '#c22b21',
-  archive: '#a76a0a',
+  archive: '#9c6208',
   code: '#0a6ee0',
-  text: '#5a6472',
+  text: '#4b5563',
   office: '#1a5bbf',
+  bin: '#6f7a8a',
+};
+
+// 角标文字：固定 3 个字符，同一字号同一基线 —— 角的「有没有」和「大小」都齐
+const FILE_LABEL = {
+  image: 'IMG',
+  video: 'VID',
+  audio: 'AUD',
+  pdf: 'PDF',
+  archive: 'ZIP',
+  code: 'SRC',
+  text: 'TXT',
+  office: 'DOC',
+  bin: 'BIN',
 };
 
 const SHEET = 'M8 9.5A4.5 4.5 0 0 1 12.5 5h15.7L40 16.8v21.7a4.5 4.5 0 0 1-4.5 4.5h-23A4.5 4.5 0 0 1 8 38.5z';
 const FOLD = 'M28.2 5 40 16.8h-9.8a2.2 2.2 0 0 1-2.2-2.2z';
-const BAND = 'M8 31h32v7.5a4.5 4.5 0 0 1-4.5 4.5h-23A4.5 4.5 0 0 1 8 38.5z';
+const BAND = 'M8 29h32v9.5a4.5 4.5 0 0 1-4.5 4.5h-23A4.5 4.5 0 0 1 8 38.5z';
 
-// 色带上的类型标记（≥28px 才画）：全部为粗笔画/实形，避免小尺寸糊成噪点
-function FileMark({ cat }) {
-  const wide = { fontFamily: "'Segoe UI', 'Microsoft YaHei', sans-serif", fontWeight: 700, fontSize: 9.4, textAnchor: 'middle', fill: '#ffffff' };
-  switch (cat) {
-    case 'image':
-      return (
-        <g fill="#ffffff">
-          <circle cx="17" cy="35.1" r="1.9" />
-          <path d="M12.8 41.4l5.1-6.1a1.2 1.2 0 0 1 1.9 0l2.9 3.4 1.6-1.9a1.2 1.2 0 0 1 1.9 0l4.4 4.6z" />
-        </g>
-      );
-    case 'video':
-      return <path d="M19.4 33.2 29 38l-9.6 4.8z" fill="#ffffff" />;
-    case 'audio':
-      return (
-        <g fill="#ffffff">
-          <path d="M21.2 40.2V33c0-.5.4-.9.9-1 3.1.6 5 2.3 5.6 4.9" stroke="#ffffff" strokeWidth="2.3" strokeLinecap="round" fill="none" />
-          <ellipse cx="18.8" cy="40.2" rx="2.9" ry="2.3" transform="rotate(-18 18.8 40.2)" />
-        </g>
-      );
-    case 'pdf':
-      return <text x="24" y="40.1" {...wide}>PDF</text>;
-    case 'archive':
-      return <text x="24" y="40.1" {...wide}>ZIP</text>;
-    case 'code':
-      return (
-        <g stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none">
-          <path d="M17.9 33.5 13.6 37.1l4.3 3.6" />
-          <path d="M30.1 33.5l4.3 3.6-4.3 3.6" />
-          <path d="M26.4 32.6 21.6 41.6" strokeWidth="2.2" />
-        </g>
-      );
-    case 'text':
-      return (
-        <g stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round">
-          <path d="M14.6 33.9h18.8M14.6 37.1h18.8M14.6 40.3h12.4" />
-        </g>
-      );
-    case 'office':
-      return (
-        <g stroke="#ffffff" fill="none">
-          <rect x="14.2" y="32.5" width="19.6" height="10" rx="1.7" strokeWidth="2.3" />
-          <path d="M14.2 37.5h19.6M24 32.5v10" strokeWidth="1.7" />
-        </g>
-      );
-    default:
-      return null;
-  }
-}
+const FILE_FONT = "'Segoe UI', 'Microsoft YaHei', sans-serif";
 
 function FileSheet({ size, cat }) {
   const id = useUid('fl');
-  const tint = FILE_TINT[cat];
+  const tint = FILE_TINT[cat] || FILE_TINT.bin;
+  const label = FILE_LABEL[cat] || FILE_LABEL.bin;
   const sw = W(size, 2.2);
-  const detail = size >= 28; // 20px 列表里只保留纸面 + 色带，避免细节糊成一片
+  const detail = size >= 28; // 20px 列表里只保留纸面 + 色带，避免文字糊成噪点
   return (
     <Svg size={size}>
       <defs>
@@ -158,14 +108,20 @@ function FileSheet({ size, cat }) {
         </linearGradient>
       </defs>
       <path d={SHEET} fill={`url(#${id}p)`} />
-      {tint && <path d={BAND} fill={tint} />}
+      <path d={BAND} fill={tint} />
       <path d={FOLD} fill="#e0e6ef" />
-      {!tint && detail && (
-        <g stroke={DIM_INK} strokeWidth="2.4" strokeLinecap="round">
-          <path d="M15 22h18M15 27.2h18M15 32.4h11" />
-        </g>
+      {detail && (
+        <text
+          x="24"
+          y="40.3"
+          textAnchor="middle"
+          fill="#ffffff"
+          fontFamily={FILE_FONT}
+          fontSize="11.2"
+          fontWeight="700"
+          letterSpacing="0.2"
+        >{label}</text>
       )}
-      {tint && detail && <FileMark cat={cat} />}
       <path d={SHEET} stroke={PAPER_EDGE} strokeWidth={sw} />
     </Svg>
   );
@@ -177,117 +133,144 @@ export const FileIcon = ({ name, type, size = 48 }) => {
   return <FileSheet size={size} cat={cat} />;
 };
 
-/* ---------------- 应用 / 功能图标 ---------------- */
+/* ---------------- 应用 / 系统类：单色线性，同一个强调色 ----------------
+   这 9 枚共用一套画法：48 视框、同一描边、圆头、无底板、无渐变、
+   同一个 #0a7cff —— 开始菜单 7 枚 + 桌面「根目录」+ 主目录（备用）。 */
+
+const ACCENT = '#0a7cff';
+const A = (size) => W(size, 2.4);
+
+export const IconFiles = ({ size = 26 }) => {
+  const sw = A(size);
+  return (
+    <Svg size={size}>
+      <path
+        d="M5.8 14.9a4.7 4.7 0 0 1 4.7-4.7h9.8l2.7 3.2h14.3a4.7 4.7 0 0 1 4.7 4.7v17.3a4.7 4.7 0 0 1-4.7 4.7H10.5a4.7 4.7 0 0 1-4.7-4.7z"
+        stroke={ACCENT}
+        strokeWidth={sw}
+        strokeLinejoin="round"
+      />
+      <path d="M5.8 21.2h36.2" stroke={ACCENT} strokeWidth={sw} strokeLinecap="round" />
+    </Svg>
+  );
+};
 
 export const IconTerminal = ({ size = 26 }) => {
-  const id = useUid('tm');
-  const sw = W(size, 3.6);
+  const sw = A(size);
   return (
-    <Svg size={size} vb="0 0 48 48">
-      <defs>
-        <linearGradient id={`${id}g`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#3b424e" />
-          <stop offset="1" stopColor="#1c2027" />
-        </linearGradient>
-      </defs>
-      {/* 机身保留 .it-term-body：暗色主题下由 --icon-rim 补一圈描边（base.css） */}
-      <rect x="5.5" y="8" width="37" height="32" rx="5" fill={`url(#${id}g)`} className="it-term-body" />
-      <path d="M13.2 17.6 20.6 24l-7.4 6.4" stroke="#4cc2ff" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M24 30.4h11" stroke="#dde5f1" strokeWidth={sw} strokeLinecap="round" />
+    <Svg size={size}>
+      <rect x="5.6" y="8.4" width="36.8" height="31.2" rx="5" stroke={ACCENT} strokeWidth={sw} />
+      <path d="M13.6 18.4 20.8 24.4l-7.2 6" stroke={ACCENT} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M24.8 30.4h10.2" stroke={ACCENT} strokeWidth={sw} strokeLinecap="round" />
     </Svg>
   );
 };
 
 export const IconEditor = ({ size = 26 }) => {
-  const sw = W(size, 2.2);
+  const sw = A(size);
   return (
     <Svg size={size}>
-      <rect x="9" y="5" width="30" height="38" rx="3.5" fill="#ffffff" stroke={PAPER_EDGE} strokeWidth={sw} />
-      <path d="M14.6 15h18.8M14.6 21h18.8M14.6 27h12" stroke="#8f99a6" strokeWidth={W(size, 2.6)} strokeLinecap="round" />
-      {/* 记号笔：斜躺在纸面上，17px 下仍是一段清楚的蓝色斜块 + 笔尖 */}
-      <g transform="translate(40 30) rotate(45)">
-        <rect x="-3" y="0" width="6" height="12" rx="1.4" fill="#0a7cff" />
-        <path d="M-3 12h6l-3 5z" fill="#0a7cff" />
+      <rect x="9.6" y="5.2" width="28.8" height="37.6" rx="4.2" stroke={ACCENT} strokeWidth={sw} />
+      <path d="M15.4 15.4h16.6M15.4 21.4h16.6M15.4 27.4h9.4" stroke={ACCENT} strokeWidth={sw} strokeLinecap="round" />
+      {/* 粉色铅笔躺在纸面下半部：笔杆 + 箍线 + 笔尖，全在纸面内，不跨边 */}
+      <g transform="translate(30.5 33.5) rotate(45)" stroke={ACCENT} strokeWidth={sw} strokeLinejoin="round" strokeLinecap="round" fill="none">
+        <path d="M-3 4h6v-13h-6z" />
+        <path d="M-3-1.4h6" />
+        <path d="M-3 4 0 9.4l3-5.4" />
       </g>
     </Svg>
   );
 };
 
 export const IconTransfer = ({ size = 26 }) => {
-  const sw = W(size, 4.6);
+  const sw = A(size);
   return (
     <Svg size={size}>
-      <g stroke="#0a7cff" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" fill="none">
-        <path d="M16 38.5V12" />
-        <path d="M9.4 18.6 16 12l6.6 6.6" />
-        <path d="M32 9.5V36" />
-        <path d="M25.4 29.4 32 36l6.6-6.6" />
+      <g stroke={ACCENT} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" fill="none">
+        <path d="M16 38.2V12" />
+        <path d="M9.6 18.4 16 12l6.4 6.4" />
+        <path d="M32 9.8V36" />
+        <path d="M25.6 29.6 32 36l6.4-6.4" />
       </g>
     </Svg>
   );
 };
 
 export const IconShare = ({ size = 26 }) => {
-  const sw = W(size, 3.4);
+  const sw = A(size);
   return (
     <Svg size={size}>
-      <g stroke="#0a7cff" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" fill="none">
+      <g stroke={ACCENT} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" fill="none">
         {/* 托盘 + 向上射出的箭头（Fluent 分享语汇，和 IconUpload 的单线箭头区分开） */}
-        <path d="M7.4 25.8v8.6a5 5 0 0 0 5 5h23.2a5 5 0 0 0 5-5v-8.6" />
-        <path d="M24 33V7.6" />
-        <path d="M16.2 15.4 24 7.6l7.8 7.8" />
+        <path d="M8.2 26v8.3a4.8 4.8 0 0 0 4.8 4.8h22a4.8 4.8 0 0 0 4.8-4.8V26" />
+        <path d="M24 33.4V8.4" />
+        <path d="M16.4 16 24 8.4l7.6 7.6" />
       </g>
     </Svg>
   );
 };
 
 export const IconDisk = ({ size = 26 }) => {
-  const id = useUid('dk');
-  const sw = W(size, 2.2);
+  const sw = A(size);
   return (
     <Svg size={size}>
-      <defs>
-        <linearGradient id={`${id}g`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#eef2f8" />
-          <stop offset="1" stopColor="#d5dce6" />
-        </linearGradient>
-      </defs>
-      {/* 平放的盘片 + 蓝色使用率弧：无高光、无立体感，17px 下是「圆盘 + 中心孔」 */}
-      <circle cx="24" cy="24" r="18.4" fill={`url(#${id}g)`} stroke="#a4afbe" strokeWidth={sw} />
-      <circle cx="24" cy="24" r="6.4" fill="#f7f9fc" stroke="#a4afbe" strokeWidth={sw} />
-      <circle cx="24" cy="24" r="2.1" fill="#8d98a8" />
-      <path d="M24 5.6a18.4 18.4 0 0 1 15.9 9.1" stroke="#0a7cff" strokeWidth={W(size, 4.2)} strokeLinecap="round" fill="none" />
+      <circle cx="24" cy="24" r="17.6" stroke={ACCENT} strokeWidth={sw} />
+      <circle cx="24" cy="24" r="6" stroke={ACCENT} strokeWidth={sw} />
+      <circle cx="24" cy="24" r="1.6" fill={ACCENT} />
+      <path d="M24 6.4a17.6 17.6 0 0 1 15.2 8.8" stroke={ACCENT} strokeWidth={W(size, 3)} strokeLinecap="round" />
     </Svg>
   );
 };
 
 export const IconTrash = ({ size = 26, full }) => {
-  const sw = W(size, 2.2);
+  const sw = A(size);
   const detail = size >= 28;
   return (
     <Svg size={size}>
-      {/* 桶身是浅灰金属，压在亮/暗两套表面上都清楚；full 态靠「桶里的纸」区分 */}
+      {/* full 态：桶身填一层 16% 的强调色 + 里面的纸线，其余仍是同一套线 */}
       <path
-        d="M14.6 16.4h18.8l-1.7 21.7a4.8 4.8 0 0 1-4.8 4.7h-5.8a4.8 4.8 0 0 1-4.8-4.7z"
-        fill={full ? '#f6f9fd' : '#dbe1e9'}
-      />
-      {full && detail && (
-        // full 态：桶里塞满纸，三张微斜的白纸 + 灰描边，32/48px 下一眼能分辨
-        <g stroke="#c2cbd8" strokeWidth="1.6" fill="#ffffff">
-          <rect x="16.6" y="21.4" width="14.8" height="4.6" rx="1.3" transform="rotate(-4 24 23.7)" />
-          <rect x="16.9" y="26.8" width="14.2" height="4.6" rx="1.3" transform="rotate(3 24 29.1)" />
-          <rect x="17.6" y="32.2" width="13" height="4.6" rx="1.3" transform="rotate(-2 24.1 34.5)" />
-        </g>
-      )}
-      <rect x="11.4" y="9.6" width="25.2" height="5.2" rx="2.6" fill="#7f8997" />
-      <path d="M19.2 9.9a4.8 4.8 0 0 1 9.6 0" stroke="#7f8997" strokeWidth={W(size, 2.9)} fill="none" strokeLinecap="round" />
-      <path
-        d="M14.6 16.4h18.8l-1.7 21.7a4.8 4.8 0 0 1-4.8 4.7h-5.8a4.8 4.8 0 0 1-4.8-4.7z"
-        stroke="#7f8997"
+        d="M14.9 16.6h18.2l-1.6 21.1a4.7 4.7 0 0 1-4.7 4.5h-5.6a4.7 4.7 0 0 1-4.7-4.5z"
+        fill={full ? ACCENT : 'none'}
+        fillOpacity={full ? 0.22 : 0}
+        stroke={ACCENT}
         strokeWidth={sw}
-        fill="none"
         strokeLinejoin="round"
       />
+      {full && detail && (
+        <g stroke={ACCENT} strokeWidth={W(size, 2)} strokeLinecap="round" opacity=".7">
+          <path d="M18.8 23.8h10.4M18.8 29.2h10.4M18.8 34.6h6.8" />
+        </g>
+      )}
+      <rect x="11.7" y="9.8" width="24.6" height="5" rx="2.5" stroke={ACCENT} strokeWidth={sw} />
+      <path d="M19.5 9.8a4.5 4.5 0 0 1 9 0" stroke={ACCENT} strokeWidth={sw} strokeLinecap="round" />
+    </Svg>
+  );
+};
+
+// 根目录：和上面同一套线；48px 桌面上不再比同排图标粗一档
+export const IconGlobe = ({ size = 15 }) => {
+  const sw = A(size);
+  return (
+    <Svg size={size}>
+      <circle cx="24" cy="24" r="17.6" stroke={ACCENT} strokeWidth={sw} />
+      <path d="M6.4 24h35.2" stroke={ACCENT} strokeWidth={sw} strokeLinecap="round" />
+      <path
+        d="M24 6.4c5.4 4.9 8.1 10.8 8.1 17.6s-2.7 12.7-8.1 17.6c-5.4-4.9-8.1-10.8-8.1-17.6s2.7-12.7 8.1-17.6Z"
+        stroke={ACCENT}
+        strokeWidth={sw}
+      />
+    </Svg>
+  );
+};
+
+// 主目录（当前无调用点，保留导出）：同一套线
+export const IconHome = ({ size = 26 }) => {
+  const sw = A(size);
+  return (
+    <Svg size={size}>
+      <path d="M6.2 21.4 24 6.6l17.8 14.8" stroke={ACCENT} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M9.8 19.6v17.2a4.4 4.4 0 0 0 4.4 4.4h19.6a4.4 4.4 0 0 0 4.4-4.4V19.6" stroke={ACCENT} strokeWidth={sw} strokeLinecap="round" />
+      <path d="M19.8 41.2V30.6a2.2 2.2 0 0 1 2.2-2.2h4a2.2 2.2 0 0 1 2.2 2.2v10.6" stroke={ACCENT} strokeWidth={sw} strokeLinecap="round" />
     </Svg>
   );
 };
@@ -300,18 +283,6 @@ export const IconWindows = ({ size = 16 }) => (
     <rect x="2.6" y="12.5" width="8.9" height="8.9" rx="1.1" />
     <rect x="12.5" y="12.5" width="8.9" height="8.9" rx="1.1" />
   </svg>
-);
-
-// 主目录：单色实形 + 挖空门洞（fill-rule 挖洞，任何背景下都不会露出底色）
-export const IconHome = ({ size = 26 }) => (
-  <Svg size={size} vb="0 0 24 24">
-    <path
-      fillRule="evenodd"
-      clipRule="evenodd"
-      fill="currentColor"
-      d="M12.9 3.2a1.5 1.5 0 0 0-1.8 0L2.7 10.7a1.4 1.4 0 0 0 1.7 2.2l.8-.7v7.1a2.7 2.7 0 0 0 2.7 2.7h13.2a2.7 2.7 0 0 0 2.7-2.7v-7.1l.8.7a1.4 1.4 0 1 0 1.7-2.2zM15 21.9v-5.6a1.2 1.2 0 0 0-1.2-1.2h-3.6a1.2 1.2 0 0 0-1.2 1.2v5.6z"
-    />
-  </Svg>
 );
 
 /* ---------------- 中性线性小图标（本轮不动） ---------------- */
@@ -349,12 +320,6 @@ export const IconDownload = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
     <path d="M12 4v12m0 0l-4.5-4.5M12 16l4.5-4.5" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
     <path d="M4 20h16" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
-  </svg>
-);
-export const IconGlobe = ({ size = 15 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
-    <path d="M3 12h18M12 3c2.8 2.6 4 5.6 4 9s-1.2 6.4-4 9c-2.8-2.6-4-5.6-4-9s1.2-6.4 4-9Z" stroke="currentColor" strokeWidth="2" fill="none" />
   </svg>
 );
 export const IconGrid = ({ size = 16 }) => (

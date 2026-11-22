@@ -41,8 +41,6 @@
   --on-accent: #ffffff;
   --on-accent-2: rgba(255, 255, 255, 0.86);
   --on-danger: #ffffff;
-  /* 深色机身的图标（终端）在暗色表面上需要一圈描边，亮色下为 transparent（不变） */
-  --icon-rim: transparent;
 }
 
 /* 亮色色阶按 Fluent：背景 #F3F3F3 系 / 表面 #FFFFFF / 描边 #E5E5E5 系 / 文字三级灰阶。
@@ -145,7 +143,6 @@
   --input-bg: #2b2b2b;
   --bar-bg: #2b2b2b;
   --cap-glyph: #e7e7e7;
-  --icon-rim: rgba(255, 255, 255, 0.34);
   /* 强调色填充上的次级文字：暗色下提到 95% 白（在 #0a6ee0 上 4.5:1），
      86%（亮色那档）在同样的填充上只有 4.0:1 —— 暗色按钮本身更暗，白字余量本来就不多 */
   --on-accent-2: rgba(255, 255, 255, 0.95);
@@ -226,7 +223,3 @@ a { color: var(--accent-text); text-decoration: none; }
 .btn-primary:disabled { color: var(--text-3); background: var(--hover); border-color: var(--line); opacity: 1; }
 .btn-small { padding: 3px 9px; font-size: 12px; }
 .btn-icon { width: 26px; height: 26px; padding: 0; }
-
-/* 终端图标的机身是深灰（#2b2b30），压在暗色任务栏 / 开始菜单上会融成一片；
-   暗色下补一圈 1.5px 描边（2/48 单位），亮色 --icon-rim 是 transparent，视觉与 T13 一致。 */
-.it-term-body { stroke: var(--icon-rim); stroke-width: 2; }
