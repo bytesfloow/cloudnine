@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 
-// iOS 风格主屏幕：状态栏 / 应用图标网格 / Dock / Home 指示条（原创图形，不使用 Apple 素材）
+// 移动端主屏幕：状态栏 / 应用图标网格 / Dock / Home 指示条（图形均为原创绘制）
 
 // 应用图标白色线条图形（24 viewBox，stroke 继承 currentColor）
 const GLYPHS = {

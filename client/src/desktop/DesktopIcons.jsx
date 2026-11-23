@@ -128,7 +128,7 @@ export default function DesktopIcons() {
     else openWindow('finder', { cwd: '' });
   }
 
-  // 打开预览窗口（macOS 空格预览浮层已删除）：path/name 定位文件，siblings 供 ←/→ 切换
+  // 打开预览窗口（旧版空格预览浮层已删除）：path/name 定位文件，siblings 供 ←/→ 切换
   function openPreview(paths) {
     if (!paths.length) return;
     openWindow('preview', { path: paths[0], name: basename(paths[0]), siblings: paths, index: 0 });
@@ -160,7 +160,7 @@ export default function DesktopIcons() {
   function clickItem(e, entry, idx) {
     setSysSel(null); // 选中文件时取消系统图标的选中态
     setState({ focusId: null }); // 点桌面图标：焦点回到桌面
-    // C9：多选修饰键只认 Ctrl（⌘ 不再参与），Shift 连选保留
+    // C9：多选修饰键只认 Ctrl（meta 不参与），Shift 连选保留
     if (e.ctrlKey) {
       setDesktopSel((prev) => (prev.includes(entry.name) ? prev.filter((n) => n !== entry.name) : [...prev, entry.name]));
       setAnchor(idx);

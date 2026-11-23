@@ -156,7 +156,7 @@ function AboutBody() {
             </tbody>
           </table>
         )}
-        <p className="about-note">本系统为自托管单用户云桌面，界面风格原创实现，与 Apple 无关。</p>
+        <p className="about-note">本系统为自托管单用户云桌面，界面与图标均为原创实现，快捷键只使用 Ctrl。</p>
       </div>
       <div className="dialog-actions">
         <button className="btn btn-primary" onClick={() => resolveDialog(true)} autoFocus>好</button>

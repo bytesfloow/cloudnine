@@ -17,7 +17,7 @@ import {
 } from '../icons.jsx';
 import { HomeScreen, StatusBar, HomeIndicator, Glyph } from './HomeScreen.jsx';
 
-// iOS 风格移动形态：主屏幕（应用图标 + Dock）+ 全屏应用层 + Home 指示条返回（F-11 / 决策 Q10 的 v2 演进）
+// 移动端形态：主屏幕（应用图标 + Dock）+ 全屏应用层 + Home 指示条返回（F-11 / 决策 Q10 的 v2 演进）
 const APP_TITLES = { finder: '文件', terminal: '终端', upload: '上传', transfers: '传输', settings: '设置' };
 
 export default function MobileApp() {

@@ -1,5 +1,5 @@
 [Unit]
-Description=CloudNine — macOS 风格云服务器桌面
+Description=CloudNine — 自托管云桌面服务
 Documentation=https://github.com/bytesfloow/cloudnine
 After=network-online.target
 Wants=network-online.target

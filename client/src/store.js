@@ -562,7 +562,7 @@ export const setClipboard = (mode, paths, cwd) =>
   setState({ clipboard: mode == null ? null : { mode, paths, cwd } });
 
 // ---------- 文件窗口选择上报（外壳级快捷键 / 后续预览窗格使用） ----------
-// macOS 空格预览浮层已删除，这里只保留选择上报本身，不再有浮层消费者。
+// 旧版空格预览浮层已删除，这里只保留选择上报本身，不再有浮层消费者。
 export const setFinderSel = (windowId, paths) =>
   setState((s) => ({ finderSel: { ...s.finderSel, [windowId]: paths } }));
 

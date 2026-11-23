@@ -23,7 +23,7 @@ export default function Desktop() {
     const onKey = (e) => {
       const t = e.target;
       const inEditable = !!(t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable || t.closest?.('.xterm')));
-      // C1：只用 ctrlKey。metaKey（⌘）不再参与任何快捷键，Win 上也没有 ⌘ 键。
+      // C1：只用 ctrlKey。metaKey 不参与任何快捷键（键位仅支持 Ctrl）。
       const ctrl = e.ctrlKey;
       const alt = e.altKey;
       const key = String(e.key || '');

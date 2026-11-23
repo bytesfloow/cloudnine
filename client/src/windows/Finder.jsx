@@ -160,7 +160,7 @@ export default function Finder({ win }) {
       case 'download': if (selPaths.length === 1 && selectedEntries[0]?.type !== 'dir') downloadPath(selPaths[0]); else if (selPaths.length) downloadZip(selPaths); return;
       case 'compress': if (selPaths.length) return compressDialog(selPaths); return;
       case 'share': if (selectedEntries[0]) return shareDialog({ path: joinPath(cwd, selectedEntries[0].name), name: selectedEntries[0].name, entry: selectedEntries[0] }); return;
-      // 预览窗口（macOS 空格预览浮层已删除）：path/name 定位文件，siblings 供 ←/→ 切换
+      // 预览窗口（旧版空格预览浮层已删除）：path/name 定位文件，siblings 供 ←/→ 切换
       case 'preview': {
         const files = selectedEntries.filter((e) => e.type !== 'dir').map((e) => joinPath(cwd, e.name));
         return openPreview(files);
@@ -217,7 +217,7 @@ export default function Finder({ win }) {
   // ---------- 选择 ----------
   function clickItem(e, entry, idx) {
     const sorted = visible();
-    // C9：多选修饰键只认 Ctrl（⌘ 不再参与），Shift 连选保留
+    // C9：多选修饰键只认 Ctrl（meta 不参与），Shift 连选保留
     if (e.ctrlKey) {
       setSel((s) => { const n = new Set(s); if (n.has(entry.name)) n.delete(entry.name); else n.add(entry.name); return n; });
       setAnchor(idx);
@@ -273,7 +273,7 @@ export default function Finder({ win }) {
     if (r === 'missing') setEntries((prev) => (prev || []).filter((e) => e.path !== entry.path));
   }
 
-  // 打开预览窗口（macOS 空格预览浮层已删除）：path/name 定位文件，siblings 供 ←/→ 切换
+  // 打开预览窗口（旧版空格预览浮层已删除）：path/name 定位文件，siblings 供 ←/→ 切换
   function openPreview(paths) {
     if (!paths.length) return;
     openWindow('preview', { path: paths[0], name: basename(paths[0]), siblings: paths, index: 0 });

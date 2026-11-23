@@ -105,11 +105,21 @@ def err(msg: str) -> None:
 def run(cmd: list[str], *, cwd: Path | None = None, check: bool = True,
         env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
     info(" $ " + " ".join(shlex.quote(c) for c in cmd))
-    proc = subprocess.run(cmd, cwd=cwd, env=env, text=True, capture_output=True)
-    if proc.stdout.strip():
-        print(proc.stdout.rstrip())
-    if proc.stderr.strip():
-        print(proc.stderr.rstrip(), file=sys.stderr)
+    # 显式指定 utf-8：远端（Linux/中文/emoji）输出是 UTF-8，而中文 Windows 的
+    # subprocess 默认用系统 ANSI 代码页（GBK）解码，一遇中文/emoji 就抛
+    # UnicodeDecodeError 并把 proc.stdout 留成 None（后续 .strip() 就 AttributeError）。
+    # errors="replace" 保证即使混入非 UTF-8 字节也不会中断部署，只留一个替换字符。
+    proc = subprocess.run(
+        cmd, cwd=cwd, env=env, text=True, capture_output=True,
+        encoding="utf-8", errors="replace",
+    )
+    # 判空：任何解码/管道异常都不能让下游 .strip() 崩在 NoneType 上
+    stdout = proc.stdout or ""
+    stderr = proc.stderr or ""
+    if stdout.strip():
+        print(stdout.rstrip())
+    if stderr.strip():
+        print(stderr.rstrip(), file=sys.stderr)
     if check and proc.returncode != 0:
         err(f"命令失败（退出码 {proc.returncode}）")
         raise SystemExit(1)
@@ -267,7 +277,9 @@ def main() -> None:
         unpushed = subprocess.run(
             ["git", "log", f"origin/{args.branch}..HEAD", "--oneline"],
             cwd=REPO_ROOT, text=True, capture_output=True,
-        ).stdout.strip()
+            encoding="utf-8", errors="replace",
+        ).stdout or ""
+        unpushed = unpushed.strip()
         if unpushed:
             warn(f"本地有未推送的提交（{len(unpushed.splitlines())} 条），远端将不会包含这些改动：")
             for line in unpushed.splitlines():
@@ -306,9 +318,11 @@ def main() -> None:
     # ---------- 3. 部署 ----------
     info("执行部署")
     flags = " --no-build" if args.no_build else ""
+    # 必须把 --branch 传成 DEPLOY_BRANCH：deploy_remote.sh 的 fetch/checkout/pull
+    # 都读这个变量（缺省 main）。不传就等于「选了分支但远端照样部署 main」。
     remote_run(
         args,
-        f"cd {DEPLOY_DIR} && bash scripts/deploy_remote.sh{flags}",
+        f"cd {DEPLOY_DIR} && DEPLOY_BRANCH={shlex.quote(args.branch)} bash scripts/deploy_remote.sh{flags}",
     )
 
     # ---------- 4. 健康检查 ----------
