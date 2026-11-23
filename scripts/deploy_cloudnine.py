@@ -57,6 +57,38 @@ GREEN, RED, YELLOW, CYAN, DIM, BOLD, RESET = (
 )
 
 
+def _stdio_safe() -> None:
+    """让脚本自己的输出在中文 Windows 控制台（cp936）上也活得下来。
+
+    cp936 里没有 ✓ / ✗ / ⚠，直接 print 会抛 UnicodeEncodeError（哪怕远端输出
+    已经正确解码）。把错误降级成替换字符，并在下方 _mark() 里换成 ASCII 说法，
+    这样不需要调用方设 PYTHONUTF8 / chcp 65001 也能跑完部署。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")  # type: ignore[attr-defined]
+        except (AttributeError, ValueError):
+            pass
+
+
+def _mark(unicode_mark: str, ascii_mark: str) -> str:
+    """控制台代码页能不能表示这个符号，不能就用 ASCII 替身。"""
+    enc = getattr(sys.stdout, "encoding", None) or "utf-8"
+    try:
+        unicode_mark.encode(enc)
+    except (UnicodeEncodeError, LookupError):
+        return ascii_mark
+    return unicode_mark
+
+
+MARK_OK = _mark("✓", "OK")
+MARK_ERR = _mark("✗", "x")
+MARK_WARN = _mark("⚠", "!")
+
+
+_stdio_safe()
+
+
 def load_secrets() -> list[str]:
     """从 .secrets/*.env 载入部署凭据（SSH_PASSWORD / CN_DEPLOY_HOST 等）。
 
@@ -91,15 +123,15 @@ def info(msg: str) -> None:
 
 
 def ok(msg: str) -> None:
-    print(f"{GREEN}  ✓{RESET} {msg}", flush=True)
+    print(f"{GREEN}  {MARK_OK}{RESET} {msg}", flush=True)
 
 
 def warn(msg: str) -> None:
-    print(f"{YELLOW}  !{RESET} {msg}", flush=True)
+    print(f"{YELLOW}  {MARK_WARN}{RESET} {msg}", flush=True)
 
 
 def err(msg: str) -> None:
-    print(f"{RED}  ✗{RESET} {msg}", flush=True)
+    print(f"{RED}  {MARK_ERR}{RESET} {msg}", flush=True)
 
 
 def run(cmd: list[str], *, cwd: Path | None = None, check: bool = True,
@@ -194,7 +226,7 @@ def smoke_command(file_root: str | None) -> str:
 def warn_all(lines: list[str]) -> None:
     """成块黄色告警：覆盖缺口必须一眼看到，不能混在一堆日志里。"""
     for line in lines:
-        print(f"{YELLOW}{BOLD}  ⚠ {line}{RESET}", flush=True)
+        print(f"{YELLOW}{BOLD}  {MARK_WARN} {line}{RESET}", flush=True)
 
 
 def warn_smoke_without_file_root() -> None:
