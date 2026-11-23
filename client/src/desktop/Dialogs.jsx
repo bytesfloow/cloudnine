@@ -194,15 +194,15 @@ function AboutBody() {
 
   return (
     <>
-      <button type="button" className="np-close" aria-label="关闭" onClick={() => resolveDialog(null)} autoFocus>
-        <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-          <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <button type="button" className="np-close" aria-label="关闭" onClick={() => resolveDialog(null)}>
+        <svg width="13" height="13" viewBox="0 0 13 13" aria-hidden="true">
+          <path d="M1.5 1.5l10 10M11.5 1.5l-10 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
       </button>
 
       <div className="np-body">
         <div className="np-left">
-          <NineMark />
+          <StackMark />
           <div className="np-name">{s.siteName || 'CloudNine'}</div>
           <div className="np-ver">v{s.version || '0.0.0'}</div>
           <p className="np-tag">自托管单用户云桌面<br />一个端口，管好整台机器</p>
@@ -291,25 +291,21 @@ function legacyCopy(text) {
   }
 }
 
-// 自绘标识：3×3 点阵（「九」），右下一点用强调色点题；纯 SVG，不借任何系统徽标
-function NineMark() {
-  const dots = [];
-  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) dots.push([r, c]);
+// 自绘标识「三扇窗」：叠放的三扇窗口 = 一整套桌面；最前面那扇做成强调色实底，
+// 标题条 + 一颗端口亮点 = 这台机器上唯一开着的会话。纯几何 SVG，不借图标库，也不拟物。
+function StackMark() {
   return (
-    <svg className="np-mark" width="44" height="44" viewBox="0 0 48 48" role="img" aria-label="CloudNine 标识">
-      <rect x="1" y="1" width="46" height="46" rx="12" fill="var(--accent-soft-solid)" />
-      {dots.map(([r, c]) => {
-        const accent = r === 2 && c === 2;
-        return (
-          <circle
-            key={`${r}-${c}`}
-            cx={16 + c * 8}
-            cy={16 + r * 8}
-            r={accent ? 3.4 : 2.4}
-            fill={accent ? 'var(--accent-text)' : 'currentColor'}
-          />
-        );
-      })}
+    <svg className="np-mark" width="44" height="44" viewBox="0 0 48 48" fill="none" role="img" aria-label="CloudNine 标识">
+      <g stroke="currentColor" strokeLinejoin="round" strokeLinecap="round">
+        <rect x="16" y="6" width="25" height="18" rx="4.5" strokeWidth="2.2" opacity=".5" />
+        <path d="M20 10.8h8.5" strokeWidth="2" opacity=".5" />
+        <rect x="11" y="13" width="26" height="19" rx="4.5" strokeWidth="2.2" opacity=".85" />
+        <path d="M15 17.8h9" strokeWidth="2" opacity=".85" />
+      </g>
+      <rect x="5.5" y="21.5" width="31" height="20.5" rx="5.5" fill="var(--accent)" />
+      {/* 前景窗口的标题条：整条浅色带，20px 下收缩成一条高光，仍能读成「窗口」 */}
+      <path d="M11 21.5h20a5.5 5.5 0 0 1 5.5 5.5H5.5A5.5 5.5 0 0 1 11 21.5z" fill="var(--on-accent)" opacity=".22" />
+      <circle cx="30.5" cy="32.4" r="3.4" fill="var(--on-accent)" />
     </svg>
   );
 }

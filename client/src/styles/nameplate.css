@@ -5,17 +5,20 @@
    所有色值走令牌，亮/暗两套自动成立。 */
 .dialog.nameplate {
   width: 620px;
-  padding: 22px 24px 15px;
+  /* 顶部留出一条只放关闭键的带宽：内容从 38px 开始，32px 的关闭键不会压住状态块 */
+  padding: 38px 24px 15px;
   position: relative;
 }
 .np-close {
-  position: absolute; top: 9px; right: 9px;
-  width: 28px; height: 28px; border-radius: var(--radius-ctl);
+  position: absolute; top: 6px; right: 6px;
+  width: 32px; height: 32px; border-radius: var(--radius-ctl);
   display: flex; align-items: center; justify-content: center;
-  color: var(--text-2);
+  color: var(--text-2);                      /* 无边框、无底色：hover 才出浅底 */
 }
 .np-close:hover { background: var(--hover); color: var(--text); }
-.np-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.np-close:active { background: var(--active); }
+/* 键盘聚焦不画蓝框（这里的 ✕ 一旦描边就像常驻的错误态），改用略深的底 */
+.np-close:focus-visible { outline: none; background: var(--active); }
 
 .np-body { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 20px; }
 .np-left {
@@ -83,7 +86,7 @@
 
 /* 窄屏（含移动端复用）：两栏叠成一栏，状态块先 2×2 再 1×N，绝不横向溢出 */
 @media (max-width: 640px) {
-  .dialog.nameplate { width: 94vw; padding: 18px 16px 12px; }
+  .dialog.nameplate { width: 94vw; padding: 44px 16px 12px; }
   .np-body { grid-template-columns: minmax(0, 1fr); gap: 14px; }
   .np-left {
     padding-right: 0; padding-bottom: 12px;
