@@ -1,0 +1,99 @@
+/* ============ 关于本系统 · 服务铭牌 ============ */
+/* 这个弹窗不模仿任何操作系统的「关于」面板：左边是产品的铭牌区，
+   右边是 2×2 的真实状态块，底部一行等宽小字放可复制的指纹信息。
+   材质沿用全局约定：纯色表面 + 1px 描边 + 8px 圆角，无背景模糊。
+   所有色值走令牌，亮/暗两套自动成立。 */
+.dialog.nameplate {
+  width: 620px;
+  padding: 22px 24px 15px;
+  position: relative;
+}
+.np-close {
+  position: absolute; top: 9px; right: 9px;
+  width: 28px; height: 28px; border-radius: var(--radius-ctl);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-2);
+}
+.np-close:hover { background: var(--hover); color: var(--text); }
+.np-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.np-body { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 20px; }
+.np-left {
+  display: flex; flex-direction: column; align-items: flex-start;
+  padding-right: 20px; border-right: 1px solid var(--line);
+}
+.np-mark { color: var(--text-2); flex: none; }
+.np-name { font-size: 20px; font-weight: 650; letter-spacing: .2px; margin-top: 10px; }
+.np-ver { font-family: var(--mono); font-size: 11.5px; color: var(--text-2); margin-top: 1px; }
+.np-tag { font-size: 12px; line-height: 1.6; color: var(--text-2); margin-top: 10px; }
+.np-links { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 12px; font-size: 12px; }
+.np-links a { color: var(--accent-text); }
+.np-links a:hover { text-decoration: underline; }
+.np-sep { color: var(--text-3); }
+
+.np-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.np-cell {
+  /* 凹进去的一块：用页面底色，和弹窗表面（--menu-bg）拉开一档 */
+  background: var(--bg); border: 1px solid var(--line);
+  border-radius: var(--radius-win); padding: 10px 12px 11px;
+  min-width: 0;
+}
+.np-label {
+  font-size: 11px; color: var(--text-2); letter-spacing: .4px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.np-value {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 15px; font-weight: 650; margin-top: 5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.np-of { font-weight: 500; font-size: 11.5px; color: var(--text-2); }
+.np-sub {
+  font-size: 11px; color: var(--text-2); margin-top: 4px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.np-bar { height: 3px; border-radius: 2px; background: var(--line); margin-top: 7px; overflow: hidden; }
+.np-fill { height: 100%; min-width: 4px; border-radius: 2px; background: var(--accent); transition: width .3s ease; }
+.np-fill.warn { background: var(--warn-fill); }
+.np-fill.danger { background: var(--danger); }
+.np-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex: none;
+  background: var(--ok-2); box-shadow: 0 0 0 3px var(--ok-soft);
+}
+.np-dot.bad { background: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
+
+.np-meta {
+  /* 桌面宽度下永远一行：根目录那项允许收缩出省略号，其余项 flex:none */
+  display: flex; flex-wrap: nowrap; align-items: center; gap: 3px 10px;
+  margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--line);
+}
+.np-meta-item {
+  display: inline-flex; align-items: center; gap: 5px; min-width: 0; flex: none;
+  padding: 2px 0; border-radius: 3px;
+  font-family: var(--mono); font-size: 11px; color: var(--text-2);
+}
+.np-meta-item:hover { color: var(--text); }
+.np-meta-item:hover .np-meta-v { text-decoration: underline; text-underline-offset: 2px; }
+.np-meta-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.np-meta-root { flex: 1 1 auto; }
+.np-meta-k { flex: none; color: var(--text-3); }
+.np-meta-v { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.np-copied { color: var(--ok); font-size: 10px; }
+
+/* 窄屏（含移动端复用）：两栏叠成一栏，状态块先 2×2 再 1×N，绝不横向溢出 */
+@media (max-width: 640px) {
+  .dialog.nameplate { width: 94vw; padding: 18px 16px 12px; }
+  .np-body { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .np-left {
+    padding-right: 0; padding-bottom: 12px;
+    border-right: none; border-bottom: 1px solid var(--line);
+  }
+  .np-mark { width: 36px; height: 36px; }
+  .np-name { font-size: 18px; margin-top: 8px; }
+  .np-meta { flex-wrap: wrap; margin-top: 13px; }
+  .np-meta-root { flex: 1 1 100%; }
+}
+@media (max-width: 420px) {
+  .np-grid { grid-template-columns: minmax(0, 1fr); }
+}

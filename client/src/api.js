@@ -33,6 +33,7 @@ export const api = {
   logout: () => post('/api/logout'),
   changePassword: (data) => post('/api/account/password', data),
   about: () => request('/api/about'),
+  system: () => request('/api/system'),
 
   // 文件系统
   list: (path) => request(`/api/fs/list?path=${encodeURIComponent(path)}`),

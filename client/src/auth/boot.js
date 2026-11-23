@@ -5,7 +5,7 @@ import { loadBootData } from '../App.jsx';
 // 初始化 / 登录成功后的入口
 export async function loadBootDataState() {
   const st = await api.state();
-  setState({ initialized: st.initialized, user: st.user, siteName: st.siteName, version: st.version });
+  setState({ initialized: st.initialized, user: st.user, siteName: st.siteName, version: st.version, dbDamaged: !!st.dbDamaged });
   document.title = st.siteName;
   loadBootData();
 }

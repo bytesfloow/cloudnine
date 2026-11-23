@@ -2,6 +2,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
+// 版本号唯一来源：仓库根的 package.json。
+// 以前这里写死 '0.1.0'，client/package.json、server/package.json 又各写一份，
+// 改一次版本要改四处，很容易漂。现在三处子包都不带 version，只读根 package.json。
+const pkg = (() => {
+  try {
+    return JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
+  } catch {
+    return {};
+  }
+})();
+
 const fileConfig = (() => {
   try {
     return JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'config.json'), 'utf8'));
@@ -21,7 +32,7 @@ const bool = (v, d) => {
 const isWin = process.platform === 'win32';
 
 export const config = {
-  version: '0.1.0',
+  version: String(pkg.version || '0.0.0'),
   port: num(env('PORT') ?? fileConfig.port, 8480),
   host: env('HOST') ?? fileConfig.host ?? '0.0.0.0',
   // 文件系统浏览根目录：Linux 默认 /，Windows 开发环境默认用户主目录

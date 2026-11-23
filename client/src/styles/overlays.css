@@ -52,16 +52,12 @@
 .dialog-actions .btn { min-width: 76px; }
 .form-fields .field select { width: 100%; }
 
-.about-body { text-align: center; padding: 6px 0; }
-.about-icon { font-size: 42px; }
-.about-body h2 { margin: 8px 0 14px; font-size: 17px; }
 .about-table { width: 100%; border-collapse: collapse; font-size: 12.5px; text-align: left; table-layout: fixed; }
 .about-table td { padding: 5px 8px; border-bottom: 1px solid var(--line); }
 /* 第一列固定 42% 且不折行，第二列（文件根目录这类长路径）自己断词；
    否则长路径会把首列挤成一字一行的竖排 */
 .about-table td:first-child { color: var(--text-2); width: 42%; white-space: nowrap; }
 .about-table td:last-child { word-break: break-all; }
-.about-note { color: var(--text-2); font-size: 11.5px; margin-top: 14px; }
 
 /* ============ 通知 ============ */
 /* Win11 位置：视口右下角、任务栏正上方（≥768px，与 App 的移动端判定对齐；

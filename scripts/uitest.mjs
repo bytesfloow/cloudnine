@@ -3098,16 +3098,102 @@ try {
     check('最近文件的内容已加载', /开始菜单最近文件自测/.test(recentContent), recentContent.slice(0, 60));
     await closeAllWindows();
 
-    // 关于本系统
+    // 关于本系统（服务铭牌）：真实数据 + 只在打开时轮询 /api/system
+    let sysReq = 0;
+    const onSysReq = (r) => { if (r.url().includes('/api/system')) sysReq++; };
+    page.on('request', onSysReq);
+
+    // /api/state 免鉴权，所以系统指标接口不能跟着裸奔；不带 Cookie 必须是 401
+    const anonSys = await apiFetch('GET', '/api/system');
+    check('未登录访问 /api/system 返回 401', anonSys.status === 401, `status=${anonSys.status}`);
+
     await openStart();
     await page.evaluate(() => {
       [...document.querySelectorAll('.startmenu .sm-foot-btn')].find((b) => b.innerText.includes('关于本系统'))?.click();
     });
     await sleep(500);
-    check('底部「关于本系统」打开关于对话框', !!(await page.$('.dialog .about-body')), '未出现 .about-body');
-    await page.evaluate(() => document.querySelector('.dialog-actions .btn-primary')?.click());
+    check('底部「关于本系统」打开服务铭牌', !!(await page.$('.dialog.nameplate')), '未出现 .dialog.nameplate');
+    // 等第一次 /api/system 回来再断言数值，避免抢在 loading 态上
+    await page.waitForFunction(() => Number(document.querySelector('.np-uptime .np-value')?.dataset.value) > 0, { timeout: 8000 }).catch(() => {});
+
+    const np = await page.evaluate(() => {
+      const el = document.querySelector('.dialog.nameplate');
+      if (!el) return null;
+      const cs = getComputedStyle(el);
+      const q = (sel) => el.querySelector(sel)?.innerText?.trim() || '';
+      return {
+        w: Math.round(el.getBoundingClientRect().width),
+        radius: cs.borderRadius,
+        bg: cs.backgroundColor,
+        blur: cs.backdropFilter,
+        uptimeSec: Number(el.querySelector('.np-uptime .np-value')?.dataset.value || 0),
+        uptime: q('.np-uptime .np-value'),
+        uptimeSub: q('.np-uptime .np-sub'),
+        mem: q('.np-mem .np-value'),
+        memSub: q('.np-mem .np-sub'),
+        storage: q('.np-storage .np-value'),
+        storageSub: q('.np-storage .np-sub'),
+        health: q('.np-health .np-value'),
+        healthSub: q('.np-health .np-sub'),
+        meta: [...el.querySelectorAll('.np-meta-item')].map((b) => b.innerText.replace(/\s+/g, ' ').trim()),
+        clipped: el.scrollWidth > el.clientWidth + 1,
+      };
+    });
+    check('铭牌：620 宽 / 8px 圆角 / 纯色表面 / 无背景模糊',
+      !!np && np.w >= 600 && np.w <= 640 && np.radius === '8px' && /^rgb\(\d+, \d+, \d+\)$/.test(np.bg || '') && np.blur === 'none',
+      JSON.stringify(np && { w: np.w, radius: np.radius, bg: np.bg, blur: np.blur }));
+    check('铭牌显示真实运行时长（uptime > 0，含启动时刻）',
+      !!np && np.uptimeSec > 0 && /\d/.test(np.uptime) && /启动于 \d{2}-\d{2} \d{2}:\d{2} · \d+:\d{2}/.test(np.uptimeSub),
+      `${np?.uptime} / ${np?.uptimeSub}`);
+    check('铭牌显示真实内存（RSS 数值 + 占系统比例）',
+      /(KB|MB|GB)/.test(np?.mem || '') && /占系统 [\d.<]+%/.test(np?.memSub || ''), `${np?.mem} / ${np?.memSub}`);
+    check('铭牌存储块显示已用 / 总量',
+      /(KB|MB|GB|TB)/.test(np?.storage || '') && /\//.test(np?.storage || '') && /已用 [\d.]+%/.test(np?.storageSub || ''),
+      `${np?.storage} / ${np?.storageSub}`);
+    check('铭牌健康块：后台任务数 + 数据库状态点',
+      !!np?.health && /后台任务/.test(np?.healthSub || '') && /数据库/.test(np?.healthSub || ''), `${np?.health} / ${np?.healthSub}`);
+    check('底部指纹行：commit / node / platform / 根目录 / 端口',
+      !!np && np.meta.length === 5 && np.meta[0].startsWith('commit ') && np.meta[1].startsWith('node ')
+        && np.meta[2].startsWith('platform ') && np.meta[3].startsWith('根目录 ') && np.meta[4].startsWith('端口 '),
+      JSON.stringify(np?.meta));
+    check('铭牌内容不横向溢出', !np?.clipped, 'scrollWidth > clientWidth');
+
+    // 两套主题各一张：显式固定，别依赖 --theme 冷启动参数
+    const themeBefore = await page.evaluate(() => document.documentElement.dataset.theme || 'light');
+    await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
+    await sleep(350);
+    await shot('关于本系统-铭牌-亮色');
+    await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+    await sleep(350);
+    await shot('关于本系统-铭牌-暗色');
+    await page.evaluate((t) => { document.documentElement.dataset.theme = t; }, themeBefore);
+
+    // 底部指纹「可复制」：真点击端口项，剪贴板探针要收到端口号，并且出现「已复制」
+    const items = await page.$$('.np-meta-item');
+    await items[4].click();
+    await sleep(400);
+    const copyState = await page.evaluate(() => ({
+      writes: (window.__clipboardWrites || []).slice(-3),
+      badge: document.querySelector('.np-meta-item.is-copied .np-copied')?.innerText || '',
+    }));
+    check('底部指纹行点击即复制（端口写入剪贴板 + 已复制反馈）',
+      copyState.writes.some((w) => /^\d+$/.test(w)) && /已复制/.test(copyState.badge), JSON.stringify(copyState));
+    await sleep(1200);
+
+    const up1 = await page.$eval('.np-uptime .np-value', (el) => Number(el.dataset.value || 0));
+    const reqOpen = sysReq;
+    await sleep(5500);
+    const up2 = await page.$eval('.np-uptime .np-value', (el) => Number(el.dataset.value || 0));
+    check('弹窗打开期间 /api/system 持续轮询（3–5s）',
+      sysReq > reqOpen && up2 > up1, `5.5s 内请求 +${sysReq - reqOpen}，uptime ${up1}→${up2}`);
+
+    await page.evaluate(() => document.querySelector('.np-close')?.click());
     await sleep(300);
-    check('关于对话框可关闭', !(await page.$('.dialog')));
+    check('铭牌可关闭', !(await page.$('.dialog')));
+    const reqClosed = sysReq;
+    await sleep(5500);
+    check('关闭后停止轮询 /api/system', sysReq === reqClosed, `关闭后 5.5s 内仍新增 ${sysReq - reqClosed} 次`);
+    page.off('request', onSysReq);
 
     // 亮色 / 暗色两套主题下各截一张
     const accOpen = () => page.evaluate(() => document.querySelector('.tray-account')?.click());

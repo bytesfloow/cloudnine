@@ -18,6 +18,7 @@
        （原顶部菜单栏样式文件已随顶栏删除：下拉项并入 overlays.css，托盘内容并入 taskbar.css）
        startmenu.css   ——       开始菜单（阶段 1 · T4 新增，纯色材质）
        overlays.css    384-458  右键菜单、对话框、通知
+       nameplate.css   ——       关于本系统（服务铭牌，阶段 4 新增）
      窗口
        window.css      259-366  窗口框架、标题栏按钮、缩放把手、错误兜底
        winmgr.css      ——       窗口管理（阶段 2 · T11 新增：吸附预览 / Alt+Tab 切换器）
@@ -39,6 +40,7 @@
 @import './taskbar.css';
 @import './startmenu.css';
 @import './overlays.css';
+@import './nameplate.css';
 @import './finder.css';
 @import './terminal.css';
 @import './editor.css';

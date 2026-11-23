@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { useStore, resolveDialog, activateNotification } from '../store.js';
+import React, { useEffect, useRef, useState } from 'react';
+import { useStore, resolveDialog, activateNotification, fmtSize } from '../store.js';
 import { api } from '../api.js';
 
 // 通知堆栈（桌面/移动共用）：登录页等早期阶段也需要展示 notify()
@@ -40,8 +40,8 @@ export default function Dialogs() {
   if (!dlg) return null;
   return (
     <div className="dialog-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget && dlg.kind !== 'confirm3') resolveDialog(null); }}>
-      <div className={`dialog${dlg.wide ? ' wide' : ''}`}>
-        <h3>{dlg.title}</h3>
+      <div className={`dialog${dlg.wide ? ' wide' : ''}${dlg.kind === 'about' ? ' nameplate' : ''}`}>
+        {dlg.title && <h3>{dlg.title}</h3>}
         {dlg.message && <p className="dialog-message">{dlg.message}</p>}
         {dlg.kind === 'confirm' && (
           <div className="dialog-actions">
@@ -137,30 +137,238 @@ function FormBody({ dlg }) {
 
 function AboutBody() {
   const s = useStore();
-  const [about, setAbout] = useState(null);
-  useEffect(() => { api.about().then(setAbout).catch(() => {}); }, []);
+  const [sys, setSys] = useState(null);
+  const [meta, setMeta] = useState(null);
+  const [mounts, setMounts] = useState([]);
+  const [running, setRunning] = useState(null);
+  const [copied, setCopied] = useState('');
+  const copiedTimer = useRef(null);
+
+  // 只在弹窗挂载期间轮询 /api/system：关闭 = 卸载 = 定时器清掉，
+  // 绝不把「看一次关于」变成服务端常驻轮询源。
+  // 未登录时不发请求（入口在登录后的开始菜单，这里再加一道，防止被登录页复用后刷 401）。
+  useEffect(() => {
+    if (!s.user) return undefined;
+    let alive = true;
+    const pull = () => api.system().then((v) => { if (alive) setSys(v); }).catch(() => {});
+    pull();
+    const timer = setInterval(pull, 4000);
+    api.about().then((m) => { if (alive) setMeta(m); }).catch(() => {});
+    api.disk().then((d) => { if (alive) setMounts(d.mounts || []); }).catch(() => {});
+    api.jobs().then((j) => { if (alive) setRunning((j.jobs || []).filter((x) => x.status === 'running').length); }).catch(() => {});
+    return () => { alive = false; clearInterval(timer); clearTimeout(copiedTimer.current); };
+  }, [s.user]);
+
+  // 文件根目录所在分区（mountRel 为空）优先，否则按路径前缀匹配，再退到第一块盘
+  const mount = pickMount(mounts, meta?.fileRoot);
+  const up = uptimeParts(sys?.uptimeSec);
+  const startedAt = sys?.startedAt ? Date.parse(sys.startedAt) : 0;
+  const memPct = sys?.os?.totalmem ? Math.min(100, (sys.rss / sys.os.totalmem) * 100) : 0;
+  const diskPct = mount?.usePct ?? 0;
+  const dbOk = !s.dbDamaged;
+
+  async function copy(key, value) {
+    if (!value || value === '—') return;
+    const text = String(value);
+    let ok = false;
+    try {
+      await navigator.clipboard.writeText(text);
+      ok = true;
+    } catch {
+      // 纯 http 局域网不是安全上下文，navigator.clipboard 直接不可用 —— 退回 execCommand
+      ok = legacyCopy(text);
+    }
+    if (!ok) return;
+    setCopied(key);
+    clearTimeout(copiedTimer.current);
+    copiedTimer.current = setTimeout(() => setCopied(''), 1200);
+  }
+
+  const metaItems = [
+    { key: 'commit', k: 'commit', v: sys?.commit || '—' },
+    { key: 'node', k: 'node', v: sys?.nodeVersion || '—' },
+    { key: 'platform', k: 'platform', v: platformLabel(sys?.platform) },
+    { key: 'root', k: '根目录', v: meta?.fileRoot || '—' },
+    { key: 'port', k: '端口', v: meta?.port ? String(meta.port) : '—' },
+  ];
+
   return (
     <>
-      <div className="about-body">
-        <div className="about-icon">🖥️</div>
-        <h2>{s.siteName}</h2>
-        {about && (
-          <table className="about-table">
-            <tbody>
-              <tr><td>版本</td><td>v{about.version}</td></tr>
-              <tr><td>服务主机</td><td>{about.hostname}</td></tr>
-              <tr><td>运行身份</td><td>{about.runtimeUser}</td></tr>
-              <tr><td>系统平台</td><td>{about.platform}</td></tr>
-              <tr><td>文件根目录</td><td className="mono">{about.fileRoot}</td></tr>
-              <tr><td>回收站保留</td><td>{about.trashRetentionDays} 天</td></tr>
-            </tbody>
-          </table>
-        )}
-        <p className="about-note">本系统为自托管单用户云桌面，界面与图标均为原创实现，快捷键只使用 Ctrl。</p>
+      <button type="button" className="np-close" aria-label="关闭" onClick={() => resolveDialog(null)} autoFocus>
+        <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+          <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      </button>
+
+      <div className="np-body">
+        <div className="np-left">
+          <NineMark />
+          <div className="np-name">{s.siteName || 'CloudNine'}</div>
+          <div className="np-ver">v{s.version || '0.0.0'}</div>
+          <p className="np-tag">自托管单用户云桌面<br />一个端口，管好整台机器</p>
+          <div className="np-links">
+            <a href="https://github.com/bytesfloow/cloudnine/tree/main/docs" target="_blank" rel="noreferrer">文档</a>
+            <span className="np-sep" aria-hidden="true">·</span>
+            <a href="https://github.com/bytesfloow/cloudnine" target="_blank" rel="noreferrer">GitHub</a>
+            <span className="np-sep" aria-hidden="true">·</span>
+            <a href="https://github.com/bytesfloow/cloudnine/blob/main/LICENSE" target="_blank" rel="noreferrer">License</a>
+          </div>
+        </div>
+
+        <div className="np-grid">
+          <div className="np-cell np-uptime">
+            <div className="np-label">运行时长</div>
+            <div className="np-value" data-value={sys?.uptimeSec ?? ''}>{sys ? fmtUptime(up) : '—'}</div>
+            <div className="np-sub">
+              {sys ? `启动于 ${fmtStartedAt(startedAt)} · ${fmtClock(up)}` : '读取中…'}
+            </div>
+          </div>
+
+          <div className="np-cell np-mem">
+            <div className="np-label">内存 · RSS</div>
+            <div className="np-value">{sys ? fmtSize(sys.rss) : '—'}</div>
+            <div className="np-bar">{sys && <div className="np-fill" style={{ width: `${Math.max(memPct, 0.6)}%` }} />}</div>
+            <div className="np-sub">
+              {sys ? `占系统 ${memPct < 0.1 ? '<0.1' : memPct.toFixed(1)}% · 堆 ${fmtSize(sys.heapUsed)}` : '读取中…'}
+            </div>
+          </div>
+
+          <div className="np-cell np-storage">
+            <div className="np-label">存储{mount ? ` · ${mountLabel(mount)}` : ''}</div>
+            <div className="np-value">
+              {mount ? fmtSize(mount.used) : '—'}
+              <span className="np-of">/ {mount ? fmtSize(mount.total) : '—'}</span>
+            </div>
+            <div className="np-bar">
+              {mount && <div className={`np-fill${diskPct >= 90 ? ' danger' : diskPct >= 75 ? ' warn' : ''}`} style={{ width: `${Math.max(diskPct, 0.6)}%` }} />}
+            </div>
+            <div className="np-sub">{mount ? `已用 ${diskPct}%` : '读取中…'}</div>
+          </div>
+
+          <div className="np-cell np-health">
+            <div className="np-label">健康</div>
+            <div className="np-value"><span className={`np-dot${dbOk ? '' : ' bad'}`} />{dbOk ? '正常' : '降级'}</div>
+            <div className="np-sub">
+              {running == null ? '后台任务 —' : `${running} 个后台任务`} · {dbOk ? '数据库就绪' : '数据库只读'}
+            </div>
+          </div>
+        </div>
       </div>
-      <div className="dialog-actions">
-        <button className="btn btn-primary" onClick={() => resolveDialog(true)} autoFocus>好</button>
+
+      <div className="np-meta">
+        {metaItems.map((it) => (
+          <button
+            type="button"
+            key={it.key}
+            className={`np-meta-item${it.key === 'root' ? ' np-meta-root' : ''}${copied === it.key ? ' is-copied' : ''}`}
+            title={`${it.v}（点击复制）`}
+            onClick={() => copy(it.key, it.v)}
+          >
+            <span className="np-meta-k">{it.k}</span>
+            <span className="np-meta-v">{it.v}</span>
+            {copied === it.key && <span className="np-copied">已复制</span>}
+          </button>
+        ))}
       </div>
     </>
   );
+}
+
+// 老式复制兜底：http 局域网（非安全上下文）下没有 navigator.clipboard
+function legacyCopy(text) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:-1000px;left:-1000px;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+// 自绘标识：3×3 点阵（「九」），右下一点用强调色点题；纯 SVG，不借任何系统徽标
+function NineMark() {
+  const dots = [];
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) dots.push([r, c]);
+  return (
+    <svg className="np-mark" width="44" height="44" viewBox="0 0 48 48" role="img" aria-label="CloudNine 标识">
+      <rect x="1" y="1" width="46" height="46" rx="12" fill="var(--accent-soft-solid)" />
+      {dots.map(([r, c]) => {
+        const accent = r === 2 && c === 2;
+        return (
+          <circle
+            key={`${r}-${c}`}
+            cx={16 + c * 8}
+            cy={16 + r * 8}
+            r={accent ? 3.4 : 2.4}
+            fill={accent ? 'var(--accent-text)' : 'currentColor'}
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
+const two = (n) => String(n).padStart(2, '0');
+
+function uptimeParts(sec) {
+  const total = Math.max(0, Math.round(Number(sec) || 0));
+  return {
+    d: Math.floor(total / 86400),
+    h: Math.floor((total % 86400) / 3600),
+    m: Math.floor((total % 3600) / 60),
+    s: total % 60,
+  };
+}
+
+// 粗档「3 天 4 小时」；不足一小时才落到分秒，避免小数值看起来像没算
+function fmtUptime({ d, h, m, s: sec }) {
+  if (d > 0) return `${d} 天 ${h} 小时`;
+  if (h > 0) return `${h} 小时 ${m} 分`;
+  return `${m} 分 ${sec} 秒`;
+}
+
+// 精确到秒的同一份时长，用于副行（轮询时看得见在走）
+function fmtClock({ d, h, m, s: sec }) {
+  if (d > 0) return `${d}天 ${two(h)}:${two(m)}:${two(sec)}`;
+  if (h > 0) return `${h}:${two(m)}:${two(sec)}`;
+  return `${m}:${two(sec)}`;
+}
+
+// 只到「月-日 时:分」：整格的副行只有约 150px，带年份会把秒表挤成省略号
+function fmtStartedAt(ms) {
+  if (!ms) return '—';
+  const t = new Date(ms);
+  return `${two(t.getMonth() + 1)}-${two(t.getDate())} ${two(t.getHours())}:${two(t.getMinutes())}`;
+}
+
+// 挂载点用于展示时去掉尾部分隔符：「C:\」→「C:」，Linux 根目录仍显示「/」
+function mountLabel(m) {
+  return String(m?.mount || '').replace(/[\\/]+$/, '') || '/';
+}
+
+function pickMount(mounts, root) {
+  if (!mounts.length) return null;
+  const exact = mounts.find((m) => m.mountRel === '');
+  if (exact) return exact;
+  if (root) {
+    const hit = mounts
+      .filter((m) => m.mount && (root === m.mount || root.startsWith(/[\\/]$/.test(m.mount) ? m.mount : `${m.mount}/`)))
+      .sort((a, b) => b.mount.length - a.mount.length)[0];
+    if (hit) return hit;
+  }
+  return mounts[0];
+}
+
+function platformLabel(p) {
+  if (!p) return '—';
+  if (p === 'win32') return 'Windows';
+  if (p === 'darwin') return 'macOS';
+  if (p === 'linux') return 'Linux';
+  return p;
 }

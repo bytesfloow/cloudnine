@@ -7,6 +7,7 @@ import { fsRouter, cleanTrash } from './fs.js';
 import { transferRouter } from './transfer.js';
 import { mediaRouter, cleanOrphanTmp } from './media.js';
 import { shareAdminRouter, sharePublicRouter } from './share.js';
+import { systemRouter } from './system.js';
 import { setupTerminal } from './terminal.js';
 import { serveStatic } from './static.js';
 import { saveDB } from './db.js';
@@ -74,6 +75,7 @@ app.use('/api', shareAdminRouter);
 app.use('/api', fsRouter);
 app.use('/api', transferRouter);
 app.use('/api', mediaRouter);
+app.use('/api', systemRouter);
 
 app.use('/api', (req, res) => res.status(404).json({ error: '接口不存在' }));
 

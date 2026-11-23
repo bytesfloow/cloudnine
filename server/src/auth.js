@@ -188,6 +188,7 @@ authRouter.get('/about', requireLogin, (req, res) => {
   res.json({
     version: config.version,
     siteName: config.siteName,
+    port: config.port,
     runtimeUser: os.userInfo().username,
     hostname: os.hostname(),
     platform: process.platform,

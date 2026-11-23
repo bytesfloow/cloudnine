@@ -49,7 +49,7 @@ function detectMobile() {
 async function boot() {
   try {
     const st = await api.state();
-    setState({ booted: true, initialized: st.initialized, user: st.user, siteName: st.siteName, version: st.version });
+    setState({ booted: true, initialized: st.initialized, user: st.user, siteName: st.siteName, version: st.version, dbDamaged: !!st.dbDamaged });
     document.title = st.siteName;
     if (st.user) loadBootData();
   } catch (e) {

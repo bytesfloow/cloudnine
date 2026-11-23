@@ -46,6 +46,9 @@ let state = {
   user: null,
   siteName: 'CloudNine',
   version: '',
+  // 启动时 /api/state 带回来的库状态：库损坏时后端进只读降级，
+  // 铭牌「健康」块据此点亮状态点（true = 降级）。
+  dbDamaged: false,
   theme: localStorage.getItem('cloudnine-theme') || 'auto',
 
   windows: [],
