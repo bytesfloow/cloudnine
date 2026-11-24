@@ -13,6 +13,8 @@ import { fileCat } from './store.js';
    ② 应用 / 系统类（任务栏 / 开始菜单 / 桌面系统图标）：单色线性，
       48 视框、同一描边宽度（W(size, 2.4)）、圆头圆角、同一个强调色，
       不再混用底板 / 实心块 / 白纸面 —— 终端在暗色下也不会糊进背景。
+      例外只有两枚实形系统图标：桌面「主目录」（黄色文件夹 + 蓝色标识）与
+      「回收站」（实心灰桶），它们和文件夹同排，必须同尺寸、同重量（见下）。
 
    全部为原创 SVG：无位图 / 外链 / emoji / <image>，也不搬微软官方路径
    （开始按钮是抽象四格）。props 与改造前完全一致。
@@ -269,27 +271,117 @@ export const IconDisk = ({ size = 26 }) => {
   );
 };
 
+/* ---------------- 系统类：回收站（实形，和「主目录」同一套体量） ----------------
+   桌面左上角那两枚要成套：主目录是「黄色实形文件夹 + 蓝色小方牌」，回收站就不能
+   再是那 9 枚线描里的一个 —— 尺寸、体量、"实心物"的语言都对齐文件夹：
+   整枚只用几块实心色面叠出来，不描边、不堆细线。
+
+   48 视框，占位和文件夹同一片（x 6.8~41.2 / y 6.6~40.4），自下而上：
+     桶身   上宽 30、下宽 22.4 的桶壁，底角 4；竖向灰渐变 + 两侧横向光暗 = 一整块实心体
+     桶沿   桶口前沿往里让 1.8 的一条浅色面 = 厚桶沿的顶面（内凹的那一道）
+     桶口   桶沿上面一条深色面 = 内腔
+     桶盖   比桶壁宽一圈的实心横板 + 顶部一条实心把手；下沿一道硬暗边
+     满桶   两张歪斜的白纸从桶口探出、搭在盖前，纸脚裁在桶沿上并压进阴影
+
+   小尺寸只留形体：≤22px 纸条退化成两道斜杠、去掉折角；色面层级一块不少。 */
+
+const TR = {
+  bodyTop: '#b6c2d2', bodyBottom: '#7e8c9f',
+  bodySheen: 0.30, bodyShade: 0.26,
+  rimFace: '#dfe7f0',
+  lidTop: '#eef4fa', lidBottom: '#c6d1dd', lidEdge: '#5b6673',
+  handleTop: '#c2ccd9', handleBottom: '#98a5b6',
+  mouthTop: '#333c47', mouthBottom: '#66707d',
+  paper: '#ffffff', paperBack: '#dfe7f1', paperEdge: '#8497ad', paperFold: '#c4d0e0',
+  paperShade: '#3d4652',
+};
+
+// 桶壁外沿：顶边是桶口前沿（中间低 1.8），两侧收窄到底
+const TR_BODY = 'M9 18.6C15.4 18.6 20.8 19.6 24 20.4C27.2 19.6 32.6 18.6 39 18.6L35.2 36.8Q34.8 40.4 31.2 40.4H16.8Q13.2 40.4 12.8 36.8Z';
+// 桶沿顶面：前沿往里让 1.8 的一条同弧度带
+const TR_RIMM = 'M9 16.8C15.4 16.8 20.8 17.8 24 18.6C27.2 17.8 32.6 16.8 39 16.8';
+const TR_RIMBAND = `${TR_RIMM}C32.6 18.6 27.2 19.6 24 20.4C20.8 19.6 15.4 18.6 9 18.6Z`;
+// 内腔：盖下沿（16.35）到桶沿顶面之间的一条，中间最深
+const TR_MOUTH = `M9 16.35H39V16.8C32.6 16.8 27.2 17.8 24 18.6C20.8 17.8 15.4 16.8 9 16.8Z`;
+// 纸片裁切区：只允许出现在桶沿顶面以上，纸脚被桶沿挡掉
+const TR_CLIP = `M0 0H48V16.8H39C32.6 16.8 27.2 17.8 24 18.6C20.8 17.8 15.4 16.8 9 16.8H0Z`;
+
 export const IconTrash = ({ size = 26, full }) => {
-  const sw = A(size);
-  const detail = size >= 28;
+  const id = useUid('tr');
+  const small = size <= 22;     // 20px 列表 / 小图标：纸条退化成两道斜杠
+  const detail = size >= 32;    // 32px 起才画纸条折角
+  const edge = small ? 1.2 : 0.7;
   return (
     <Svg size={size}>
-      {/* full 态：桶身填一层 16% 的强调色 + 里面的纸线，其余仍是同一套线 */}
-      <path
-        d="M14.9 16.6h18.2l-1.6 21.1a4.7 4.7 0 0 1-4.7 4.5h-5.6a4.7 4.7 0 0 1-4.7-4.5z"
-        fill={full ? ACCENT : 'none'}
-        fillOpacity={full ? 0.22 : 0}
-        stroke={ACCENT}
-        strokeWidth={sw}
-        strokeLinejoin="round"
-      />
-      {full && detail && (
-        <g stroke={ACCENT} strokeWidth={W(size, 2)} strokeLinecap="round" opacity=".7">
-          <path d="M18.8 23.8h10.4M18.8 29.2h10.4M18.8 34.6h6.8" />
+      <defs>
+        <linearGradient id={`${id}b`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor={TR.bodyTop} />
+          <stop offset="1" stopColor={TR.bodyBottom} />
+        </linearGradient>
+        <linearGradient id={`${id}s`} x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stopColor="#ffffff" stopOpacity={TR.bodySheen} />
+          <stop offset=".45" stopColor="#ffffff" stopOpacity="0" />
+        </linearGradient>
+        <linearGradient id={`${id}d`} x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stopColor="#5f6d7d" stopOpacity="0" />
+          <stop offset="1" stopColor="#55636f" stopOpacity={TR.bodyShade} />
+        </linearGradient>
+        <linearGradient id={`${id}l`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor={TR.lidTop} />
+          <stop offset="1" stopColor={TR.lidBottom} />
+        </linearGradient>
+        <linearGradient id={`${id}h`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor={TR.handleTop} />
+          <stop offset="1" stopColor={TR.handleBottom} />
+        </linearGradient>
+        <linearGradient id={`${id}m`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor={TR.mouthTop} />
+          <stop offset="1" stopColor={TR.mouthBottom} />
+        </linearGradient>
+        <linearGradient id={`${id}ps`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor={TR.paperShade} stopOpacity="0" />
+          <stop offset="1" stopColor={TR.paperShade} stopOpacity=".55" />
+        </linearGradient>
+        <clipPath id={`${id}bc`}><path d={TR_BODY} /></clipPath>
+        <clipPath id={`${id}pc`}><path d={TR_CLIP} /></clipPath>
+      </defs>
+
+      {/* 桶身（实心）：竖向渐变 + 两侧横向光暗，不用描边 */}
+      <path d={TR_BODY} fill={`url(#${id}b)`} />
+      {/* 桶沿顶面：一条浅色实心面，桶口内凹的那一道 */}
+      <path d={TR_RIMBAND} fill={TR.rimFace} />
+      {/* 内腔：桶沿上面一条深色实心面 */}
+      <path d={TR_MOUTH} fill={`url(#${id}m)`} />
+      {/* 桶壁两侧的体积：横向渐变盖一层，裁在桶壁里 */}
+      <g clipPath={`url(#${id}bc)`}>
+        <rect x="4" y="14" width="14" height="28" fill={`url(#${id}s)`} />
+        <rect x="27" y="14" width="16" height="28" fill={`url(#${id}d)`} />
+      </g>
+
+      {/* 把手：实心横条，下半截埋进盖里；顶面一道高光 */}
+      <rect x="18.4" y="7.9" width="11.2" height="5.4" rx="2.2" fill={`url(#${id}h)`} />
+      {detail && <rect x="20.2" y="8.9" width="7.6" height=".9" rx=".45" fill="#ffffff" opacity=".35" />}
+
+      {/* 桶盖：实心横板，下沿一道硬暗边把盖和口子分开 */}
+      <rect x="6.8" y="12.2" width="34.4" height="5.2" rx="2.4" fill={`url(#${id}l)`} />
+      <rect x="6.8" y="16.3" width="34.4" height="1.1" fill={TR.lidEdge} opacity=".45" />
+
+      {/* 满桶的纸：从桶口探出、搭在盖前，纸脚裁在桶沿上并压进阴影 */}
+      {full && (
+        <g clipPath={`url(#${id}pc)`}>
+          <g transform={small ? 'rotate(8 22 20)' : 'rotate(7 21.4 20)'}>
+            <rect x={small ? 18.8 : 18.2} y={small ? 11.4 : 11} width={small ? 5.6 : 6.2} height={small ? 9 : 9.8} rx={small ? 0 : 0.9}
+              fill={TR.paperBack} stroke={TR.paperEdge} strokeWidth={edge} />
+            <rect x={small ? 18.8 : 18.2} y={small ? 17.4 : 17.2} width={small ? 5.6 : 6.2} height="3" fill={`url(#${id}ps)`} />
+          </g>
+          <g transform={small ? 'rotate(-10 14.4 20)' : 'rotate(-10 13.8 20)'}>
+            <rect x={small ? 10.8 : 10.2} y={small ? 9.2 : 8.6} width={small ? 6.2 : 6.8} height={small ? 10.6 : 11.8} rx={small ? 0 : 0.9}
+              fill={TR.paper} stroke={TR.paperEdge} strokeWidth={edge} />
+            {detail && <path d="M16.9 8.6h-5.8a.9.9 0 0 0-.9.9v3.2z" fill={TR.paperFold} />}
+            <rect x={small ? 10.8 : 10.2} y={small ? 16.4 : 16.6} width={small ? 6.2 : 6.8} height="4" fill={`url(#${id}ps)`} />
+          </g>
         </g>
       )}
-      <rect x="11.7" y="9.8" width="24.6" height="5" rx="2.5" stroke={ACCENT} strokeWidth={sw} />
-      <path d="M19.5 9.8a4.5 4.5 0 0 1 9 0" stroke={ACCENT} strokeWidth={sw} strokeLinecap="round" />
     </Svg>
   );
 };
