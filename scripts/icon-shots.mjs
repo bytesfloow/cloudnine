@@ -150,15 +150,35 @@ async function desktop(label) {
   console.log(`✓ ${label}`);
 }
 
+// 开始菜单「已固定」那一排：七枚应当全是蓝色线描
+async function startMenu(label) {
+  await page.evaluate(() => document.querySelector('.tb-start')?.click());
+  await page.waitForSelector('.startmenu .sm-app', { timeout: 8000 });
+  await sleep(500);
+  await page.screenshot({ path: join(OUT, `${label}.png`) });
+  const box = await page.evaluate(() => {
+    const el = document.querySelector('.startmenu');
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x: Math.max(0, r.left), y: Math.max(0, r.top), width: Math.min(1440 - r.left, r.width), height: Math.min(900 - r.top, r.height) };
+  });
+  if (box) await page.screenshot({ path: join(OUT, `${label}-menu.png`), clip: box });
+  await page.keyboard.press('Escape');
+  await sleep(400);
+  console.log(`✓ ${label}`);
+}
+
 await loginIfNeeded();
 await setTheme('light');
 await emptyTrash();
 await desktop('desktop-light-empty');
+await startMenu('startmenu-light');
 const l = await dragFirstFileToTrash();
 console.log('  拖入:', JSON.stringify(l));
 await desktop('desktop-light-full');
 
 await setTheme('dark');
+await startMenu('startmenu-dark');
 const d = await dragFirstFileToTrash();
 console.log('  暗色拖入:', JSON.stringify(d));
 await desktop('desktop-dark-full');

@@ -13,8 +13,10 @@ import { fileCat } from './store.js';
    ② 应用 / 系统类（任务栏 / 开始菜单 / 桌面系统图标）：单色线性，
       48 视框、同一描边宽度（W(size, 2.4)）、圆头圆角、同一个强调色，
       不再混用底板 / 实心块 / 白纸面 —— 终端在暗色下也不会糊进背景。
-      例外只有两枚实形系统图标：桌面「主目录」（黄色文件夹 + 蓝色标识）与
-      「回收站」（实心灰桶），它们和文件夹同排，必须同尺寸、同重量（见下）。
+      按场景分两套：桌面系统图标用彩色实形（主目录 = 黄色文件夹 + 蓝牌，
+      回收站 = 实心灰桶，和文件图标同排）；开始菜单 / 侧栏 / 任务栏 / 动作菜单
+      仍用蓝色线描。两枚回收站各自独立（IconTrash 线描 / IconTrashSolid 实心），
+      不用 variant 兼顾。
 
    全部为原创 SVG：无位图 / 外链 / emoji / <image>，也不搬微软官方路径
    （开始按钮是抽象四格）。props 与改造前完全一致。
@@ -184,7 +186,8 @@ export const FileIcon = ({ name, type, size = 48 }) => {
 
 /* ---------------- 应用 / 系统类：单色线性，同一个强调色 ----------------
    这 9 枚共用一套画法：48 视框、同一描边、圆头、无底板、无渐变、
-   同一个 #0a7cff —— 开始菜单 7 枚 + 桌面「回收站」（主目录改用文件夹造型，见上）。 */
+   同一个 #0a7cff —— 开始菜单 / 侧栏 / 任务栏 / 动作菜单全用它，
+   包括「回收站」的线描版（桌面那枚实心桶见下面 IconTrashSolid）。 */
 
 const ACCENT = '#0a7cff';
 const A = (size) => W(size, 2.4);
@@ -271,10 +274,37 @@ export const IconDisk = ({ size = 26 }) => {
   );
 };
 
-/* ---------------- 系统类：回收站（实形，和「主目录」同一套体量） ----------------
-   桌面左上角那两枚要成套：主目录是「黄色实形文件夹 + 蓝色小方牌」，回收站就不能
-   再是那 9 枚线描里的一个 —— 尺寸、体量、"实心物"的语言都对齐文件夹：
+export const IconTrash = ({ size = 26, full }) => {
+  const sw = A(size);
+  const detail = size >= 28;
+  return (
+    <Svg size={size}>
+      {/* full 态：桶身填一层 16% 的强调色 + 里面的纸线，其余仍是同一套线 */}
+      <path
+        d="M14.9 16.6h18.2l-1.6 21.1a4.7 4.7 0 0 1-4.7 4.5h-5.6a4.7 4.7 0 0 1-4.7-4.5z"
+        fill={full ? ACCENT : 'none'}
+        fillOpacity={full ? 0.22 : 0}
+        stroke={ACCENT}
+        strokeWidth={sw}
+        strokeLinejoin="round"
+      />
+      {full && detail && (
+        <g stroke={ACCENT} strokeWidth={W(size, 2)} strokeLinecap="round" opacity=".7">
+          <path d="M18.8 23.8h10.4M18.8 29.2h10.4M18.8 34.6h6.8" />
+        </g>
+      )}
+      <rect x="11.7" y="9.8" width="24.6" height="5" rx="2.5" stroke={ACCENT} strokeWidth={sw} />
+      <path d="M19.5 9.8a4.5 4.5 0 0 1 9 0" stroke={ACCENT} strokeWidth={sw} strokeLinecap="round" />
+    </Svg>
+  );
+};
+
+/* ---------------- 桌面系统图标：回收站（实形，和「主目录」同一套体量） ----------------
+   桌面左上角那两枚要成套：主目录是「黄色实形文件夹 + 蓝色小方牌」，桌面回收站就不该
+   再用上面那枚蓝色线描（IconTrash）—— 尺寸、体量、"实心物"的语言都对齐文件夹：
    整枚只用几块实心色面叠出来，不描边、不堆细线。
+
+   只在桌面用：开始菜单 / 侧栏 / 任务栏 / 动作菜单仍是 IconTrash 的蓝线描，回上面那枚。
 
    48 视框，占位和文件夹同一片（x 6.8~41.2 / y 6.6~40.4），自下而上：
      桶身   上宽 30、下宽 22.4 的桶壁，底角 4；竖向灰渐变 + 两侧横向光暗 = 一整块实心体
@@ -306,7 +336,7 @@ const TR_MOUTH = `M9 16.35H39V16.8C32.6 16.8 27.2 17.8 24 18.6C20.8 17.8 15.4 16
 // 纸片裁切区：只允许出现在桶沿顶面以上，纸脚被桶沿挡掉
 const TR_CLIP = `M0 0H48V16.8H39C32.6 16.8 27.2 17.8 24 18.6C20.8 17.8 15.4 16.8 9 16.8H0Z`;
 
-export const IconTrash = ({ size = 26, full }) => {
+export const IconTrashSolid = ({ size = 26, full }) => {
   const id = useUid('tr');
   const small = size <= 22;     // 20px 列表 / 小图标：纸条退化成两道斜杠
   const detail = size >= 32;    // 32px 起才画纸条折角

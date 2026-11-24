@@ -119,17 +119,17 @@ const COMPARE = (theme, name) => `
   <div class="row">
     <div class="cell"><div class="art">${icon('IconRootFolder', { size: 48 })}</div><span class="cap">主目录</span></div>
     <div class="cell"><div class="art">${icon('FolderIcon', { size: 48 })}</div><span class="cap">普通文件夹</span></div>
-    <div class="cell"><div class="art">${icon('IconTrash', { size: 48 })}</div><span class="cap">回收站 · 空</span></div>
-    <div class="cell"><div class="art">${icon('IconTrash', { size: 48, full: true })}</div><span class="cap">回收站 · 满</span></div>
+    <div class="cell"><div class="art">${icon('IconTrashSolid', { size: 48 })}</div><span class="cap">回收站 · 空</span></div>
+    <div class="cell"><div class="art">${icon('IconTrashSolid', { size: 48, full: true })}</div><span class="cap">回收站 · 满</span></div>
   </div>
   <div class="zoom">
     <div class="cell"><div class="art">${icon('IconRootFolder', { size: 112 })}</div></div>
-    <div class="cell"><div class="art">${icon('IconTrash', { size: 112 })}</div></div>
-    <div class="cell"><div class="art">${icon('IconTrash', { size: 112, full: true })}</div></div>
+    <div class="cell"><div class="art">${icon('IconTrashSolid', { size: 112 })}</div></div>
+    <div class="cell"><div class="art">${icon('IconTrashSolid', { size: 112, full: true })}</div></div>
     <div class="cell"><div class="art">${icon('FolderIcon', { size: 112 })}</div></div>
   </div>
   <div class="panel">
-    <h4>开始菜单「已固定」同排（30px，和其余 6 枚线描图标并排）</h4>
+    <h4>开始菜单「已固定」同排（30px，全部线描 —— 这里是 IconTrash，不是桌面那枚实心桶）</h4>
     <div class="chips">
       ${[['IconFiles', '文件'], ['IconTerminal', '终端'], ['IconEditor', '记事本'], ['IconTransfer', '传输'],
         ['IconShare', '分享'], ['IconDisk', '磁盘']]
@@ -145,17 +145,17 @@ const SIZES = (theme, name) => `
   <p class="theme-name">${name} · 20 / 32 / 48 三档 1:1</p>
   <div class="sizes">
     ${[48, 32, 20].map((s) => `
-      <div class="cell"><div class="art">${icon('IconTrash', { size: s })}</div><span class="cap">${s}px · 空</span></div>`).join('')}
+      <div class="cell"><div class="art">${icon('IconTrashSolid', { size: s })}</div><span class="cap">${s}px · 空</span></div>`).join('')}
     <div class="sep"></div>
     ${[48, 32, 20].map((s) => `
-      <div class="cell"><div class="art">${icon('IconTrash', { size: s, full: true })}</div><span class="cap">${s}px · 满</span></div>`).join('')}
+      <div class="cell"><div class="art">${icon('IconTrashSolid', { size: s, full: true })}</div><span class="cap">${s}px · 满</span></div>`).join('')}
     <div class="sep"></div>
     ${[48, 32, 20].map((s) => `
       <div class="cell"><div class="art">${icon('FolderIcon', { size: s })}</div><span class="cap">${s}px · 文件夹</span></div>`).join('')}
   </div>
   <div class="zoom">
     ${[['空', false], ['满', true]].map(([cap, full]) => `
-      <div class="cell"><span class="art"><span class="pixart" data-size="20">${icon('IconTrash', { size: 20, full })}</span></span><span class="cap dim">20px · ${cap} · 放大 6×（像素落点）</span></div>`).join('')}
+      <div class="cell"><span class="art"><span class="pixart" data-size="20">${icon('IconTrashSolid', { size: 20, full })}</span></span><span class="cap dim">20px · ${cap} · 放大 6×（像素落点）</span></div>`).join('')}
   </div>
   <div class="foot">上面一行是 1:1 实际像素，不做任何缩放；下排两个是把 20px 那张按 6 倍最近邻放大后的真实像素。</div>
 </section>`;

@@ -4,7 +4,7 @@ import {
   setDesktopSel, setDesktopSort, setDesktopShowHidden, setDesktopIconSize, setClipboard, joinPath, basename, confirmDialog,
 } from '../store.js';
 import { api } from '../api.js';
-import { FileIcon, IconRootFolder, IconTrash } from '../icons.jsx';
+import { FileIcon, IconRootFolder, IconTrashSolid } from '../icons.jsx';
 import {
   createItem, uploadTo, uploadDropped, copyToClipboard, cutToClipboard, pasteInto,
   trashItems, renameItem, downloadItem, downloadItems, compressItems, extractItem,
@@ -121,7 +121,7 @@ export default function DesktopIcons() {
   // 「主目录」的底就是普通文件夹（它打开的就是文件根这一层），只在正面右下角多一枚系统标识。
   const sysItems = [
     { key: '__root__', label: '主目录', Icon: IconRootFolder, trash: false },
-    { key: '__trash__', label: '回收站', Icon: IconTrash, trash: true },
+    { key: '__trash__', label: '回收站', Icon: IconTrashSolid, trash: true },
   ];
 
   function openSys(key) {
