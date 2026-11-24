@@ -592,29 +592,29 @@ try {
   check('桌面直接显示主目录里的真实文件', deskIcons.includes(deskName),
     `桌面条目: ${deskIcons.join(',') || '(空)'}`);
   const sysCount = (await page.$$('.desktop-sysicon')).length;
-  check('桌面保留根目录/回收站入口', sysCount === 2, `数量 ${sysCount}`);
+  check('桌面保留主目录/回收站入口', sysCount === 2, `数量 ${sysCount}`);
   await shot('桌面直览');
 
   // 系统图标：并入左上角图标网格（前两格），单击只选中、双击才打开
   const sysOrder = await page.evaluate(() => [...document.querySelector('.desktop-grid').children]
     .slice(0, 2).map((el) => el.innerText.trim().split('\n')[0]));
-  check('系统图标排在左上角前两格', sysOrder[0] === '根目录' && sysOrder[1] === '回收站', sysOrder.join(','));
+  check('系统图标排在左上角前两格', sysOrder[0] === '主目录' && sysOrder[1] === '回收站', sysOrder.join(','));
   await page.evaluate(() => {
-    const el = [...document.querySelectorAll('.desktop-sysicon')].find((x) => x.innerText.includes('根目录'));
+    const el = [...document.querySelectorAll('.desktop-sysicon')].find((x) => x.innerText.includes('主目录'));
     el?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   });
   await sleep(700);
   const winAfterClick = await page.$$eval('.window', (els) => els.length);
   check('单击系统图标不打开窗口', winAfterClick === 0, `窗口数 ${winAfterClick}`);
   await page.evaluate(() => {
-    const el = [...document.querySelectorAll('.desktop-sysicon')].find((x) => x.innerText.includes('根目录'));
+    const el = [...document.querySelectorAll('.desktop-sysicon')].find((x) => x.innerText.includes('主目录'));
     el?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
   });
   await sleep(1300);
   const winAfterDbl = await page.$$eval('.window', (els) => els.length);
   const sysTitle = await page.$eval('.window-title', (el) => el.innerText).catch(() => '');
   check('双击系统图标才打开窗口', winAfterDbl === 1, `窗口数 ${winAfterDbl}`);
-  check('系统图标打开的窗口标题正确', sysTitle.trim() === '根目录', `title=${sysTitle}`);
+  check('系统图标打开的窗口标题正确', sysTitle.trim() === '主目录', `title=${sysTitle}`);
   await page.evaluate(() => {
     const w = [...document.querySelectorAll('.window')].pop();
     w?.querySelector('.tc-close')?.click();
@@ -1232,25 +1232,25 @@ try {
   await page.waitForSelector('.desktop-icons', { timeout: 15000 });
   await sleep(1800);
   await page.evaluate(() => {
-    const el = [...document.querySelectorAll('.desktop-sysicon')].find((x) => x.innerText.includes('根目录'));
+    const el = [...document.querySelectorAll('.desktop-sysicon')].find((x) => x.innerText.includes('主目录'));
     el?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 120 }));
   });
   await sleep(350);
-  check('根目录图标菜单：打开 / 在终端中打开',
+  check('主目录图标菜单：打开 / 在终端中打开',
     JSON.stringify(await ctxLabels(0)) === JSON.stringify(['打开', '在终端中打开']), (await ctxLabels(0)).join(','));
   await ctxClick(0, '打开');
   await sleep(1600);
-  check('根目录菜单「打开」真的打开根目录窗口', !!(await page.$('.window .finder')), '未找到 .finder');
+  check('主目录菜单「打开」真的打开主目录窗口', !!(await page.$('.window .finder')), '未找到 .finder');
   await page.evaluate(() => document.querySelectorAll('.window .tc-close').forEach((b) => b.click()));
   await sleep(800);
   await page.evaluate(() => {
-    const el = [...document.querySelectorAll('.desktop-sysicon')].find((x) => x.innerText.includes('根目录'));
+    const el = [...document.querySelectorAll('.desktop-sysicon')].find((x) => x.innerText.includes('主目录'));
     el?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 120 }));
   });
   await sleep(350);
   await ctxClick(0, '在终端中打开');
   await sleep(1800);
-  check('根目录菜单「在终端中打开」生效', !!(await page.$('.window .terminal-window')), '未找到 .terminal-window');
+  check('主目录菜单「在终端中打开」生效', !!(await page.$('.window .terminal-window')), '未找到 .terminal-window');
   await page.evaluate(() => document.querySelectorAll('.window .tc-close').forEach((b) => b.click()));
   await sleep(800);
   await page.evaluate(() => {
@@ -3152,9 +3152,9 @@ try {
       `${np?.storage} / ${np?.storageSub}`);
     check('铭牌健康块：后台任务数 + 数据库状态点',
       !!np?.health && /后台任务/.test(np?.healthSub || '') && /数据库/.test(np?.healthSub || ''), `${np?.health} / ${np?.healthSub}`);
-    check('底部指纹行：commit / node / platform / 根目录 / 端口',
+    check('底部指纹行：commit / node / platform / 文件根目录 / 端口',
       !!np && np.meta.length === 5 && np.meta[0].startsWith('commit ') && np.meta[1].startsWith('node ')
-        && np.meta[2].startsWith('platform ') && np.meta[3].startsWith('根目录 ') && np.meta[4].startsWith('端口 '),
+        && np.meta[2].startsWith('platform ') && np.meta[3].startsWith('文件根目录 ') && np.meta[4].startsWith('端口 '),
       JSON.stringify(np?.meta));
     check('铭牌内容不横向溢出', !np?.clipped, 'scrollWidth > clientWidth');
 

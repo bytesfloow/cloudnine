@@ -45,9 +45,10 @@
   text-align: center;
 }
 
-/* 系统图标（根目录 / 回收站）：与文件同处一个图标网格，占据左上角前两格 */
+/* 系统图标（主目录 / 回收站）：与文件同处一个图标网格，占据左上角前两格 */
 .desktop-sysicon { position: relative; }
-/* 系统图标（根目录等）用线条绘制，需在深色壁纸上保持可读 */
+/* 系统图标里用线条画的那几枚吃 --desk-icon，深色壁纸上也保持可读
+   （「主目录」现在是实形文件夹 + 蓝色标识，自身带色，不靠这个令牌） */
 .desktop-sysicon .di-icon-wrap { color: var(--desk-icon); }
 
 .desktop-hint {

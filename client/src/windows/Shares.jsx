@@ -14,7 +14,7 @@ export default function SharesWindow() {
       title: '创建分享',
       wide: true,
       fields: [
-        { key: 'path', label: '要分享的路径（相对根目录）', required: true, placeholder: '如 home/user/report.pdf', autofocus: true },
+        { key: 'path', label: '要分享的路径（相对文件根目录）', required: true, placeholder: '如 home/user/report.pdf', autofocus: true },
         { key: 'expiresIn', label: '有效期', type: 'select', value: '604800', options: [
           { value: '3600', label: '1 小时' }, { value: '86400', label: '1 天' }, { value: '604800', label: '7 天' },
           { value: '2592000', label: '30 天' }, { value: '', label: '永久' },

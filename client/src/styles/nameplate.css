@@ -67,7 +67,7 @@
 .np-dot.bad { background: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
 
 .np-meta {
-  /* 桌面宽度下永远一行：根目录那项允许收缩出省略号，其余项 flex:none */
+  /* 桌面宽度下永远一行：文件根目录那项允许收缩出省略号，其余项 flex:none */
   display: flex; flex-wrap: nowrap; align-items: center; gap: 3px 10px;
   margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--line);
 }

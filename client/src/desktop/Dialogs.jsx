@@ -188,7 +188,7 @@ function AboutBody() {
     { key: 'commit', k: 'commit', v: sys?.commit || '—' },
     { key: 'node', k: 'node', v: sys?.nodeVersion || '—' },
     { key: 'platform', k: 'platform', v: platformLabel(sys?.platform) },
-    { key: 'root', k: '根目录', v: meta?.fileRoot || '—' },
+    { key: 'root', k: '文件根目录', v: meta?.fileRoot || '—' },
     { key: 'port', k: '端口', v: meta?.port ? String(meta.port) : '—' },
   ];
 

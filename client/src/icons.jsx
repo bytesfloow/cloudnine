@@ -39,10 +39,11 @@ const PAPER_EDGE = '#b8c2d0';
 const FOLDER_BACK = 'M5.5 15a5 5 0 0 1 5-5h10.2l2.6 3.2h14.2a5 5 0 0 1 5 5v17.4a5 5 0 0 1-5 5h-32a5 5 0 0 1-5-5z';
 const FOLDER_FRONT = 'M5.5 19.8h37v15.8a5 5 0 0 1-5 5h-27a5 5 0 0 1-5-5z';
 
-export const FolderIcon = ({ size = 48 }) => {
-  const id = useUid('fd');
+// 文件夹本体：背面页签一层深色、正面一层亮色。普通文件夹与「主目录」共用同一份路径与色阶，
+// 保证两者并排时是同一个东西，只是后者多一枚标识。
+function FolderBody({ id }) {
   return (
-    <Svg size={size}>
+    <>
       <defs>
         <linearGradient id={`${id}b`} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stopColor="#e5a71f" />
@@ -55,6 +56,49 @@ export const FolderIcon = ({ size = 48 }) => {
       </defs>
       <path d={FOLDER_BACK} fill={`url(#${id}b)`} />
       <path d={FOLDER_FRONT} fill={`url(#${id}f)`} />
+    </>
+  );
+}
+
+export const FolderIcon = ({ size = 48 }) => {
+  const id = useUid('fd');
+  return (
+    <Svg size={size}>
+      <FolderBody id={id} />
+    </Svg>
+  );
+};
+
+/* ---------------- 文件类：主目录（文件夹 + 系统标识） ----------------
+   桌面左上角的「主目录」= 用户自己的文件空间入口，本质就是一个文件夹，
+   所以不另起一套造型：底就是上面的 FolderIcon，只在正面右下角压一枚蓝
+   色圆角方块当系统标识（和普通文件夹并排：同一张脸 + 一枚标记）。
+   小尺寸不留细节：≤24px 时方块退化成圆点，且按像素下限放大一点，
+   20px 下也有 3.8px 的实心点，不会糊成一团。 */
+const MARK_SIZE = 8.6; // 48 视框里的标识边长
+const MARK_RIGHT = 39.2; // 标识右边缘（正面右边缘 42.5；再让开圆角 5 的弧，留 ~2.4 的黄色边）
+const MARK_BOTTOM = 37.5; // 标识下边缘（正面下边缘 40.6，同上）
+
+export const IconRootFolder = ({ size = 48 }) => {
+  const id = useUid('rf');
+  const m = Math.max(MARK_SIZE, (3.8 * 48) / size);
+  const x = MARK_RIGHT - m;
+  const y = MARK_BOTTOM - m;
+  const dot = size <= 24;
+  return (
+    <Svg size={size}>
+      <defs>
+        <linearGradient id={`${id}m`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#3f8cf6" />
+          <stop offset="1" stopColor="#1253cc" />
+        </linearGradient>
+      </defs>
+      <FolderBody id={id} />
+      {dot ? (
+        <circle cx={x + m / 2} cy={y + m / 2} r={m / 2} fill={`url(#${id}m)`} />
+      ) : (
+        <rect x={x} y={y} width={m} height={m} rx={m * 0.29} fill={`url(#${id}m)`} />
+      )}
     </Svg>
   );
 };
@@ -138,7 +182,7 @@ export const FileIcon = ({ name, type, size = 48 }) => {
 
 /* ---------------- 应用 / 系统类：单色线性，同一个强调色 ----------------
    这 9 枚共用一套画法：48 视框、同一描边、圆头、无底板、无渐变、
-   同一个 #0a7cff —— 开始菜单 7 枚 + 桌面「根目录」+ 主目录（备用）。 */
+   同一个 #0a7cff —— 开始菜单 7 枚 + 桌面「回收站」（主目录改用文件夹造型，见上）。 */
 
 const ACCENT = '#0a7cff';
 const A = (size) => W(size, 2.4);
@@ -250,23 +294,8 @@ export const IconTrash = ({ size = 26, full }) => {
   );
 };
 
-// 根目录：和上面同一套线；48px 桌面上不再比同排图标粗一档
-export const IconGlobe = ({ size = 15 }) => {
-  const sw = A(size);
-  return (
-    <Svg size={size}>
-      <circle cx="24" cy="24" r="17.6" stroke={ACCENT} strokeWidth={sw} />
-      <path d="M6.4 24h35.2" stroke={ACCENT} strokeWidth={sw} strokeLinecap="round" />
-      <path
-        d="M24 6.4c5.4 4.9 8.1 10.8 8.1 17.6s-2.7 12.7-8.1 17.6c-5.4-4.9-8.1-10.8-8.1-17.6s2.7-12.7 8.1-17.6Z"
-        stroke={ACCENT}
-        strokeWidth={sw}
-      />
-    </Svg>
-  );
-};
-
-// 主目录（当前无调用点，保留导出）：同一套线
+// 主目录（当前无调用点，保留导出）：同一套线。桌面系统图标已改用 IconRootFolder，
+// 原来的地球仪（IconGlobe）因此下线——它正是被用户看成「浏览器图标」的那一枚。
 export const IconHome = ({ size = 26 }) => {
   const sw = A(size);
   return (

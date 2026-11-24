@@ -320,11 +320,11 @@ Win11 的应用自带窗口内菜单（记事本有"文件/编辑"，Windows Ter
 
 ### 2.2 `DesktopIcons.jsx` 右键菜单
 
-#### 2.2.1 `sysMenu()`（L140-159，系统图标：根目录 / 回收站）
+#### 2.2.1 `sysMenu()`（L140-159，系统图标：主目录 / 回收站）
 
 | 旧位置 | 文案 | 新载体 | 说明 |
 |---|---|---|---|
-| `DesktopIcons.jsx:143` | 打开根目录 | 双击图标（`openSys` L135-138）+ `CTX›打开` | |
+| `DesktopIcons.jsx:143` | 打开根目录 | 双击图标（`openSys` L135-138）+ `CTX›打开` | 图标标签后来改为「主目录」（文件夹造型 + 系统标识） |
 | `DesktopIcons.jsx:144` | 在终端中打开 | `CTX›在终端中打开` | |
 | `DesktopIcons.jsx:149` | 打开废纸篓 | 双击 + `CTX›打开` | 文案 → 打开回收站 |
 | `DesktopIcons.jsx:151-157` | 清倒废纸篓（`trashCount>0` 才出现） | `CTX›清空回收站` + 回收站窗口内「清空回收站…」按钮 | 文案 → 清空回收站 |
@@ -533,7 +533,7 @@ Win11 的应用自带窗口内菜单（记事本有"文件/编辑"，Windows Ter
 | 显示简介 | `Finder.jsx:344`、`DesktopIcons.jsx:260`、`store.js:249`（`title: '显示简介'`） | 属性 | 窗口标题也改 |
 | 个人收藏 | `FinderSidebar.jsx:12`（`sb-group` 文本） | 快速访问 | Win11 侧栏分组名 |
 | 最近 | `FinderSidebar.jsx:16`、`Finder.jsx:49`（`recentMode` 标题 `最近`） | 最近使用的文件 | 只改显示文案，内部 `__recent__` 不变 |
-| 根目录 | `DesktopIcons.jsx:131`、`FinderSidebar.jsx`、`Finder.jsx:427` 面包屑 | 文件根目录（保留"根目录"也可） | 这是 CloudNine 特有概念，不必硬套 Windows；建议面包屑首项显示站点名或「本机」 |
+| 根目录 | `DesktopIcons.jsx:131`、`FinderSidebar.jsx`、`Finder.jsx:427` 面包屑 | 主目录（侧栏里与 `homeRel` 主目录并存时叫「文件根目录」） | 这是 CloudNine 特有概念，不必硬套 Windows。后期按用户要求把这一层改叫「主目录」：客户端标签/标题/面包屑/移动端路径前缀统一，只有侧栏那一条保留「文件根目录」以示区分 |
 | 主目录 | `FinderSidebar.jsx`、`MenuBar.jsx:43,66` | 主目录（保留） | `homeRel` 语义不变 |
 | 分享管理 / 传输 / 磁盘监控 | `Dock.jsx:10-12`、`store.js:250-252` | 保留原名 | Windows 无对应概念，属于本系统特有应用 |
 
@@ -854,7 +854,9 @@ export const minimizeWindow = (id) => setState((s) => {
 - 代码标识符不动：`__trash__` / `props.trash` / `api.trash` / `trashCount` 仍叫 trash。
 - 移动端 `.m-dock` **类名保留**（iPhone 底栏，与桌面任务栏语义不同），
   其内部文案已全部是「回收站」，无「废纸篓」。
-- 根目录仍是 CloudNine 特有概念（`根目录` / `本机`），没有硬套 Windows 的「此电脑」。
+- 根目录仍是 CloudNine 特有概念，没有硬套 Windows 的「此电脑」；
+  后期按用户要求改叫「主目录」（桌面图标、窗口标题、面包屑、移动端路径前缀），
+  侧栏那一条在 `homeRel` 非空时仍叫「文件根目录」，避免与 `homeRel` 的「主目录」同名。
 
 ### 10.7 其它已落地但原文没写的
 

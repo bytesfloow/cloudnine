@@ -4,7 +4,7 @@ import {
   setDesktopSel, setDesktopSort, setDesktopShowHidden, setDesktopIconSize, setClipboard, joinPath, basename, confirmDialog,
 } from '../store.js';
 import { api } from '../api.js';
-import { FileIcon, IconGlobe, IconTrash } from '../icons.jsx';
+import { FileIcon, IconRootFolder, IconTrash } from '../icons.jsx';
 import {
   createItem, uploadTo, uploadDropped, copyToClipboard, cutToClipboard, pasteInto,
   trashItems, renameItem, downloadItem, downloadItems, compressItems, extractItem,
@@ -47,7 +47,7 @@ export default function DesktopIcons() {
   const [dragOver, setDragOver] = useState(false);
   const [dropTarget, setDropTarget] = useState(null);
   const [anchor, setAnchor] = useState(null);
-  const [sysSel, setSysSel] = useState(null); // 选中的系统图标（根目录 / 回收站）
+  const [sysSel, setSysSel] = useState(null); // 选中的系统图标（主目录 / 回收站）
 
   const layerRef = useRef(null);
   const tierKey = ICON_TIERS[s.desktopIconSize] ? s.desktopIconSize : 'medium';
@@ -116,10 +116,11 @@ export default function DesktopIcons() {
   const selectedPaths = useMemo(() => selectedEntries.map((e) => joinPath(cwd, e.name)), [selectedEntries, cwd]);
   const shownFiles = files.length > MAX_ICONS ? files.slice(0, MAX_ICONS) : files;
 
-  // 系统图标（根目录 / 回收站）：与文件同处一个图标网格，占据左上角前两格，
+  // 系统图标（主目录 / 回收站）：与文件同处一个图标网格，占据左上角前两格，
   // 排列逻辑和 Windows 桌面快捷方式一致；双击才打开，单击只选中。
+  // 「主目录」的底就是普通文件夹（它打开的就是文件根这一层），只在正面右下角多一枚系统标识。
   const sysItems = [
-    { key: '__root__', label: '根目录', Icon: IconGlobe, trash: false },
+    { key: '__root__', label: '主目录', Icon: IconRootFolder, trash: false },
     { key: '__trash__', label: '回收站', Icon: IconTrash, trash: true },
   ];
 
@@ -134,7 +135,7 @@ export default function DesktopIcons() {
     openWindow('preview', { path: paths[0], name: basename(paths[0]), siblings: paths, index: 0 });
   }
 
-  // 系统图标（根目录 / 回收站）右键：文案按 §2.2.1 统一为「打开」「打开回收站」「清空回收站」
+  // 系统图标（主目录 / 回收站）右键：文案按 §2.2.1 统一为「打开」「打开回收站」「清空回收站」
   function sysMenu(e, key) {
     if (key !== '__trash__') {
       openContextMenu(e.clientX, e.clientY, [

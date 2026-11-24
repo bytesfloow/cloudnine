@@ -49,7 +49,7 @@ export default function Finder({ win }) {
 
   // 窗口标题与菜单状态：标题栏显示当前目录名（「最近」是虚拟视图，保留原名）
   useEffect(() => {
-    const title = recentMode ? '最近' : isTrash ? '回收站' : (cwd === '' ? '根目录' : basename(cwd));
+    const title = recentMode ? '最近' : isTrash ? '回收站' : (cwd === '' ? '主目录' : basename(cwd));
     setWindowTitle(win.id, title);
     // pasteBlocked 供全局粘贴上传判断目标目录：虚拟视图/回收站不允许写入
     const pasteBlocked = recentMode ? '最近使用' : searchMode ? '搜索结果' : isTrash ? '回收站' : null;
@@ -509,7 +509,7 @@ export default function Finder({ win }) {
     ? [{ label: '最近', dir: null }]
     : cwd === '__trash__'
       ? [{ label: '回收站', dir: '__trash__' }]
-      : [{ label: '根目录', dir: '' }, ...cwd.split('/').filter(Boolean).map((seg, i, arr) => ({ label: seg, dir: arr.slice(0, i + 1).join('/') }))];
+      : [{ label: '主目录', dir: '' }, ...cwd.split('/').filter(Boolean).map((seg, i, arr) => ({ label: seg, dir: arr.slice(0, i + 1).join('/') }))];
 
   return (
     <div className="finder" ref={containerRef} onContextMenu={blankMenu}>

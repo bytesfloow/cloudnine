@@ -280,7 +280,7 @@ function FinderMobile({ dir, setDir, openFile }) {
     <div className="m-finder">
       <div className="m-toolbar-wrap">
         <div className="m-toolbar" ref={barRef}>
-          <span className="m-path ellipsis">{isTrash ? '回收站' : (dir ? `根目录/${dir}` : '根目录')}</span>
+          <span className="m-path ellipsis">{isTrash ? '回收站' : (dir ? `主目录/${dir}` : '主目录')}</span>
           {inlineActions.map((a) => (
             <button key={a.key} className="tb-btn" onClick={a.action} title={a.label} aria-label={a.label} disabled={a.disabled}>
               {a.icon}
@@ -419,7 +419,7 @@ function UploadMobile({ dir }) {
   function pickTarget(cwd) {
     setPicker(false);
     setTarget(cwd);
-    notify({ type: 'success', title: '上传目标已更新', body: cwd ? `根目录/${cwd}` : '根目录' });
+    notify({ type: 'success', title: '上传目标已更新', body: cwd ? `主目录/${cwd}` : '主目录' });
   }
 
   return (
@@ -442,7 +442,7 @@ function UploadMobile({ dir }) {
       </div>
       <button className="m-upload-target" onClick={() => setPicker(true)}>
         <span className="ut-label">上传目标</span>
-        <span className="ut-value ellipsis">{target ? `根目录/${target}` : '根目录'}</span>
+        <span className="ut-value ellipsis">{target ? `主目录/${target}` : '主目录'}</span>
         <span className="ut-change">更改</span>
       </button>
       {picker && <DirPicker start={target} close={() => setPicker(false)} onPick={pickTarget} />}
@@ -486,7 +486,7 @@ function DirPicker({ start, close, onPick }) {
       <div className="dir-picker" onClick={(e) => e.stopPropagation()}>
         <div className="dp-head">
           <button className="tb-btn" disabled={!cwd} onClick={() => setCwd(dirname(cwd))} title="返回上一级"><IconChevron dir="left" /></button>
-          <span className="dp-path ellipsis">{cwd ? `根目录/${cwd}` : '根目录'}</span>
+          <span className="dp-path ellipsis">{cwd ? `主目录/${cwd}` : '主目录'}</span>
           <button className="tb-btn" onClick={close} title="关闭">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M5 5l14 14M19 5L5 19" /></svg>
           </button>
@@ -504,7 +504,7 @@ function DirPicker({ start, close, onPick }) {
             ))}
         </div>
         <button className="dp-confirm" onClick={() => onPick(cwd)}>
-          选择此目录{cwd ? `（根目录/${cwd}）` : '（根目录）'}
+          选择此目录{cwd ? `（主目录/${cwd}）` : '（主目录）'}
         </button>
       </div>
     </div>

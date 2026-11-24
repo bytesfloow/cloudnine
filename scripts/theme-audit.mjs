@@ -369,7 +369,7 @@ await page.keyboard.press('Escape');
 await sleep(200);
 // 还原文件窗口（任务栏按钮 = 还原并置顶）
 await page.evaluate(() => {
-  [...document.querySelectorAll('.tb-win')].find((b) => b.innerText.includes('根目录'))?.click();
+  [...document.querySelectorAll('.tb-win')].find((b) => b.innerText.includes('主目录'))?.click();
 });
 await sleep(500);
 
