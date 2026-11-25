@@ -2,9 +2,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import { useStore, bus, getState, nextId } from '../store.js';
+import { useStore, bus, getState, nextId, openContextMenu } from '../store.js';
 import { IconChevron } from '../icons.jsx';
 import WindowMenu from './WindowMenu.jsx';
+import { copyTermSelection, pasteFromClipboard, pasteTextToTerm } from './termClipboard.js';
 
 const utf8ToB64 = (s) => btoa(unescape(encodeURIComponent(s)));
 // 流式 UTF-8 解码：多字节字符被输出块边界切开时（跨 WebSocket 消息）也能正确解码
@@ -33,7 +34,7 @@ function termTheme() {
 }
 
 // 单个终端会话视图（桌面窗口与移动端复用）
-export function TerminalView({ cwd, actionFilter, className = '', terminalRef }) {
+export function TerminalView({ cwd, actionFilter, className = '', terminalRef, contextMenu = true }) {
   const hostRef = useRef(null);
   const termRef = useRef(null);
   const wsRef = useRef(null);
@@ -50,7 +51,8 @@ export function TerminalView({ cwd, actionFilter, className = '', terminalRef })
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.open(hostRef.current);
+    const hostEl = hostRef.current; // 副作用清理阶段 ref 可能已置空，dom 节点自己存一份
+    term.open(hostEl);
     try { fit.fit(); } catch { /* 隐藏状态时可能失败 */ }
     termRef.current = term;
     if (terminalRef) terminalRef.current = term;
@@ -88,6 +90,47 @@ export function TerminalView({ cwd, actionFilter, className = '', terminalRef })
       if (wsRef.current?.readyState === 1) wsRef.current.send(JSON.stringify({ type: 'in', data: utf8ToB64(d) }));
     });
 
+    // ---- 剪贴板：Ctrl+Shift+C / Ctrl+Shift+V ----
+    // xterm 对「ctrl+shift+字母」本来就不产字节（evaluateKeyboardEvent 的 default 分支在这种
+    // 组合下返回空 key），所以在这里接管不会抢走任何终端语义：Ctrl+C 仍是 \x03（SIGINT），
+    // Ctrl+V 仍是 \x16（readline 的 quoted-insert）。
+    term.attachCustomKeyEventHandler((ev) => {
+      if (ev.type !== 'keydown' || !ev.ctrlKey || !ev.shiftKey || ev.altKey || ev.metaKey) return true;
+      const key = String(ev.key).toLowerCase();
+      if (key === 'c') {
+        ev.preventDefault(); // 否则开着 DevTools 时 Chrome 会抢去当「检查元素」
+        copyTermSelection(term);
+        return false;
+      }
+      // Ctrl+Shift+V 不能 preventDefault：非安全上下文里剪贴板内容只能靠浏览器自己派发的
+      // paste 事件拿到，默认行为被取消就等于没有粘贴来源（见下面的 onNativePaste）。
+      if (key === 'v') return false;
+      return true;
+    });
+
+    // 原生 paste 事件（Ctrl+Shift+V / Shift+Insert / 系统右键菜单「粘贴」）在捕获阶段截住：
+    // 不拦的话 xterm 自带的 paste 处理会把多行内容直接灌进 shell，绕过确认框。
+    const onNativePaste = (ev) => {
+      if (!ev.clipboardData) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      pasteTextToTerm(term, ev.clipboardData.getData('text/plain'));
+    };
+    hostEl.addEventListener('paste', onNativePaste, true);
+
+    // 终端右键 = 复制/粘贴，不弹桌面或浏览器的全局菜单
+    const onCtx = (ev) => {
+      if (!contextMenu) return; // 移动端把长按留给系统的文本选择菜单
+      ev.preventDefault();
+      ev.stopPropagation();
+      const hasSel = term.hasSelection();
+      openContextMenu(ev.clientX, ev.clientY, [
+        { label: '复制', hint: 'Ctrl+Shift+C', disabled: !hasSel, action: () => copyTermSelection(term) },
+        { label: '粘贴', hint: 'Ctrl+Shift+V', action: () => pasteFromClipboard(term) },
+      ]);
+    };
+    hostEl.addEventListener('contextmenu', onCtx);
+
     const sendResize = () => {
       if (wsRef.current?.readyState === 1) wsRef.current.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
     };
@@ -114,6 +157,13 @@ export function TerminalView({ cwd, actionFilter, className = '', terminalRef })
     };
     window.addEventListener('cloudnine-term-input', onExtInput);
 
+    // 移动端快捷键栏的「粘贴」：没有按键可等，走 pasteFromClipboard 的降级链路
+    const onExtPaste = (e) => {
+      if (e.detail?.filter !== actionFilter) return;
+      pasteFromClipboard(term);
+    };
+    window.addEventListener('cloudnine-term-paste', onExtPaste);
+
     // 主题切换跟随
     const unsubTheme = bus.on('theme-changed', () => { term.options.theme = termTheme(); });
 
@@ -122,6 +172,9 @@ export function TerminalView({ cwd, actionFilter, className = '', terminalRef })
       closedByUser = true;
       unsubAction(); unsubTheme();
       window.removeEventListener('cloudnine-term-input', onExtInput);
+      window.removeEventListener('cloudnine-term-paste', onExtPaste);
+      hostEl.removeEventListener('paste', onNativePaste, true);
+      hostEl.removeEventListener('contextmenu', onCtx);
       ro.disconnect();
       try { wsRef.current?.close(); } catch { /* 忽略 */ }
       term.dispose();

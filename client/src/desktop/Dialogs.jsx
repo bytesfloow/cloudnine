@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useStore, resolveDialog, activateNotification, fmtSize } from '../store.js';
 import { api } from '../api.js';
+import { writeClipboard } from '../clipboard.js';
 
 // 通知堆栈（桌面/移动共用）：登录页等早期阶段也需要展示 notify()
 export function Notifications() {
@@ -113,7 +114,7 @@ function FormBody({ dlg }) {
                 <span>{f.label}</span>
               </span>
             ) : f.type === 'textarea' ? (
-              <textarea rows={4} value={values[f.key]} placeholder={f.placeholder} onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))} />
+              <textarea rows={4} autoFocus={f.autofocus} value={values[f.key]} placeholder={f.placeholder} onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))} />
             ) : (
               <input
                 type={f.type || 'text'}
@@ -169,15 +170,9 @@ function AboutBody() {
 
   async function copy(key, value) {
     if (!value || value === '—') return;
-    const text = String(value);
-    let ok = false;
-    try {
-      await navigator.clipboard.writeText(text);
-      ok = true;
-    } catch {
-      // 纯 http 局域网不是安全上下文，navigator.clipboard 直接不可用 —— 退回 execCommand
-      ok = legacyCopy(text);
-    }
+    // Clipboard API → execCommand 两条路都收在 clipboard.js：纯 http 局域网（非安全上下文）
+    // 里没有 navigator.clipboard，不能只写 API 那一条。
+    const ok = await writeClipboard(String(value));
     if (!ok) return;
     setCopied(key);
     clearTimeout(copiedTimer.current);
@@ -272,23 +267,6 @@ function AboutBody() {
       </div>
     </>
   );
-}
-
-// 老式复制兜底：http 局域网（非安全上下文）下没有 navigator.clipboard
-function legacyCopy(text) {
-  try {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.setAttribute('readonly', '');
-    ta.style.cssText = 'position:fixed;top:-1000px;left:-1000px;opacity:0';
-    document.body.appendChild(ta);
-    ta.select();
-    const ok = document.execCommand('copy');
-    document.body.removeChild(ta);
-    return ok;
-  } catch {
-    return false;
-  }
 }
 
 // 自绘标识「三扇窗」：叠放的三扇窗口 = 一整套桌面；最前面那扇做成强调色实底，

@@ -2,6 +2,9 @@
 .mobile-app {
   height: 100%; display: flex; flex-direction: column;
   background: var(--wallpaper); position: relative; overflow: hidden;
+  /* 底部 Home 手势区高度：它是贴底的透明覆盖层，贴底的工具栏必须让出这一段，
+     否则按键只有最上面一条边能点到（点在键中心 = 点回主屏）。 */
+  --home-zone: calc(24px + env(safe-area-inset-bottom, 0px));
 }
 
 /* 状态栏（装饰）：实时时钟 + 信号/Wi-Fi/电池 */
@@ -78,7 +81,7 @@
 /* Home 指示条：点按或上滑返回桌面 */
 .m-homezone {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 50;
-  height: calc(24px + env(safe-area-inset-bottom, 0px));
+  height: var(--home-zone);
   display: flex; align-items: flex-end; justify-content: center;
   padding-bottom: calc(7px + env(safe-area-inset-bottom, 0px));
   cursor: pointer; touch-action: none;
@@ -150,7 +153,7 @@
 /* 终端 / 上传 / 传输 / 预览 / 编辑 */
 .m-terminal { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .m-termkeys {
-  flex: none; display: flex; gap: 5px; padding: 7px 8px; overflow-x: auto;
+  flex: none; display: flex; gap: 5px; padding: 7px 8px calc(7px + var(--home-zone)); overflow-x: auto;
   background: var(--bar-bg); border-top: 1px solid var(--line);
   /* 按键可横向滑动，但不显示滚动条 */
   scrollbar-width: none; -ms-overflow-style: none;
@@ -316,7 +319,8 @@
   .m-upload .tr-actions .btn, .m-transfers .tr-actions .btn { padding: 8px 13px; font-size: 13px; }
   .m-clear-finished { padding: 10px 16px; font-size: 13.5px; }
   .m-appname { font-size: 12px; }
-  .m-homezone { height: calc(30px + env(safe-area-inset-bottom, 0px)); }
+  /* 小屏（真机）底部手势区高 30px，比默认多 6px：同一个变量，工具栏和手势区不会各算一套 */
+  .mobile-app { --home-zone: calc(30px + env(safe-area-inset-bottom, 0px)); }
   .m-preview .btn { padding: 9px 14px; font-size: 13.5px; }
 }
 

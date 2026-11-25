@@ -74,7 +74,7 @@ export default function MobileApp() {
             {app === 'finder' && <FinderMobile dir={dir} setDir={setDir} openFile={openMobileFile} />}
             {app === 'terminal' && (
               <div className="m-terminal">
-                <TerminalView cwd={dir === '__trash__' ? '' : dir} actionFilter="mobile-term" />
+                <TerminalView cwd={dir === '__trash__' ? '' : dir} actionFilter="mobile-term" contextMenu={false} />
                 <MobileTermKeys />
               </div>
             )}
@@ -403,6 +403,8 @@ const KEY_MAP = { Esc: '\x1b', Tab: '\t', 'Ctrl+C': '\x03', '/': '/', '-': '-', 
 function MobileTermKeys() {
   return (
     <div className="m-termkeys">
+      {/* 粘贴不是「发一个字符」：没有按键可等，交给 TerminalView 的 pasteFromClipboard 以降级链路处理 */}
+      <button onClick={() => window.dispatchEvent(new CustomEvent('cloudnine-term-paste', { detail: { filter: 'mobile-term' } }))}>粘贴</button>
       {Object.keys(KEY_MAP).map((k) => (
         <button key={k} onClick={() => window.dispatchEvent(new CustomEvent('cloudnine-term-input', { detail: { filter: 'mobile-term', data: KEY_MAP[k] } }))}>{k}</button>
       ))}
