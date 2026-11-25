@@ -55,9 +55,12 @@ npm run dev:client   # Vite 热更新，:5173，已代理 /api 与 /ws
 ```bash
 python3 scripts/smoke_test.py --url http://<IP>/
 node scripts/uitest.mjs --url http://<IP>/ --user <账号> --password <密码>
+node scripts/terminal-clipboard.mjs --url http://<IP>/ --user <账号> --password <密码>
 ```
 
 `smoke_test.py` 仅用标准库，覆盖账号、文件读写、搜索、上传下载、Range、分享、回收站、磁盘；`uitest.mjs` 用 puppeteer-core 驱动系统 Chrome 做桌面与移动视口的 UI 自测（需先安装 `puppeteer-core`，可用 `PUPPETEER_CORE` 指定路径）。测试用的 `testroot/`、`server/data/` 是本地产物，已在 `.gitignore` 中，clone 后不存在。
+
+`terminal-clipboard.mjs` 专测终端复制粘贴（Ctrl+Shift+C/V、右键菜单、多行确认、纯 http 下的 textarea 兜底），23 项断言，退出码 0/1/2。**必须用局域网 IP 跑一遍**：`127.0.0.1` 是安全上下文，`navigator.clipboard` 的存在会掩盖纯 http 下的退化；终端 shell 需为 bash。
 
 `uitest.mjs` 每次运行会在 `shots/uitest-<时间戳>/` 下留一套分步截图与 `report.txt` 报告（`shots/` 同样在 `.gitignore` 中，不入库）。截图只用于排障：断言失败时报告会指出对应截图文件名。历史目录会自动滚动清理，默认只保留最近 3 次（`--keep-shots N` 可调整），避免 `shots/` 无限膨胀。
 
