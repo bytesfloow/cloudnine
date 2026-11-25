@@ -8,10 +8,12 @@
  *   127.0.0.1（安全上下文），根本走不到那条路。所以这里两条路都做了断言，并且要求对
  *   局域网 IP 再跑一遍。
  *
- * 固定 23 项断言（不适用于当前上下文的项算「跳过」，不计通过/失败）：
+ * 固定 29 项断言（不适用于当前上下文的项算「跳过」，不计通过/失败）：
+ *   能不能「选中」先看得到 —— 拖拽要出现选择框且高亮颜色与终端底色不同（只比
+ *   getSelection() 会漏掉「选中了但看不见」这种假绿）；双击选词 / 三击选行 /
  *   Ctrl+C 仍是 SIGINT、Ctrl+V 仍是 0x16 / Ctrl+Shift+C 复制中文多行不错字不多换行 /
- *   Ctrl+Shift+V 粘贴（多行先确认、单行直贴、取消不留残行、贴完焦点回终端）/
- *   终端右键只有「复制 / 粘贴」/ 纯 http 下右键「粘贴」用 textarea 兜底且真能贴进去。
+ *   Ctrl+Shift+V 粘贴（多行先确认、单行直贴、取消不留残行、贴完焦点回终端）/ 、
+ *   右键菜单两项、打开瞬间不高亮、悬停跟着指针走 / 纯 http 下右键「粘贴」用 textarea 兜底。
  *
  * 用法：
  *   PUPPETEER_CORE=/path/to/puppeteer-core \
@@ -256,16 +258,41 @@ try {
   await sleep(200);
   await shot('01-ctrlv-quoted');
 
-  // ---------- ② Ctrl+Shift+C 复制 ----------
-  section('Ctrl+Shift+C 复制（中文 + 多行）');
+  // ---------- ② 选中文本（拖拽 / 双击 / 三击）----------
+  // 这一段是上一版缺的那块：「能不能选中」必须看得到高亮，而不是只比较 getSelection()。
+  section('选中文本（拖拽 / 双击 / 三击）');
   await page.keyboard.type('clear');
   await page.keyboard.press('Enter');
   await sleep(500);
-  await page.keyboard.type("printf '中文第一行\\n中文第二行\\n'");
+  await page.keyboard.type("printf 'alpha beta\\n中文第一行\\n中文第二行\\n'");
   await page.keyboard.press('Enter');
   await sleep(900);
+
+  // 选择框：既要存在（宽高 > 1px），颜色也不能和终端底色一样（否则就是「选中了但看不见」）
+  const selBoxes = () => page.evaluate(() => {
+    const boxes = [...document.querySelectorAll('.terminal-window .xterm-selection div')]
+      .filter((d) => { const r = d.getBoundingClientRect(); return r.width > 1 && r.height > 1; });
+    const cs = boxes[0] ? getComputedStyle(boxes[0]).backgroundColor : null;
+    const vp = document.querySelector('.terminal-window .xterm-viewport');
+    return {
+      boxes: boxes.length,
+      color: cs,
+      termBg: vp ? getComputedStyle(vp).backgroundColor : null,
+      token: getComputedStyle(document.documentElement).getPropertyValue('--term-bg').trim(),
+    };
+  });
+  const rowRect = (needle) => page.evaluate((n) => {
+    const el = [...document.querySelectorAll('.terminal-window .xterm-rows > div')].find((r) => r.textContent.trim() === n);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { top: r.top + r.height / 2, left: r.left };
+  }, needle);
+
   const rects = await selectRows(['中文第一行', '中文第二行']);
-  check('找到两行中文输出（可划选）', !!(rects.a && rects.b), JSON.stringify(rects));
+  const sel = await selBoxes();
+  console.log(`  选择框=${sel.boxes} 高亮色=${sel.color} 终端底色=${sel.termBg}(${sel.token})`);
+  check('拖拽后确实形成了选择区域', !!(rects.a && rects.b) && sel.boxes > 0, JSON.stringify({ rects, sel }));
+  check('选中高亮看得见（与终端底色不同、不是透明）', !!sel.color && sel.color !== 'rgba(0, 0, 0, 0)' && sel.color !== sel.termBg, JSON.stringify(sel));
   if (rects.a && rects.b) {
     await shot('02-selection');
     await combo('KeyC', true);
@@ -279,23 +306,76 @@ try {
     await shot('03-copied');
   }
 
+  // 双击选词（puppeteer 24+ 的点击次数参数叫 count，不是 clickCount）
+  const alpha = await rowRect('alpha beta');
+  if (alpha) {
+    await page.mouse.click(alpha.left + 30, alpha.top, { count: 2 });
+    await sleep(400);
+    await combo('KeyC', true);
+    await sleep(400);
+    const word = await readClipboard();
+    check('双击选中一个词', norm(word) === 'alpha', JSON.stringify(word));
+  } else {
+    check('双击选中一个词', false, '没找到 alpha beta 行');
+  }
+
+  // 三击选整行
+  const cnRow = await rowRect('中文第一行');
+  if (cnRow) {
+    await page.mouse.click(cnRow.left + 20, cnRow.top, { count: 3 });
+    await sleep(400);
+    await combo('KeyC', true);
+    await sleep(400);
+    const line = await readClipboard();
+    check('三击选中整行', norm(line) === '中文第一行', JSON.stringify(line));
+  } else {
+    check('三击选中整行', false, '没找到中文输出行');
+  }
+
   // ---------- ③ 右键菜单 ----------
   section('终端右键菜单（不能是桌面/浏览器全局菜单）');
   const box = await page.$eval('.terminal-window .term-host', (el) => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
-  const rects2 = await selectRows(['中文第一行', '中文第二行']);
+  const activeLabel = () => page.evaluate(() => document.querySelector('.context-menu .dropdown-item.ctx-active')?.dataset.label || '');
+  const itemRect = (idx) => page.evaluate((i) => {
+    const b = [...document.querySelectorAll('.context-menu .dropdown-item')][i];
+    if (!b) return null;
+    const r = b.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }, idx);
+
+  // 无选区先看「打开瞬间的高亮」：上一版这里因为初始游标落在第一个可用项上，
+  // 一弹出「粘贴」就是蓝底，然后鼠标悬到置灰的「复制」上也不会变。
   await page.mouse.click(box.x, box.y, { button: 'right' });
   await sleep(400);
   const menu = await page.$$eval('.context-menu .dropdown-item', (els) => els.map((e) => ({ label: e.innerText.trim().replace(/\n/g, ' / '), disabled: e.disabled })));
-  console.log(`  有选区时菜单项 = ${JSON.stringify(menu)}`);
+  console.log(`  无选区时菜单项 = ${JSON.stringify(menu)}`);
   check('右键弹出终端的复制/粘贴菜单（两项，不是桌面全局菜单）', menu.length === 2 && /复制/.test(menu[0].label) && /粘贴/.test(menu[1].label), JSON.stringify(menu));
-  check('有选区时「复制」可用', menu[0] && menu[0].disabled === false, JSON.stringify(menu[0]));
-  await shot('04-context-menu');
+  await shot('04-context-menu-open');
+  check('菜单打开瞬间没有任何项被高亮', (await activeLabel()) === '', await activeLabel());
+  const copyPos = await itemRect(0);
+  if (copyPos) { await page.mouse.move(copyPos.x, copyPos.y, { steps: 4 }); await sleep(300); }
+  check('鼠标移到置灰的「复制」上仍不高亮任何项', (await activeLabel()) === '', await activeLabel());
+  const pastePos = await itemRect(1);
+  if (pastePos) { await page.mouse.move(pastePos.x, pastePos.y, { steps: 4 }); await sleep(300); }
+  check('鼠标移到可用项时高亮跟着走', (await activeLabel()) === '粘贴', await activeLabel());
+  await shot('05-context-menu-hover');
+  await page.keyboard.press('Escape');
+  await sleep(250);
+
+  // 有选区：复制可用且结果一致
+  const rects2 = await selectRows(['中文第一行', '中文第二行']);
+  await page.mouse.click(box.x, box.y, { button: 'right' });
+  await sleep(400);
+  const menuWithSel = await page.$$eval('.context-menu .dropdown-item', (els) => els.map((e) => ({ label: e.innerText.trim().replace(/\n/g, ' / '), disabled: e.disabled })));
+  check('有选区时「复制」可用', menuWithSel[0] && menuWithSel[0].disabled === false, JSON.stringify(menuWithSel[0]));
   if (rects2.a && rects2.b) {
     const item = await page.$$('.context-menu .dropdown-item');
     if (item[0]) await item[0].click();
     await sleep(400);
     const clipFromMenu = await readClipboard();
     check('菜单「复制」与快捷键复制结果一致', norm(clipFromMenu) === '中文第一行\n中文第二行', JSON.stringify(clipFromMenu));
+  } else {
+    check('菜单「复制」与快捷键复制结果一致', false, '没能重新划选');
   }
 
   // ---------- ④ 多行粘贴：确认 + 取消不残留 ----------

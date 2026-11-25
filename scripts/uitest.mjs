@@ -705,7 +705,10 @@ try {
   // 键盘：↑↓ 选择 / → 进入 / ← 退回 / Esc 逐级关闭
   await dismissMenus();
   await ctxOpenBlank();
-  check('菜单打开时默认高亮第一项', (await ctxActive()) === '查看', await ctxActive());
+  check('鼠标打开菜单时不预选任何项（Win11：等指针/键盘才出现高亮）', (await ctxActive()) === '', await ctxActive());
+  await page.keyboard.press('ArrowDown');
+  await sleep(200);
+  check('↓ 从无高亮开始选中第一项', (await ctxActive()) === '查看', await ctxActive());
   await page.keyboard.press('ArrowDown');
   await sleep(200);
   check('↓ 移动到下一项', (await ctxActive()) === '排序方式', await ctxActive());

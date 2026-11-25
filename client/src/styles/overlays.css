@@ -9,7 +9,7 @@
 }
 .dropdown-item:hover:not(:disabled) { background: var(--accent); color: var(--on-accent); }
 .dropdown-item:active:not(:disabled) { background: var(--accent); filter: brightness(.94); }
-.dropdown-item:disabled { color: var(--text-3); cursor: default; }
+.dropdown-item:disabled { color: var(--text-3); cursor: default; pointer-events: none; } /* 不接事件：让 hover 落到面板上，菜单高亮才能跟着指针走（禁用项本身不高亮） */
 .dropdown-item.danger { color: var(--danger-text); }
 .dropdown-item.danger:hover:not(:disabled) { background: var(--danger); color: var(--on-danger); }
 .di-check { width: 14px; display: inline-block; flex: none; }

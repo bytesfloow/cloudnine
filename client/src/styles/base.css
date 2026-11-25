@@ -110,6 +110,9 @@
   --term-bg: #ffffff;
   --term-fg: #1b1b1b;
   --term-cursor: #0a7cff;
+  /* 选中高亮：xterm 默认取 rgba(255,255,255,.3)（为深色终端设计），在白色终端上
+     叠出来就是白色本身 —— 拖拽能选中但看不到任何高亮。必须跟着主题给实色。 */
+  --term-selection: rgba(10, 124, 255, 0.28);
   /* 窗口阴影三层：常规 / 悬停焦点 / 模态；弹层单独一层（--shadow-menu） */
   --shadow-win: 0 8px 16px rgba(0, 0, 0, 0.08), 0 0 2px rgba(0, 0, 0, 0.06), 0 2px 6px rgba(0, 0, 0, 0.04);
   --shadow-win-focus: 0 16px 32px rgba(0, 0, 0, 0.12), 0 0 2px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.06);
@@ -181,6 +184,7 @@
   --term-bg: #1f1f1f;
   --term-fg: #e8e8ec;
   --term-cursor: #5be07f;
+  --term-selection: rgba(110, 170, 255, 0.34);
   --shadow-win: 0 8px 16px rgba(0, 0, 0, 0.36), 0 0 2px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.28);
   --shadow-win-focus: 0 16px 32px rgba(0, 0, 0, 0.46), 0 0 2px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.34);
   --shadow-modal: 0 32px 64px rgba(0, 0, 0, 0.55), 0 0 2px rgba(0, 0, 0, 0.6), 0 8px 24px rgba(0, 0, 0, 0.4);

@@ -19,17 +19,26 @@ const outDecoder = new TextDecoder('utf-8');
 const b64ToUtf8 = (s) => outDecoder.decode(b64ToBytes(s), { stream: true });
 
 // xterm 配色：画布由 xterm 自己绘制，CSS 类量不到，只能把主题令牌读成实色。
-// 令牌在 base.css 的亮/暗两块里各有一份（--term-bg / --term-fg / --term-cursor），
-// 这里不再出现任何色值 —— 改配色只改 CSS，JS 里也扫不到硬编码。
+// 令牌在 base.css 的亮/暗两块里各有一份（--term-bg / --term-fg / --term-cursor /
+// --term-selection），这里不再出现任何色值 —— 改配色只改 CSS，JS 里也扫不到硬编码。
+// 选中色也必须显式给：xterm 默认用 rgba(255,255,255,.3)，那是给深色终端设计的，
+// 亮色主题下叠在 #ffffff 上等于没高亮（拖拽能选中、但看不见）。
 function termTheme() {
   const read = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   const theme = {};
   const bg = read('--term-bg');
   const fg = read('--term-fg');
   const cursor = read('--term-cursor');
+  const selection = read('--term-selection');
   if (bg) theme.background = bg;
   if (fg) theme.foreground = fg;
   if (cursor) theme.cursor = cursor;
+  if (selection) {
+    theme.selectionBackground = selection;
+    // 焦点离开终端（比如右键菜单开着）时 xterm 会换成「非活动选中」色，
+    // 默认同样是白 30%；不一起给就会在打开菜单的瞬间丢掉高亮。
+    theme.selectionInactiveBackground = selection;
+  }
   return theme;
 }
 

@@ -37,7 +37,10 @@ export default function ContextMenu() {
   const panelRefs = useRef([]);
   const itemRefs = useRef({});        // key = `${level}:${index}`
   const [path, setPath] = useState([]);      // 已展开的子菜单链：每层被展开的项下标
-  const [cursor, setCursor] = useState(() => [seek(items, -1, 1)]);
+  // 初始不高亮任何项：鼠标右键弹出菜单时，Win11 不会预选一项（以前取第一个可用项，
+  // 结果碰到「复制(禁用) + 粘贴」这种菜单，一打开「粘贴」就是蓝底，看起来像被点中了）。
+  // 键盘 ↓/↑ 或鼠标移到某一项上才出现高亮。
+  const [cursor, setCursor] = useState(() => [-1]);
   const [positions, setPositions] = useState([]);
   const [viewport, setViewport] = useState(() => [window.innerWidth, window.innerHeight]);
 
@@ -118,8 +121,9 @@ export default function ContextMenu() {
     });
   }, []);
 
-  // 展开第 level 层里下标 idx 的子菜单；同时收掉这一层的兄弟子菜单
-  const openSub = useCallback((level, idx) => {
+  // 展开第 level 层里下标 idx 的子菜单；同时收掉这一层的兄弟子菜单。
+  // focusFirst：只有键盘（→ / Enter）展开时才预选子菜单第一项；鼠标悬浮展开不预选。
+  const openSub = useCallback((level, idx, focusFirst = false) => {
     const sub = levels[level]?.items?.[idx]?.items;
     if (!Array.isArray(sub) || sub.length === 0) return;
     const nextPath = [...path.slice(0, level), idx];
@@ -128,7 +132,7 @@ export default function ContextMenu() {
       const out = prev.slice(0, level + 1);
       while (out.length < level) out.push(-1);
       out[level] = idx;
-      out[level + 1] = seek(sub, -1, 1);
+      out[level + 1] = focusFirst ? seek(sub, -1, 1) : -1;
       return out;
     });
   }, [levels, path]);
@@ -162,6 +166,23 @@ export default function ContextMenu() {
     if (hasSub(item)) openSub(level, idx);
   }, [levels, path, openSub]);
 
+  // 鼠标在面板内移动：高亮跟着指针走，停在禁用项/分隔符上方就不高亮任何项。
+  // 不用每项的 onMouseEnter 是因为 disabled 按钮不派发鼠标事件（CSS 里又给它加了
+  // pointer-events:none），事件会落到面板上；用面板级的 mousemove 才能把「移到置灰项」
+  // 也当成一次指针移动，而不是把上一次的高亮卡在那儿。
+  const onPanelMove = useCallback((level) => (e) => {
+    const btn = e.target.closest?.('[data-ctx-index]');
+    const idx = btn ? Number(btn.dataset.ctxIndex) : -1;
+    const item = idx >= 0 ? levels[level]?.items?.[idx] : null;
+    if (!item || item === '-' || item.disabled) {
+      if (cursor[level] !== -1) setCursorAt(level, -1);
+      return;
+    }
+    // 同一项上的连续 mousemove 不再触发状态更新，更不要把已展开的子菜单关掉再开
+    if (cursor[level] === idx && (path.length <= level || path[level] === idx)) return;
+    hoverItem(level, idx);
+  }, [levels, cursor, path, hoverItem, setCursorAt]);
+
   // ---------- 键盘 ----------
   useEffect(() => {
     const onKey = (e) => {
@@ -185,7 +206,7 @@ export default function ContextMenu() {
       if (e.key === 'ArrowRight') {
         stop();
         const item = list[idx];
-        if (hasSub(item) && !item.disabled) openSub(level, idx);
+        if (hasSub(item) && !item.disabled) openSub(level, idx, true);
         return;
       }
       if (e.key === 'ArrowLeft') {
@@ -197,7 +218,7 @@ export default function ContextMenu() {
         stop();
         const item = list[idx];
         if (!item || item === '-' || item.disabled) return;
-        if (hasSub(item)) openSub(level, idx);
+        if (hasSub(item)) openSub(level, idx, true);
         else pick(item);
         return;
       }
@@ -242,6 +263,7 @@ export default function ContextMenu() {
             role="menu"
             aria-label={level === 0 ? '右键菜单' : '子菜单'}
             onContextMenu={(e) => e.preventDefault()}
+            onMouseMove={onPanelMove(level)}
           >
             {list.map((item, i) => item === '-'
               ? <div key={i} className="dropdown-sep" role="separator" />
@@ -265,7 +287,6 @@ export default function ContextMenu() {
                   disabled={item.disabled}
                   data-ctx-index={i}
                   data-label={item.label}
-                  onMouseEnter={() => hoverItem(level, i)}
                   onClick={() => {
                     if (item.disabled) return;
                     if (hasSub(item)) openSub(level, i);
