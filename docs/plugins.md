@@ -245,7 +245,7 @@ GET /plugin-sdk/v1/cloudnine.js     # 公开，Content-Type: application/javascr
 | `storage.get` | — | `{data}`（服务端原样；SDK 会帮你取出 `data`） |
 | `storage.set` | `{data}` | `{ok:true, size}` |
 | `fs.list` | `{path}` | `{entries:[{name, dir, size, mtime}]}`：`dir` 是布尔（服务端 `type === 'dir'`）、`size` 字节、`mtime` = 服务端的 `mtimeMs`。宿主是拿 `GET /api/fs/list?path=` 自己拼的，那个接口实际返回 `{path, entries:[{name, type, size, mtimeMs, birthtimeMs, atimeMs, mode, modeStr, uid, gid, hidden, target}], free, total}`，`type` 取 `file` / `dir` / `symlink` / `broken`（**不是** `{dir, size, mtime}`，别把两个形状记混） |
-| `fs.readText` | `{path, maxKB?}` | `{text, encoding, truncated, size, mtimeMs}`：`text` 是文本，`encoding` 是服务端实际用的解码（`utf-8` / `gb18030` / `latin1`），`truncated` 表示**内容被截断**（没读完），`size` 是文件真实字节数（截断时也准确）。`maxKB` 不传 = 默认 **512KB**；显式传就按你要求的读，服务端硬上限 **8192KB（8MB）**，超过的按 8MB 读。详见下面的「读写上限」 |
+| `fs.readText` | `{path, maxKB?}` | `{text, encoding, truncated, size, mtimeMs}`：`text` 是文本，`encoding` 是服务端实际用的解码（`utf-8` / `gb18030` / `latin1`），`truncated` 表示**内容被截断**（没读完），`size` 是文件真实字节数（截断时也准确）。被 `maxKB` 截断的 UTF-8 文件仍然报 `utf-8`：截断点切在多字节字符中间时，服务端会丢掉不足一个字符的尾巴，`text` 始终是合法 UTF-8 前缀，**不会**因为一个半截字符就把整篇当 `gb18030`（只有非尾部字节非法才判为非 UTF-8）。`maxKB` 不传 = 默认 **512KB**；显式传就按你要求的读，服务端硬上限 **8192KB（8MB）**，超过的按 8MB 读。详见下面的「读写上限」 |
 | `fs.writeText` | `{path,text}` | `{ok:true, size}`；`text` 上限 **8MB（按 UTF-8 字节算，中文一个 3 字节）**，超了回 `PAYLOAD_TOO_LARGE`，message 里带真实体积与上限 |
 | `clipboard.writeText` | `{text}` | `{ok:true}`；`text` 上限 **256KB（UTF-8 字节）**，超了回 `PAYLOAD_TOO_LARGE`（不会静默失败） |
 | `notify` | `{title, body}` | `{ok:true}` |

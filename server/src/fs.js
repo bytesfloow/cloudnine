@@ -463,6 +463,61 @@ fsRouter.post('/fs/chown', async (req, res, next) => {
 });
 
 // ---------- 文本读取 / 写入 ----------
+
+// 一次读取的字节块 → 文本。
+// 关键在于区分两种情况（2026-11 修的核心缺陷）：
+//   1) 文件真被 maxKB 截断，最后一个多字节字符被切了一半 —— 这仍然是 UTF-8，
+//      只要把不完整的尾巴丢掉就行，不能因此把整篇当 GB18030；
+//   2) 文件本身就不是 UTF-8（GBK/GB18030…）—— 非法字节会出现在中间，才该回退。
+// 老实现只有一次 fatal 解码：截断切在多字节字符中间时必然抛错，于是整篇退回 gb18030，
+// 内置编辑器打开 >512KB 的中文文本就会满屏乱码。
+const utf8Strict = (bytes) => {
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { return null; }
+};
+
+// 末尾缺多少字节才是完整的 UTF-8 序列（最多 3）：从尾部往前找序列起始字节，
+// 只看最后 4 个字节，不扫全量。返回 0 表示尾部没有「被切断的序列」。
+function utf8IncompleteTailLen(bytes) {
+  const n = bytes.length;
+  for (let back = 1; back <= Math.min(3, n); back++) {
+    const b = bytes[n - back];
+    if ((b & 0xc0) === 0x80) continue;        // 续字节：继续往前找起始字节
+    if (b < 0x80) return 0;                   // 末尾是 ASCII，没有半截序列
+    const need = b >= 0xf0 ? 4 : b >= 0xe0 ? 3 : b >= 0xc0 ? 2 : 0;
+    if (!need) return 0;                      // 孤立续字节：不是「截断」能解释的
+    return back < need ? back : 0;            // 已经够了就是完整序列，不缺
+  }
+  return 0;
+}
+
+function decodeReadBuffer(bytes, truncated) {
+  const whole = utf8Strict(bytes);
+  if (whole !== null) return { text: whole, encoding: 'utf-8' };
+
+  if (truncated) {
+    // 按 UTF-8 结构算出该丢几个字节，一次到位（不反复全量重解）
+    const cut = utf8IncompleteTailLen(bytes);
+    if (cut > 0) {
+      const text = utf8Strict(bytes.subarray(0, bytes.length - cut));
+      if (text !== null) return { text, encoding: 'utf-8' };
+    }
+    // 结构化回退没救回来：只要非法部分全落在尾巴上（宽容解码看第一个替换符），
+    // 就仍然当作「被截断的 UTF-8」，给出合法前缀
+    const lenient = new TextDecoder('utf-8').decode(bytes);
+    const bad = lenient.indexOf('\uFFFD');
+    if (bad >= 0) {
+      const tail = lenient.slice(bad);
+      if (tail.length <= 3 && tail.replace(/\uFFFD/g, '') === '') {
+        return { text: lenient.slice(0, bad), encoding: 'utf-8' };
+      }
+    }
+  }
+
+  // 非尾部字节非法 → 真的不是 UTF-8，按历史行为回退 gb18030，再兜不住用 latin1
+  try { return { text: new TextDecoder('gb18030').decode(bytes), encoding: 'gb18030' }; }
+  catch { return { text: bytes.toString('latin1'), encoding: 'latin1' }; }
+}
+
 fsRouter.get('/fs/read', async (req, res, next) => {
   try {
     const full = safeJoin(R(), req.query.path);
@@ -475,14 +530,9 @@ fsRouter.get('/fs/read', async (req, res, next) => {
       const len = Math.min(st.size, max);
       const buf = Buffer.alloc(len);
       await fh.read(buf, 0, len, 0);
-      let encoding = 'utf-8', content;
-      try {
-        content = new TextDecoder('utf-8', { fatal: true }).decode(buf);
-      } catch {
-        try { content = new TextDecoder('gb18030').decode(buf); encoding = 'gb18030'; }
-        catch { content = buf.toString('latin1'); encoding = 'latin1'; }
-      }
-      res.json({ content, encoding, truncated: st.size > len, size: st.size, mtimeMs: st.mtimeMs });
+      const truncated = st.size > len;
+      const { text: content, encoding } = decodeReadBuffer(buf, truncated);
+      res.json({ content, encoding, truncated, size: st.size, mtimeMs: st.mtimeMs });
     } finally { await fh.close(); }
   } catch (e) { next(e); }
 });
