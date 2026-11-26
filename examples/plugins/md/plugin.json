@@ -1,0 +1,15 @@
+{
+  "id": "md",
+  "name": "Markdown",
+  "version": "1.0.0",
+  "description": "Markdown 编辑 / 分栏 / 预览：语法高亮、GFM 预览、大纲跳转、滚动联动，双击 .md 文件直接编辑",
+  "author": "CloudNine",
+  "icon": "icon.svg",
+  "entry": "index.html",
+  "window": { "width": 1040, "height": 680, "minWidth": 560, "minHeight": 380, "multi": true },
+  "permissions": ["storage", "fs.read", "fs.write", "clipboard.write"],
+  "fileTypes": [".md", ".markdown", ".mdown"],
+  "defaultFor": [".md", ".markdown", ".mdown"],
+  "onDesktop": true,
+  "inStartMenu": true
+}
