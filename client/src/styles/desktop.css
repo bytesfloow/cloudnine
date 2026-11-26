@@ -62,3 +62,6 @@
 .desktop-hint.err { color: var(--desk-err); }
 .desktop-loading { position: absolute; top: 10px; left: 10px; }
 
+
+/* 虚拟应用图标（插件）：服务端 /pa 下的 svg / png。按图标档位缩放，不拉伸、不溢出格子 */
+.app-icon-img { display: block; object-fit: contain; border-radius: 6px; -webkit-user-drag: none; }

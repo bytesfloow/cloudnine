@@ -86,3 +86,20 @@
 .dc-detail { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-2); margin-top: 7px; }
 .dc-sub { color: var(--text-2); font-size: 10.5px; margin-top: 6px; opacity: .8; }
 
+
+/* ============ 插件窗口（PluginHost） ============ */
+/* 沙箱 iframe 铺满窗口主体；1px 描边让插件页面的白底与标题栏之间有明确边界 */
+.plugin-window { flex: 1; min-height: 0; display: flex; background: var(--win-bg); }
+.plugin-frame { flex: 1; min-width: 0; min-height: 0; border: 0; width: 100%; height: 100%; display: block; background: var(--paper-bg); }
+/* 加载失败 / 插件没接 SDK（10 秒没有 cn:ready）时的兜底面板 */
+.plugin-error {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; padding: 26px 22px; text-align: center; color: var(--text-2);
+}
+.plugin-error-icon {
+  width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: var(--accent-soft); color: var(--accent-text); margin-bottom: 2px;
+}
+.plugin-error-title { font-size: 13.5px; font-weight: 700; color: var(--text); }
+.plugin-error-body { font-size: 12.5px; max-width: 46ch; line-height: 1.6; }
+.plugin-error-retry { margin-top: 6px; display: inline-flex; align-items: center; gap: 6px; }

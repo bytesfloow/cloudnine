@@ -136,3 +136,21 @@
 }
 .sm-foot-btn:hover { background: var(--sm-hover); }
 .sm-foot-btn:active { background: var(--pressed); }
+
+/* 插件分组：追加在内置「已固定」之后，横向两列行排列，带「插件」角标与分组标题，视觉上可分 */
+.sm-plugins { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 4px; }
+.sm-plugin-app {
+  display: flex; align-items: center; gap: 9px; min-width: 0;
+  padding: 7px 9px; border-radius: var(--radius-ctl); border: 1px solid transparent;
+  color: var(--text); text-align: left;
+}
+.sm-plugin-app:hover { background: var(--sm-hover); }
+.sm-plugin-app.sel { background: var(--sm-sel); border-color: var(--line); }
+.sm-plugin-icon { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; }
+.sm-plugin-label {
+  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px;
+}
+.sm-plugin-kind {
+  flex: none; font-size: 10px; font-weight: 600; color: var(--text-2);
+  background: var(--hover); padding: 1px 6px; border-radius: 8px;
+}

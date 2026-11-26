@@ -1,9 +1,12 @@
 import { useSyncExternalStore } from 'react';
+import { WINDOW_DEFAULTS as APP_WINDOW_DEFAULTS } from './apps/registry.jsx';
 
 // ---------- 桌面视图偏好（排序 / 隐藏文件）----------
 // 桌面图标位置不再手工摆放：桌面即主目录，所有图标同属一个目录，
 // 位置完全由排序规则决定（Windows 桌面自动排列的思路）。
 const DESKTOP_VIEW_KEY = 'cloudnine-desktop-view';
+// 用户从桌面移除过的虚拟应用图标（插件）：只记本地名单，v1 不做卸载
+const DESKTOP_APPS_HIDDEN_KEY = 'cloudnine-desktop-apps-hidden';
 
 // 桌面图标三档（Windows 桌面右键 › 查看 ▸ 大图标 / 中等图标 / 小图标）
 export const DESKTOP_ICON_SIZES = ['large', 'medium', 'small'];
@@ -71,6 +74,12 @@ let state = {
   dialog: null,        // 当前模态对话框（队列首）
   contextMenu: null,   // {x,y,items,id}
   popover: null,       // 外壳弹层（开始菜单 / 任务栏托盘）{kind, anchor}
+
+  // 已安装插件（GET /api/plugins 的 plugins 数组，服务端原样）
+  // 移动端不拉取；拉取失败 / 401 一律按「无插件」处理，不阻塞桌面
+  plugins: [],
+  // 用户从桌面移除过的虚拟应用图标（localStorage，v1 不做卸载）
+  desktopAppsHidden: loadDesktopAppsHidden(),
 
   transfers: [],       // 上传项
   jobs: [],
@@ -264,22 +273,20 @@ function saveGeom(type, rect) {
   } catch { /* 忽略持久化失败 */ }
 }
 
-const WINDOW_DEFAULTS = {
-  finder: { title: '文件资源管理器', w: 860, h: 560, minW: 560, minH: 380, multi: true },
-  terminal: { title: '终端', w: 760, h: 460, minW: 420, minH: 300, multi: true },
-  editor: { title: '文本编辑', w: 800, h: 560, minW: 480, minH: 360, multi: true },
-  preview: { title: '预览', w: 780, h: 580, minW: 420, minH: 320, multi: true },
-  info: { title: '属性', w: 400, h: 480, minW: 360, minH: 320, multi: true },
-  // multi: true 的五个类型（finder/terminal/editor/preview/info）同类型可多开：
-  // 任务栏必须每窗口一个按钮，按 type 去重会让按钮数与窗口数对不上（见 docs §5.3）
-  transfers: { title: '传输', w: 720, h: 480, minW: 520, minH: 360, multi: false },
-  shares: { title: '分享管理', w: 760, h: 500, minW: 560, minH: 400, multi: false },
-  disk: { title: '磁盘监控', w: 680, h: 520, minW: 480, minH: 380, multi: false },
-};
-
-export function openWindow(type, props = {}) {
-  const def = WINDOW_DEFAULTS[type] || { title: type, w: 640, h: 480, minW: 360, minH: 280, multi: true };
-  const existing = state.windows.find((w) => w.type === type && !def.multi);
+export function openWindow(type, props = {}, opts = {}) {
+  const base = APP_WINDOW_DEFAULTS[type] || { title: type, w: 640, h: 480, minW: 360, minH: 280, multi: true };
+  // 单窗口覆盖（插件按 manifest.window 定初始尺寸 / 标题）：只影响本次开窗，
+  // 不写回应用表——否则第一个插件会把默认值改掉，第二个插件跟着错
+  const size = opts.size || null;
+  const def = Object.assign({}, base, size ? {
+    w: size.width ?? base.w, h: size.height ?? base.h,
+    minW: size.minWidth ?? base.minW, minH: size.minHeight ?? base.minH,
+    multi: typeof size.multi === 'boolean' ? size.multi : base.multi,
+  } : {}, { title: opts.title || base.title });
+  // 同类型里身份不同的窗口（回收站 / 各个插件）靠 match 区分，不能只比 type
+  const match = typeof opts.match === 'function' ? opts.match : null;
+  const sameType = (w) => w.type === type && (!match || match(w));
+  const existing = state.windows.find((w) => sameType(w) && !def.multi);
   if (existing) { focusWindow(existing.id); return existing.id; }
   // 编辑器同一文件只开一个窗口
   if (type === 'editor' && props.path) {
@@ -288,7 +295,9 @@ export function openWindow(type, props = {}) {
   }
   const vw = window.innerWidth, vh = window.innerHeight;
   const n = state.windowCount;
-  const saved = loadGeom()[type];
+  // 几何按类型持久化；插件窗口各存一份（geomKey = plugin:<id>），互不干扰
+  const geomKey = opts.geomKey || type;
+  const saved = loadGeom()[geomKey];
   let x, y, w, h;
   if (saved) {
     // 恢复上次手动调整的几何；视口可能已变化，先收敛尺寸再保证窗口可见、可拖回
@@ -321,6 +330,7 @@ export function openWindow(type, props = {}) {
     id: nextId(),
     type,
     props,
+    geomKey: opts.geomKey || null,
     title: def.title,
     rect: { x, y, w, h, max: false },
     snap: null,        // null | 'left' | 'right'（docs §5.1）
@@ -515,13 +525,52 @@ export const commitRect = (id, rect) => {
     windows: s.windows.map((w) => (w.id === id ? { ...w, rect: { ...w.rect, ...rect }, snap: null } : w)),
   }));
   const win = state.windows.find((w) => w.id === id);
-  if (win && !win.rect.max && !win.snap) saveGeom(win.type, win.rect);
+  if (win && !win.rect.max && !win.snap) saveGeom(win.geomKey || win.type, win.rect);
 };
 export const setWindowTitle = (id, title) =>
   setState((s) => ({ windows: s.windows.map((w) => (w.id === id ? { ...w, title } : w)) }));
 
 export function updateWindowProps(id, patch) {
   setState((s) => ({ windows: s.windows.map((w) => (w.id === id ? { ...w, props: { ...w.props, ...patch } } : w)) }));
+}
+
+// ---------- 插件 / 虚拟应用 ----------
+// 插件列表由桌面壳（Desktop.jsx）在登录后拉一次；失败一律按空列表处理
+export const setPlugins = (plugins) => setState({ plugins: Array.isArray(plugins) ? plugins : [] });
+
+function loadDesktopAppsHidden() {
+  try {
+    const v = JSON.parse(localStorage.getItem(DESKTOP_APPS_HIDDEN_KEY));
+    return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [];
+  } catch { return []; }
+}
+
+// 「从桌面移除」：只记本地名单，v1 不做卸载（插件仍在开始菜单 / 仍可打开）
+export function setAppDesktopVisible(appId, visible) {
+  const cur = new Set(loadDesktopAppsHidden());
+  if (visible) cur.delete(appId); else cur.add(appId);
+  const list = [...cur];
+  try { localStorage.setItem(DESKTOP_APPS_HIDDEN_KEY, JSON.stringify(list)); } catch { /* 忽略持久化失败 */ }
+  setState({ desktopAppsHidden: list });
+}
+
+/** 应用记录 → 启动 props（对象字段直接展开，函数字段按当前 state 求值） */
+export function appLaunchProps(app, st = state) {
+  if (typeof app.props === 'function') return app.props(st) || {};
+  return { ...(app.props || {}) };
+}
+
+function appOpenOpts(app) {
+  const opts = { title: app.name };
+  if (app.size) opts.size = app.size;      // 插件：manifest.window
+  if (app.match) opts.match = app.match;   // 回收站 / 单个插件窗口
+  if (app.geomKey) opts.geomKey = app.geomKey;
+  return opts;
+}
+
+/** 桌面图标双击 / 直接开窗：multi 时每次新建，multi=false 时复用已有窗口 */
+export function openApp(app) {
+  return openWindow(app.windowType, appLaunchProps(app), appOpenOpts(app));
 }
 
 // ---------- Alt+Tab 窗口切换器 ----------

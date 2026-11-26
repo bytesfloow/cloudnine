@@ -1,9 +1,10 @@
 import React, { useEffect } from 'react';
 import {
-  useStore, bus, openWindow, closeWindow, closeContextMenu, closePopover, getState, showDialog,
+  useStore, bus, openWindow, closeWindow, closeContextMenu, closePopover, getState, showDialog, setState, setPlugins,
   minimizeWindow, minimizeAllWindows, toggleShowDesktop, toggleMaxWindow, restoreWindow,
   openAltTab, cycleAltTab, commitAltTab, closeAltTab,
 } from '../store.js';
+import { api } from '../api.js';
 import { installPasteUpload } from '../pasteUpload.js';
 import { refreshDisk } from '../App.jsx';
 import WindowFrame from './WindowFrame.jsx';
@@ -198,6 +199,16 @@ export default function Desktop() {
     refreshDisk();
     const t = setInterval(refreshDisk, 20 * 1000);
     return () => clearInterval(t);
+  }, []);
+
+  // 已安装插件：登录后拉一次，把 onDesktop / inStartMenu 交给外壳变成桌面图标与菜单项。
+  // 失败（401 / 网络错）一律按「无插件」处理：插件拉不到不能挡住桌面启动。
+  useEffect(() => {
+    let alive = true;
+    api.plugins()
+      .then((r) => { if (alive) setPlugins(Array.isArray(r?.plugins) ? r.plugins : []); })
+      .catch(() => { if (alive) setPlugins([]); });
+    return () => { alive = false; };
   }, []);
 
   // Alt+Tab 必须在捕获阶段接：焦点在 xterm / 输入框时，元素级 keydown 会把 Tab 吃掉。

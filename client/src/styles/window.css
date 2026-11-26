@@ -121,3 +121,11 @@
   white-space: pre-wrap; word-break: break-word;
 }
 
+
+/* ============ 拖动 / 缩放期间的指针接管（插件 iframe 相关） ============
+   插件窗口里是 <iframe>：指针一旦进入 iframe，document 上的 pointermove 就收不到，
+   拖动 / 缩放会当场卡死（鼠标在插件页面上时窗口不跟手）。
+   拖动 / 缩放开始给 .window 加 .interacting，把 iframe 层临时变成「不吃指针」的
+   透明层；结束后立刻恢复，插件内部交互不受影响。 */
+.window.interacting .window-body iframe { pointer-events: none; }
+.window.interacting { user-select: none; }

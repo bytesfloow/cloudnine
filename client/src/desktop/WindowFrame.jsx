@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   focusWindow, closeWindow, minimizeWindow, toggleMaxWindow, commitRect,
   applySnap, beginMoveFromSpecial,
@@ -52,12 +52,16 @@ function snapZoneAt(ev) {
 export default function WindowFrame({ win, focused, children }) {
   const ref = useRef(null);
   const { rect } = win;
+  // 拖动 / 缩放中：状态类写进 className，样式里把 iframe 层的 pointer-events 关掉。
+  // 插件窗口里的 iframe 一旦接管指针，document 上的 pointermove 就断了 —— 拖拽会卡死。
+  const [interacting, setInteracting] = useState(false);
 
   // 拖动/缩放：直接操作 DOM，pointerup 时提交，避免整棵树重渲染
   function startDrag(e) {
     if (e.target.closest('.win-controls')) return;
     e.preventDefault();
     focusWindow(win.id);
+    setInteracting(true);
     const el = ref.current;
     const startX = e.clientX, startY = e.clientY;
     // 指针按下时的几何（最大化 / 吸附态下是铺满屏幕的那个，不是还原后的）
@@ -114,6 +118,7 @@ export default function WindowFrame({ win, focused, children }) {
       document.removeEventListener('pointerup', onUp);
       document.removeEventListener('pointercancel', onCancel);
       hideSnapPreview();
+      setInteracting(false);
       const committed = zone;
       zone = null;
       // 吸附 / 最大化只在这里提交，拖动途中不落库
@@ -131,6 +136,7 @@ export default function WindowFrame({ win, focused, children }) {
       document.removeEventListener('pointerup', onUp);
       document.removeEventListener('pointercancel', onCancel);
       hideSnapPreview();
+      setInteracting(false);
       zone = null;
       if (el._drag) commitRect(win.id, { x: el._drag.x, y: el._drag.y });
       el._drag = null;
@@ -143,6 +149,7 @@ export default function WindowFrame({ win, focused, children }) {
   function startResize(e, dir) {
     e.preventDefault(); e.stopPropagation();
     focusWindow(win.id);
+    setInteracting(true);
     const el = ref.current;
     const sx = e.clientX, sy = e.clientY;
     const o = { ...rect };
@@ -164,10 +171,22 @@ export default function WindowFrame({ win, focused, children }) {
     const onUp = () => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onCancel);
+      setInteracting(false);
       if (el._resize) { const r = el._resize; delete el._resize; commitRect(win.id, r); }
+    };
+    // 指针被系统取消（窗口失焦 / 触控打断）：丢掉本次缩放，但必须把 interacting 摘掉，
+    // 否则插件窗口里的 iframe 会一直 pointer-events:none（点不动）
+    const onCancel = () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onCancel);
+      setInteracting(false);
+      delete el._resize;
     };
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onCancel);
   }
 
   const style = rect.max
@@ -177,7 +196,7 @@ export default function WindowFrame({ win, focused, children }) {
   return (
     <div
       ref={ref}
-      className={`window${focused ? ' focused' : ''}${win.minimized ? ' minimized' : ''}${rect.max ? ' maximized' : ''}${win.snap ? ` snapped snap-${win.snap}` : ''}`}
+      className={`window${focused ? ' focused' : ''}${win.minimized ? ' minimized' : ''}${rect.max ? ' maximized' : ''}${win.snap ? ` snapped snap-${win.snap}` : ''}${interacting ? ' interacting' : ''}`}
       data-snap={win.snap || ''}
       data-win-id={win.id}
       style={style}

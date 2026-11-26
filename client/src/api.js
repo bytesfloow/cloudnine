@@ -70,6 +70,11 @@ export const api = {
   downloadUrl: (path, inline) => `/api/download?path=${encodeURIComponent(path)}${inline ? '&inline=1' : ''}`,
   zipUrl: (paths) => `/api/download/zip?paths=${encodeURIComponent(JSON.stringify(paths))}`,
 
+  // 插件（服务端运行时见 docs/plugins.md）
+  plugins: () => request('/api/plugins'),
+  pluginStorage: (id) => request(`/api/plugins/${encodeURIComponent(id)}/storage`),
+  pluginStorageSet: (id, data) => request(`/api/plugins/${encodeURIComponent(id)}/storage`, { method: 'PUT', body: { data } }),
+
   // 磁盘 / 任务 / 压缩
   disk: () => request('/api/disk'),
   jobs: () => request('/api/jobs'),

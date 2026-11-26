@@ -2,21 +2,18 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   useStore, getState, setTheme, openWindow, openPopover, closePopover, openContextMenu,
   activateNotification, toggleWindow, activateOrOpen, focusWindow, minimizeWindow,
-  toggleMaxWindow, closeWindow, toggleShowDesktop, fmtSize,
+  toggleMaxWindow, closeWindow, toggleShowDesktop, fmtSize, appLaunchProps,
 } from '../store.js';
 import { addUpload, uploadStats } from '../transfers.js';
 import { changePasswordFlow, logoutFlow } from './account.js';
 import StartMenu from './StartMenu.jsx';
-import { IconFiles, IconTerminal, IconEditor, IconTransfer, IconBell, IconWindows, IconDisk } from '../icons.jsx';
+import { TASKBAR_APPS, AppIcon } from '../apps/registry.jsx';
+import { IconBell, IconWindows, IconDisk, IconTransfer } from '../icons.jsx';
 
 // 固定应用区：图标常驻，单击 = 无窗口则新建 / 有窗口切到最上层 / 已聚焦则最小化
-// （docs §1.2；不是旧 Dock 的「每次点击都新建」）
-const PINNED = [
-  { type: 'finder', label: '文件资源管理器', Icon: IconFiles },
-  { type: 'terminal', label: '终端', Icon: IconTerminal },
-  { type: 'editor', label: '记事本', Icon: IconEditor },
-  { type: 'transfers', label: '传输', Icon: IconTransfer },
-];
+// （docs §1.2；不是旧 Dock 的「每次点击都新建」）。
+// 4 个固定项与它们的顺序来自 client/src/apps/registry.jsx（taskbar: true）。
+const PINNED = TASKBAR_APPS;
 
 // 托盘弹层与开始菜单共用 store.popover 这个全局槽位（一次只开一层），
 // 但各自的 kind 互不重叠，关闭逻辑才能各扫门前雪。
@@ -76,15 +73,16 @@ export default function Taskbar() {
     if (TRAY_KINDS.includes(getState().popover?.kind)) closePopover();
   }, [s.focusId]);
 
-  function launch(item) {
+  function launch(app) {
     const st = getState();
     // 有可见窗口 → Win11 语义：切到最上层；已聚焦则最小化
+    // （任务栏固定项按类型归并，回收站窗口也算「文件资源管理器」在跑，与改造前一致）
     const visible = st.windows
-      .filter((w) => w.type === item.type && !w.minimized)
+      .filter((w) => w.type === app.windowType && !w.minimized)
       .sort((a, b) => b.z - a.z)[0];
     if (visible) return toggleWindow(visible.id);
     // 只有最小化窗口 → 还原最上层那个；一个都没有 → 新建
-    activateOrOpen(item.type, item.type === 'finder' ? { cwd: st.homeRel || '' } : undefined);
+    activateOrOpen(app.windowType, appLaunchProps(app, st));
   }
 
   // 窗口按钮右键 = 跳转列表（Win11 任务栏同款四项）
@@ -145,21 +143,22 @@ export default function Taskbar() {
       <StartMenu />
 
       <div className="tb-pinned">
-        {PINNED.map(({ type, label, Icon }) => {
+        {PINNED.map((app) => {
+          const type = app.windowType;
           const running = s.windows.some((w) => w.type === type);
           const active = s.windows.some((w) => w.type === type && w.id === s.focusId && !w.minimized);
           return (
             <button
-              key={type}
+              key={app.id}
               type="button"
               className={`tb-app${running ? ' running' : ''}${active ? ' active' : ''}`}
-              title={label}
-              aria-label={label}
-              onClick={() => launch({ type })}
+              title={app.name}
+              aria-label={app.name}
+              onClick={() => launch(app)}
               onDragOver={type === 'transfers' ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } : undefined}
               onDrop={type === 'transfers' ? dropUpload : undefined}
             >
-              <Icon size={20} />
+              <AppIcon app={app} size={20} {...(app.iconProps ? app.iconProps(s) : null)} />
               {type === 'transfers' && stats.activeCount > 0 && (
                 <span className="transfer-badge">{stats.activeCount}</span>
               )}

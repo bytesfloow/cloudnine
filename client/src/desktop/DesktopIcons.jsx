@@ -2,9 +2,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   useStore, getState, setState, openWindow, openContextMenu, bus, notify,
   setDesktopSel, setDesktopSort, setDesktopShowHidden, setDesktopIconSize, setClipboard, joinPath, basename, confirmDialog,
+  openApp, setAppDesktopVisible,
 } from '../store.js';
 import { api } from '../api.js';
 import { FileIcon, IconRootFolder, IconTrashSolid } from '../icons.jsx';
+import { desktopApps, AppIcon } from '../apps/registry.jsx';
 import {
   createItem, uploadTo, uploadDropped, copyToClipboard, cutToClipboard, pasteInto,
   trashItems, renameItem, downloadItem, downloadItems, compressItems, extractItem,
@@ -48,6 +50,7 @@ export default function DesktopIcons() {
   const [dropTarget, setDropTarget] = useState(null);
   const [anchor, setAnchor] = useState(null);
   const [sysSel, setSysSel] = useState(null); // 选中的系统图标（主目录 / 回收站）
+  const [appSel, setAppSel] = useState(null); // 选中的虚拟应用图标（插件）
 
   const layerRef = useRef(null);
   const tierKey = ICON_TIERS[s.desktopIconSize] ? s.desktopIconSize : 'medium';
@@ -116,6 +119,14 @@ export default function DesktopIcons() {
   const selectedPaths = useMemo(() => selectedEntries.map((e) => joinPath(cwd, e.name)), [selectedEntries, cwd]);
   const shownFiles = files.length > MAX_ICONS ? files.slice(0, MAX_ICONS) : files;
 
+  // 虚拟应用图标（插件）：排在系统图标之后、真实文件图标之前，与文件同处一个网格。
+  // 顺序固定按注册表 order（不受桌面「排序方式」影响）；也不进桌面选中集
+  // （desktopSel 只装文件名），所以框选 / Ctrl+A / Delete / F2 / 批量删除都碰不到它们。
+  const apps = useMemo(
+    () => desktopApps(s.plugins, s.desktopAppsHidden),
+    [s.plugins, s.desktopAppsHidden],
+  );
+
   // 系统图标（主目录 / 回收站）：与文件同处一个图标网格，占据左上角前两格，
   // 排列逻辑和 Windows 桌面快捷方式一致；双击才打开，单击只选中。
   // 「主目录」的底就是普通文件夹（它打开的就是文件根这一层），只在正面右下角多一枚系统标识。
@@ -157,9 +168,22 @@ export default function DesktopIcons() {
     ]);
   }
 
+  // 虚拟应用图标右键：只给「打开」和「从桌面移除」（v1 不做重命名 / 卸载 / 删除）
+  function appMenu(e, app) {
+    e.preventDefault();
+    e.stopPropagation();
+    setAppSel(app.id);
+    setDesktopSel([]);
+    openContextMenu(e.clientX, e.clientY, [
+      { label: '打开', action: () => openApp(app) },
+      { label: '从桌面移除', action: () => setAppDesktopVisible(app.id, false) },
+    ]);
+  }
+
   // ---------- 选择 ----------
   function clickItem(e, entry, idx) {
     setSysSel(null); // 选中文件时取消系统图标的选中态
+    setAppSel(null);
     setState({ focusId: null }); // 点桌面图标：焦点回到桌面
     // C9：多选修饰键只认 Ctrl（meta 不参与），Shift 连选保留
     if (e.ctrlKey) {
@@ -447,6 +471,7 @@ export default function DesktopIcons() {
           startMarquee(e);
           if (sel.length) setDesktopSel([]);
           setSysSel(null);
+          setAppSel(null);
           setAnchor(null);
           setState({ focusId: null }); // 焦点回到桌面
         }}
@@ -465,7 +490,7 @@ export default function DesktopIcons() {
       >
         {loading && <div className="desktop-loading"><div className="boot-spinner" /></div>}
         {!loading && error && <div className="desktop-hint err">⚠️ {error}</div>}
-        {!loading && !error && files.length === 0 && (
+        {!loading && !error && files.length === 0 && apps.length === 0 && (
           <div className="desktop-hint">桌面为空 · 在此右键新建文件或上传</div>
         )}
 
@@ -483,7 +508,7 @@ export default function DesktopIcons() {
               className={`desktop-icon desktop-sysicon${sysSel === it.key ? ' selected' : ''}${dropTarget === it.key ? ' drop-target' : ''}`}
               title={it.label}
               onMouseDown={(e) => e.stopPropagation()}
-              onClick={(e) => { e.stopPropagation(); setSysSel(it.key); setDesktopSel([]); setState({ focusId: null }); }}
+              onClick={(e) => { e.stopPropagation(); setSysSel(it.key); setDesktopSel([]); setAppSel(null); setState({ focusId: null }); }}
               onDoubleClick={(e) => { e.stopPropagation(); openSys(it.key); }}
               onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); sysMenu(e, it.key); }}
               onDragOver={it.trash ? (e) => { e.preventDefault(); e.stopPropagation(); setDropTarget(it.key); } : undefined}
@@ -495,6 +520,28 @@ export default function DesktopIcons() {
               </span>
               <span className="di-label">{it.label}</span>
               {it.trash && s.trashCount > 0 && <span className="desktop-badge">{s.trashCount}</span>}
+            </div>
+          ))}
+
+          {apps.map((app) => (
+            <div
+              key={app.id}
+              data-app={app.id}
+              className={`desktop-icon desktop-appicon${appSel === app.id ? ' selected' : ''}`}
+              title={app.name}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                setAppSel(app.id);
+                setDesktopSel([]);
+                setSysSel(null);
+                setState({ focusId: null }); // 点桌面图标：焦点回到桌面
+              }}
+              onDoubleClick={(e) => { e.stopPropagation(); openApp(app); }}
+              onContextMenu={(e) => appMenu(e, app)}
+            >
+              <span className="di-icon-wrap"><AppIcon app={app} size={tier.icon} /></span>
+              <span className="di-label">{app.name}</span>
             </div>
           ))}
 

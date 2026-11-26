@@ -1,26 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   useStore, getState, closePopover, activateOrOpen, openFile, bus, showDialog,
-  minimizeAllWindows, dirname, fileCat,
+  minimizeAllWindows, dirname, fileCat, appLaunchProps,
 } from '../store.js';
 import { api } from '../api.js';
 import { lockFlow } from './account.js';
+import { START_MENU_APPS, pluginApps, AppIcon } from '../apps/registry.jsx';
 import {
-  IconFiles, IconTerminal, IconEditor, IconTransfer, IconShare, IconDisk, IconTrash,
   IconSearch, IconNewFolder, IconUpload, IconGrid, IconDoc, IconPhoto, IconInfo,
 } from '../icons.jsx';
 
 // 固定应用：严格 7 项，与旧底栏 Dock 的 7 项一一对应（docs §1.3 / §2.4）。
-// 不加「预览」：preview 窗口必须带 props.path 才能工作，空参启动等于放一个点了就报错的按钮。
-const PINNED = [
-  { key: 'finder', type: 'finder', label: '文件资源管理器', Icon: IconFiles },
-  { key: 'terminal', type: 'terminal', label: '终端', Icon: IconTerminal },
-  { key: 'editor', type: 'editor', label: '记事本', Icon: IconEditor },
-  { key: 'transfers', type: 'transfers', label: '传输', Icon: IconTransfer },
-  { key: 'shares', type: 'shares', label: '分享管理', Icon: IconShare },
-  { key: 'disk', type: 'disk', label: '磁盘监控', Icon: IconDisk },
-  { key: 'trash', type: 'finder', label: '回收站', Icon: IconTrash },
-];
+// 应用信息（名称 / 图标 / 窗口类型 / 启动 props）全部来自 client/src/apps/registry.jsx，
+// 这里只保留「顺序」语义。不加「预览」：preview 窗口必须带 props.path 才能工作。
+const PINNED = START_MENU_APPS;
 
 // 高频命令：都落到现有动作上，不新造功能
 const COMMANDS = [
@@ -87,12 +80,15 @@ function StartMenuPanel() {
 
   const q = query.trim().toLowerCase();
   const visibleRecents = recents.slice(0, 6);
+  // 插件追加在内置固定项之后（单独分组）；服务端说 inStartMenu=false 的不进菜单
+  const pluginEntries = pluginApps(s.plugins).filter((a) => a.startMenu);
 
   const appRow = (app) => ({
-    key: `app:${app.key}`,
-    label: app.label,
-    kind: '应用',
-    Icon: app.Icon,
+    key: `app:${app.id}`,
+    label: app.name,
+    kind: app.isPlugin ? '插件' : '应用',
+    Icon: app.icon,
+    app,
     run: () => launchApp(app),
   });
   const cmdRow = (cmd) => ({
@@ -115,12 +111,13 @@ function StartMenuPanel() {
     };
   };
 
-  // 输入即实时过滤应用名与命令；空查询时 rows = 已固定 + 最近文件，供方向键统一选取
+  // 输入即实时过滤应用名与命令；空查询时 rows = 已固定 + 插件 + 最近文件，供方向键统一选取
+  const menuApps = [...PINNED, ...pluginEntries];
   const searchRows = q
-    ? [...PINNED.map(appRow), ...COMMANDS.map(cmdRow)]
+    ? [...menuApps.map(appRow), ...COMMANDS.map(cmdRow)]
       .filter((r) => r.label.toLowerCase().includes(q) || (r.hint || '').toLowerCase().includes(q))
     : [];
-  const rows = q ? searchRows : [...PINNED.map(appRow), ...visibleRecents.map(recentRow)];
+  const rows = q ? searchRows : [...menuApps.map(appRow), ...visibleRecents.map(recentRow)];
   const cur = rows.length ? Math.min(Math.max(cursor, -1), rows.length - 1) : -1;
 
   // 输入变化后把光标放回第一项；清空后取消高亮
@@ -136,17 +133,9 @@ function StartMenuPanel() {
 
   function launchApp(app) {
     const st = getState();
-    // 回收站与普通文件窗口同属 finder，必须用 props.trash 区分：
+    // 同一个 windowType 里身份不同的窗口必须靠 match 区分（回收站 / 每个插件的窗口）：
     // 否则「回收站」会把一个已最小化的普通文件窗口还原出来（docs §5.3 ①）。
-    if (app.key === 'trash') {
-      activateOrOpen('finder', { trash: true }, (w) => !!w.props?.trash);
-      return;
-    }
-    if (app.type === 'finder') {
-      activateOrOpen('finder', { cwd: st.homeRel || '' }, (w) => !w.props?.trash);
-      return;
-    }
-    activateOrOpen(app.type);
+    return activateOrOpen(app.windowType, appLaunchProps(app, st), app.match || null);
   }
 
   // 先收起开始菜单再执行动作：命令可能弹对话框，应用会开窗，菜单不该压在上面
@@ -226,7 +215,9 @@ function StartMenuPanel() {
                       onClick={() => run(row)}
                       onMouseEnter={() => setCursor(i)}
                     >
-                      <span className="sm-result-icon"><Icon size={19} /></span>
+                      <span className="sm-result-icon">
+                        {row.app ? <AppIcon app={row.app} size={19} /> : <Icon size={19} />}
+                      </span>
                       <span className="sm-result-label">{row.label}</span>
                       {row.hint && <span className="sm-result-hint">{row.hint}</span>}
                       <span className="sm-result-kind">{row.kind}</span>
@@ -241,26 +232,52 @@ function StartMenuPanel() {
             <section className="sm-section">
               <div className="sm-section-title">已固定</div>
               <div className="sm-pinned">
-                {PINNED.map((app, i) => {
-                  const Icon = app.Icon;
-                  return (
-                    <button
-                      key={app.key}
-                      type="button"
-                      data-app={app.key}
-                      data-idx={i}
-                      className={`sm-app${cur === i ? ' sel' : ''}`}
-                      title={app.label}
-                      onClick={() => run(appRow(app))}
-                      onMouseEnter={() => setCursor(i)}
-                    >
-                      <Icon size={30} full={app.key === 'trash' && s.trashCount > 0} />
-                      <span className="sm-app-label">{app.label}</span>
-                    </button>
-                  );
-                })}
+                {PINNED.map((app, i) => (
+                  <button
+                    key={app.id}
+                    type="button"
+                    data-app={app.id}
+                    data-idx={i}
+                    className={`sm-app${cur === i ? ' sel' : ''}`}
+                    title={app.name}
+                    onClick={() => run(appRow(app))}
+                    onMouseEnter={() => setCursor(i)}
+                  >
+                    <AppIcon app={app} size={30} {...(app.iconProps ? app.iconProps(s) : null)} />
+                    <span className="sm-app-label">{app.name}</span>
+                  </button>
+                ))}
               </div>
             </section>
+
+            {/* 插件：追加在内置固定项之后，单独分组（inStartMenu=false 的不出现） */}
+            {pluginEntries.length > 0 && (
+              <section className="sm-section">
+                <div className="sm-section-title">插件<span>{pluginEntries.length} 个</span></div>
+                <div className="sm-plugins">
+                  {pluginEntries.map((app, j) => {
+                    const idx = PINNED.length + j;
+                    return (
+                      <button
+                        key={app.id}
+                        type="button"
+                        data-app={app.id}
+                        data-plugin={app.pluginId}
+                        data-idx={idx}
+                        className={`sm-plugin-app${cur === idx ? ' sel' : ''}`}
+                        title={app.name}
+                        onClick={() => run(appRow(app))}
+                        onMouseEnter={() => setCursor(idx)}
+                      >
+                        <span className="sm-plugin-icon"><AppIcon app={app} size={22} /></span>
+                        <span className="sm-plugin-label">{app.name}</span>
+                        <span className="sm-plugin-kind">插件</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
 
             <section className="sm-section">
               <div className="sm-section-title">最近使用的文件</div>
@@ -275,7 +292,7 @@ function StartMenuPanel() {
               ) : (
                 <div className="sm-recents">
                   {visibleRecents.map((item, j) => {
-                    const idx = PINNED.length + j;
+                    const idx = menuApps.length + j;
                     const row = recentRow(item);
                     const Icon = row.Icon;
                     return (

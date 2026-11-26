@@ -274,6 +274,21 @@ export const IconDisk = ({ size = 26 }) => {
   );
 };
 
+// 通用插件图标：插件没带 icon / 图标加载失败时的兜底（见 apps/registry.jsx 的 AppIcon）
+export const IconPlugin = ({ size = 26 }) => {
+  const sw = A(size);
+  return (
+    <Svg size={size}>
+      <g stroke={ACCENT} strokeWidth={sw} strokeLinejoin="round" fill="none">
+        <rect x="8.4" y="8.4" width="12.6" height="12.6" rx="3.4" />
+        <rect x="27" y="8.4" width="12.6" height="12.6" rx="3.4" />
+        <rect x="8.4" y="27" width="12.6" height="12.6" rx="3.4" />
+        <path d="M33.3 26.4v14M26.3 33.4h14" strokeLinecap="round" />
+      </g>
+    </Svg>
+  );
+};
+
 export const IconTrash = ({ size = 26, full }) => {
   const sw = A(size);
   const detail = size >= 28;
