@@ -114,6 +114,35 @@ function checkText(v, field, max = 1024 * 1024) {
   return v;
 }
 
+// ---- 插件读写接口的体积上限（docs/plugins.md §6.2） ----
+// readText 走 /api/fs/read?maxKB，服务端默认 512KB、硬上限 8MB（server/src/fs.js）
+const READ_MAX_KB = 8192;
+// writeText 的上限按 UTF-8 字节算（中文一个字 3 字节，按字符数卡会让上限飘）
+const MAX_WRITE_BYTES = 8 * 1024 * 1024;
+// clipboard 只写文本，上限 256KB（整棵 JSON 子树也能塞下）
+const MAX_CLIPBOARD_BYTES = 256 * 1024;
+
+function utf8Bytes(s) {
+  return new TextEncoder().encode(s).length;
+}
+
+function fmtBytes(n) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(2)} MB`;
+}
+
+// 超大文本：报「真实体积 + 上限」，别让插件看到一句没信息量的「过长」
+function checkTextBytes(v, field, maxBytes, apiName) {
+  if (typeof v !== 'string') throw new CallError('INVALID_ARGUMENT', `${field} 必须是字符串`);
+  const bytes = utf8Bytes(v);
+  if (bytes > maxBytes) {
+    throw new CallError('PAYLOAD_TOO_LARGE',
+      `${apiName} 的 ${field} 是 ${fmtBytes(bytes)}，超过上限 ${fmtBytes(maxBytes)}`);
+  }
+  return bytes;
+}
+
 // 文件关联的入参：props.fileRel（相对 FILE_ROOT 的路径，与 fs.* 接口同一口径）
 // → cn:init 里的 file 对象，三种字段都只做展示/分流，读写一律用 rel
 function filePayloadOf(fileRel) {
@@ -208,21 +237,35 @@ export default function PluginWindow({ win }) {
       case 'fs.readText': {
         need('fs.read');
         const rel = checkRelPath(p.path);
-        const r = await api.read(rel);
-        return { text: r.content, encoding: r.encoding, truncated: !!r.truncated };
+        // maxKB：插件可显式请求读取上限（服务端硬上限 8MB）；不传就保持历史行为（512KB）
+        let maxKB;
+        if (p.maxKB != null) {
+          const n = Number(p.maxKB);
+          if (!Number.isFinite(n) || n <= 0) throw new CallError('INVALID_ARGUMENT', 'fs.readText 的 maxKB 必须是正数');
+          maxKB = Math.min(Math.ceil(n), READ_MAX_KB);
+        }
+        const r = await api.read(rel, maxKB);
+        // 返回形状（docs §6.2）：{text, encoding, truncated, size, mtimeMs}
+        return {
+          text: r.content,
+          encoding: r.encoding,
+          truncated: !!r.truncated,
+          size: r.size,
+          mtimeMs: r.mtimeMs,
+        };
       }
       case 'fs.writeText': {
         need('fs.write');
         const rel = checkRelPath(p.path);
-        const text = checkText(p.text, 'text');
+        checkTextBytes(p.text, 'text', MAX_WRITE_BYTES, 'fs.writeText');
         // force:true —— 插件的写入是一次完整覆盖，不带编辑器的「外部变更」冲突检测
-        const r = await api.write({ path: rel, content: text, force: true });
+        const r = await api.write({ path: rel, content: p.text, force: true });
         return { ok: true, size: r.size };
       }
       case 'clipboard.writeText': {
         need('clipboard.write');
-        const text = checkText(p.text, 'text', 256 * 1024);
-        await navigator.clipboard.writeText(text);
+        checkTextBytes(p.text, 'text', MAX_CLIPBOARD_BYTES, 'clipboard.writeText');
+        await navigator.clipboard.writeText(p.text);
         return { ok: true };
       }
       case 'notify': {

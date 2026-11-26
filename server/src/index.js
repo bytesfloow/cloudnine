@@ -67,6 +67,9 @@ app.use((req, res, next) => {
   next();
 });
 app.use(cookieParser());
+// 插件 fs.writeText 的上限是 8MB（见 docs/plugins.md §6.2），JSON 请求体会略大于文本本身；
+// 只对写文件这条路由放宽，其余接口保持 2MB，不动别的接口的上限。
+app.use('/api/fs/write', express.json({ limit: '24mb' }));
 app.use(express.json({ limit: '2mb' }));
 
 // 路由

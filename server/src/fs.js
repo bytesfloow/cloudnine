@@ -468,7 +468,8 @@ fsRouter.get('/fs/read', async (req, res, next) => {
     const full = safeJoin(R(), req.query.path);
     const st = await fsp.stat(full);
     if (st.isDirectory()) throw err(400, '不能读取目录');
-    const max = Math.min(Number(req.query.maxKB) || 512, 2048) * 1024;
+    // maxKB：调用方显式指定的读取上限（编辑器 / 插件），默认 512KB，硬上限 8MB
+    const max = Math.min(Number(req.query.maxKB) || 512, 8192) * 1024;
     const fh = await fsp.open(full, 'r');
     try {
       const len = Math.min(st.size, max);

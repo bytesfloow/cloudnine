@@ -184,11 +184,20 @@ async function prepareEnv() {
   const nums = [];
   for (let i = 0; i < 1200; i++) nums.push(i % 977);
   writeFileSync(join(filesRoot, 'bigarray.json'), JSON.stringify({ big: nums }));
-  // 8) > 2MB 大文件
+  // 8) 3.4MB（以前被 2MB 门槛挡住 → 现在整份可编辑、可保存，顺带验 >1MB 写入）
   const bigNums = [];
   for (let i = 0; i < 520000; i++) bigNums.push((i * 7919) % 1000000);
   writeFileSync(join(filesRoot, 'huge.json'), '{"big":[' + bigNums.join(',') + ']}');
-  // 9) 子目录里的文档（验证 rel 带目录）
+  // 9) 1.2MB：超过旧的 512KB 读取上限，但远低于 8MB 工具上限 → 应正常可编辑
+  const medNums = [];
+  for (let i = 0; i < 200000; i++) medNums.push((i * 7919) % 1000000);
+  writeFileSync(join(filesRoot, 'medium.json'),
+    '{\n  "meta": { "name": "medium", "count": 200000 },\n  "nums": [' + medNums.join(',') + ']\n}\n');
+  // 10) > 8MB：超过工具上限 → 只读 + 真实尺寸提示
+  const overNums = [];
+  for (let i = 0; i < 1400000; i++) overNums.push((i * 7919) % 1000000);
+  writeFileSync(join(filesRoot, 'oversize.json'), '{"big":[' + overNums.join(',') + ']}');
+  // 11) 子目录里的文档（验证 rel 带目录）
   writeFileSync(join(filesRoot, 'data', 'conf.json'), '{"from":"subdir"}\n');
 
   const src = join(ROOT, 'examples', 'plugins', 'json');
@@ -825,7 +834,7 @@ async function main() {
   await closeAllWindows();
 
   // ============================================================ 8. 边界：jsonc / 空文件 / 大文件 / 非 UTF-8
-  section('边界：.jsonc 注释 / 空文件 / >2MB / 非 UTF-8');
+  section('边界：.jsonc / 空文件 / 大文件上限 / 非 UTF-8');
   await dblclickEntry('notes.jsonc');
   frame = await frameOf('notes.jsonc', 20000);
   st = await state(frame);
@@ -846,16 +855,49 @@ async function main() {
     st.valid === true && /空的/.test(emptyBanner), JSON.stringify({ valid: st.valid, banner: emptyBanner.slice(0, 80) }));
   await closeAllWindows();
 
+  // ---- 3.4MB：以前会被 2MB 门槛挡成只读，现在整份可编辑、可保存（顺带验 >1MB 写入） ----
   await dblclickEntry('huge.json');
   frame = await frameOf('huge.json', 30000);
   st = await state(frame);
-  check('>2MB 文件被识别（内容被宿主读取接口截断）',
-    st.truncated === true && st.size > 2 * 1024 * 1024, JSON.stringify({ size: st.size, truncated: st.truncated }));
-  check('大文件默认只读', st.readonly === true);
-  const hugeBanner = await frame.evaluate(() => [...document.querySelectorAll('.banner')].map((b) => b.textContent).join(' | '));
-  check('给出中文只读提示并说明截断风险', /截断/.test(hugeBanner) && /禁止编辑/.test(hugeBanner), hugeBanner.slice(0, 140));
-  check('只读时保存按钮禁用', await frame.$eval('#btn-save', (el) => el.disabled) === true);
-  check('只读时文本输入框 readOnly', await frame.$eval('#code-input', (el) => el.readOnly) === true);
+  check('3.4MB 文件不再被 2MB 门槛拦成只读（整份读进来）',
+    st.readonly === false && st.truncated === false && st.size > 3 * 1024 * 1024,
+    JSON.stringify({ size: st.size, truncated: st.truncated, readonly: st.readonly }));
+  check('按需请求 maxKB（不是默认 512KB）', st.readKB >= 3000, String(st.readKB));
+  const hugeChars = await frame.evaluate(() => document.getElementById('code-input').value.length);
+  check('读到的字符数 > 600000（旧的 512KB 上限确实被突破）', hugeChars > 600000, String(hugeChars));
+  const bigRender = await frame.evaluate(() => ({
+    noHl: document.getElementById('pane-text').classList.contains('no-hl'),
+    layerLen: document.getElementById('code-hl').innerHTML.length,
+    gutter: document.querySelectorAll('.gutter .ln').length,
+    textareaColor: getComputedStyle(document.getElementById('code-input')).color,
+  }));
+  check('大文档自动关闭语法高亮（彩色层不复制几 MB 文本进 DOM，文字仍可读）',
+    bigRender.noHl && bigRender.layerLen === 0
+    && bigRender.textareaColor !== 'rgba(0, 0, 0, 0)', JSON.stringify(bigRender));
+  await shot('3.4MB-可编辑大文件');
+
+  await clickInFrame(frame, '#btn-save');
+  st = await waitState(frame, (x) => x.msg.indexOf('已保存') >= 0, 30000);
+  const hugeDisk = readDisk('huge.json');
+  check('3.4MB 保存成功（>1MB 写入上限确实放宽了）', /已保存/.test(st.msg), st.msg);
+  check('磁盘内容与编辑框一致（3.4MB 回读核对）',
+    hugeDisk.length === hugeChars && hugeDisk.slice(0, 20) === (await docText(frame)).slice(0, 20),
+    `${hugeDisk.length} vs ${hugeChars}`);
+  await closeAllWindows();
+
+  // ---- >8MB：只读 + 真实尺寸 ----
+  await dblclickEntry('oversize.json');
+  frame = await frameOf('oversize.json', 40000);
+  st = await state(frame);
+  check('>8MB 文件被识别（内容超过工具上限，只预览一部分）',
+    st.truncated === true && st.size > 8 * 1024 * 1024, JSON.stringify({ size: st.size, truncated: st.truncated }));
+  check('>8MB 默认只读', st.readonly === true);
+  const bigBanner = await frame.evaluate(() => [...document.querySelectorAll('.banner')].map((b) => b.textContent).join(' | '));
+  check('只读提示带真实尺寸和工具上限（8.00 MB）',
+    /工具上限 8\.00 MB/.test(bigBanner) && new RegExp((st.size / 1024 / 1024).toFixed(2) + ' MB').test(bigBanner),
+    bigBanner.slice(0, 160));
+  check('>8MB 时保存按钮禁用', await frame.$eval('#btn-save', (el) => el.disabled) === true);
+  check('>8MB 时文本输入框 readOnly', await frame.$eval('#code-input', (el) => el.readOnly) === true);
   await shot('大文件-只读提示');
 
   // 「仍然编辑」→ 弹二次确认（会截断文件），取消后仍然只读
@@ -878,6 +920,55 @@ async function main() {
   await sleep(300);
   check('取消后仍然是只读（没有把文件置于危险状态）',
     (await state(frame)).readonly === true && await frame.$eval('#code-input', (el) => el.readOnly) === true);
+
+  // ---- 宿主上限的直接契约（写 9MB / 剪贴板 300KB 都要拿到可识别错误） ----
+  const writeErr = await frame.evaluate(() => window.cloudnine.fs
+    .writeText('sample.json', 'x'.repeat(9 * 1024 * 1024))
+    .then(() => 'ok', (e) => `${e.code}|${e.message}`));
+  check('fs.writeText 超 8MB 回 PAYLOAD_TOO_LARGE，message 带真实体积',
+    /^PAYLOAD_TOO_LARGE\|/.test(writeErr) && /9\.00 MB/.test(writeErr) && /8\.00 MB/.test(writeErr), writeErr);
+  const clipErr = await frame.evaluate(() => window.cloudnine.clipboard
+    .writeText('y'.repeat(300 * 1024))
+    .then(() => 'ok', (e) => `${e.code}|${e.message}`));
+  check('clipboard.writeText 超 256KB 回 PAYLOAD_TOO_LARGE（不静默失败）',
+    /^PAYLOAD_TOO_LARGE\|/.test(clipErr) && /256\.0 KB|256\.0 KB/.test(clipErr), clipErr);
+  const sandboxFacts = await frame.evaluate(() => {
+    let ls = '';
+    try { localStorage.getItem('x'); ls = 'ok'; } catch (e) { ls = e.name; }
+    let cf = 'no';
+    try { cf = String(window.confirm('沙箱里不该弹出来')); } catch (e) { cf = e.name; }
+    return { ls, cf };
+  });
+  check('沙箱里 localStorage 抛 SecurityError（拿不到存储）', sandboxFacts.ls === 'SecurityError', sandboxFacts.ls);
+  check('沙箱里 window.confirm 是空操作（返回 false，不弹框）', sandboxFacts.cf === 'false', sandboxFacts.cf);
+  await closeAllWindows();
+
+  // ---- 1.2MB：正常打开 / 格式化 / 保存，磁盘回读一致 ----
+  await dblclickEntry('medium.json');
+  frame = await frameOf('medium.json', 30000);
+  st = await state(frame);
+  check('1.2MB JSON 正常可编辑（不截断、不置只读）',
+    st.readonly === false && st.truncated === false && st.size > 1024 * 1024
+    && st.chars > 600000, JSON.stringify({ size: st.size, chars: st.chars, readonly: st.readonly }));
+  check('1.2MB 内容完整：字符数与磁盘一致',
+    st.chars === readDisk('medium.json').length, `${st.chars} vs ${readDisk('medium.json').length}`);
+  await shot('1.2MB-正常打开可编辑');
+
+  await clickInFrame(frame, '#btn-format');
+  st = await waitState(frame, (x) => x.lines > 1000, 30000);
+  const mediumFormatted = await docText(frame);
+  check('1.2MB 文档格式化成功（多行、缩进 2 空格）',
+    mediumFormatted.split('\n').length > 1000 && /^  "/.test(mediumFormatted.split('\n')[1] || ''),
+    JSON.stringify({ lines: st.lines, bytes: st.bytes }));
+  check('格式化后仍合法（解析出的结构没坏）', st.valid === true);
+  await clickInFrame(frame, '#btn-save');
+  st = await waitState(frame, (x) => x.dirty === false && x.msg.indexOf('已保存') >= 0, 30000);
+  const mediumDisk = readDisk('medium.json');
+  check('1.2MB 格式化后保存成功、脏标记清除', st.dirty === false && /已保存/.test(st.msg), st.msg);
+  check('磁盘回读与编辑框逐字节一致（1.2MB 全量写入）',
+    mediumDisk === mediumFormatted, `${mediumDisk.length} vs ${mediumFormatted.length}`);
+  check('磁盘内容能被 JSON.parse', (() => { try { JSON.parse(mediumDisk); return true; } catch { return false; } })());
+  await shot('1.2MB-格式化并保存');
   await closeAllWindows();
 
   await dblclickEntry('gbk.json');
@@ -1021,7 +1112,10 @@ async function main() {
 
   // ============================================================ 12. 控制台
   section('控制台');
-  const realErrors = consoleErrors.filter((m) => !/Failed to load resource/.test(m));
+  // 本脚本自己会调一次 window.confirm 来验证「沙箱里 confirm 是空操作」，
+  // Chrome 为此打的那条 Ignored call 是预期内的，不算插件错误
+  const realErrors = consoleErrors.filter((m) => !/Failed to load resource/.test(m)
+    && !/Ignored call to 'confirm\(\)'/.test(m));
   if (realErrors.length) console.log(`${DIM}    ${JSON.stringify(realErrors.slice(0, 3))}${RESET}`);
   check('浏览器控制台无 JS 错误、无无关 4xx/5xx',
     realErrors.length === 0 && badResponses.length === 0,

@@ -133,9 +133,9 @@ CloudNine 的插件是一份**纯静态前端包**：`plugin.json` + 一个入�
 | 权限 | 允许做的事 | 限制 / 真实风险 |
 | --- | --- | --- |
 | `storage` | 读写自己的私有数据（`storage.get/set`，落 `<PLUGIN_DATA_DIR>/<id>.json`） | 序列化后上限 **1MB**，超出返回 413；插件之间互相不可见（每个 id 一份文件） |
-| `fs.read` | 列目录、读文本文件（`fs.list` / `fs.readText`），范围是服务端配置的 `FILE_ROOT` | **单用户自托管下，Linux 默认 `FILE_ROOT=/`，等于整个磁盘可读**。这是声明式约束，不是沙箱 |
-| `fs.write` | 写文本文件（`fs.writeText`），范围同样是 `FILE_ROOT` | 同上：服务进程权限内可写的位置都能写（含覆盖你自己的文件） |
-| `clipboard.write` | 往系统剪贴板写文本（`clipboard.writeText`） | 只能写、不能读；写入发生在用户的操作上下文里 |
+| `fs.read` | 列目录、读文本文件（`fs.list` / `fs.readText`），范围是服务端配置的 `FILE_ROOT` | **单用户自托管下，Linux 默认 `FILE_ROOT=/`，等于整个磁盘可读**。这是声明式约束，不是沙箱。单次读取默认 512KB、上限 8MB（§6.2） |
+| `fs.write` | 写文本文件（`fs.writeText`），范围同样是 `FILE_ROOT` | 同上：服务进程权限内可写的位置都能写（含覆盖你自己的文件）。单次写入上限 8MB（UTF-8 字节） |
+| `clipboard.write` | 往系统剪贴板写文本（`clipboard.writeText`） | 只能写、不能读；写入发生在用户的操作上下文里；单次上限 256KB |
 | `notify` | 弹一条桌面通知（`notify`） | 不能读通知、不能交互，只是单向提示 |
 
 明确**不支持**的能力（v1 没有对应权限）：
@@ -245,16 +245,39 @@ GET /plugin-sdk/v1/cloudnine.js     # 公开，Content-Type: application/javascr
 | `storage.get` | — | `{data}`（服务端原样；SDK 会帮你取出 `data`） |
 | `storage.set` | `{data}` | `{ok:true, size}` |
 | `fs.list` | `{path}` | `{entries:[{name, dir, size, mtime}]}`：`dir` 是布尔（服务端 `type === 'dir'`）、`size` 字节、`mtime` = 服务端的 `mtimeMs`。宿主是拿 `GET /api/fs/list?path=` 自己拼的，那个接口实际返回 `{path, entries:[{name, type, size, mtimeMs, birthtimeMs, atimeMs, mode, modeStr, uid, gid, hidden, target}], free, total}`，`type` 取 `file` / `dir` / `symlink` / `broken`（**不是** `{dir, size, mtime}`，别把两个形状记混） |
-| `fs.readText` | `{path}` | `{text}` 或字符串 |
-| `fs.writeText` | `{path,text}` | `{ok:true}` |
-| `clipboard.writeText` | `{text}` | `{ok:true}` |
+| `fs.readText` | `{path, maxKB?}` | `{text, encoding, truncated, size, mtimeMs}`：`text` 是文本，`encoding` 是服务端实际用的解码（`utf-8` / `gb18030` / `latin1`），`truncated` 表示**内容被截断**（没读完），`size` 是文件真实字节数（截断时也准确）。`maxKB` 不传 = 默认 **512KB**；显式传就按你要求的读，服务端硬上限 **8192KB（8MB）**，超过的按 8MB 读。详见下面的「读写上限」 |
+| `fs.writeText` | `{path,text}` | `{ok:true, size}`；`text` 上限 **8MB（按 UTF-8 字节算，中文一个 3 字节）**，超了回 `PAYLOAD_TOO_LARGE`，message 里带真实体积与上限 |
+| `clipboard.writeText` | `{text}` | `{ok:true}`；`text` 上限 **256KB（UTF-8 字节）**，超了回 `PAYLOAD_TOO_LARGE`（不会静默失败） |
 | `notify` | `{title, body}` | `{ok:true}` |
 | `ui.setTitle` | `{title}` | `{ok:true}` |
 | `ui.markDirty` | `{dirty:boolean}` | `{ok:true, dirty}`；脏状态下点 X / 刷新页面都会被拦（§6.6） |
 | `ui.close` | — | `{ok:true}`；**窗口处于脏状态时返回错误 `UNSAVED_CHANGES`**，宿主不替用户丢数据 |
 
-错误码约定：`NOT_READY`、`TIMEOUT`、`INVALID_ARGUMENT`、`PERMISSION_DENIED`、`FS_NOT_FOUND`、`INTERNAL`（宿主也可自定义）。
-宿主自己在「脏状态下 `ui.close`」这一条上返回 `UNSAVED_CHANGES`。
+错误码约定：`NOT_READY`、`TIMEOUT`、`INVALID_ARGUMENT`、`PERMISSION_DENIED`、`FS_NOT_FOUND`、`PAYLOAD_TOO_LARGE`、`INTERNAL`（宿主也可自定义）。
+宿主自己在「脏状态下 `ui.close`」这一条上返回 `UNSAVED_CHANGES`；超过体积上限回 `PAYLOAD_TOO_LARGE`（message 形如
+`fs.writeText 的 text 是 9.20 MB，超过上限 8.00 MB`，**带上真实体积，别让用户猜**）。
+
+**读写上限（一次讲清）**
+
+| 接口 | 默认 | 上限 | 超了怎么办 |
+| --- | --- | --- | --- |
+| `fs.readText(path)` | 512KB | 8MB | 不传 `maxKB` 就只拿得到前 512KB，`truncated: true` |
+| `fs.readText(path, {maxKB})` | 你给的值 | 8192（=8MB） | 传超过 8192 按 8192 读；值不合法回 `INVALID_ARGUMENT` |
+| `fs.writeText` | — | 8MB（UTF-8 字节） | `PAYLOAD_TOO_LARGE` + 真实体积 |
+| `clipboard.writeText` | — | 256KB（UTF-8 字节） | `PAYLOAD_TOO_LARGE` + 真实体积 |
+
+写一个「大文件编辑器」的正确姿势：**先问大小，再按需读**（`fs.list(父目录)` 的 `size`，或先读一次看 `size`），
+不要无脑依赖默认 512KB：
+
+```js
+const dir = file.rel.includes('/') ? file.rel.slice(0, file.rel.lastIndexOf('/')) : '';
+const size = ((await cloudnine.fs.list(dir)).entries.find((e) => e.name === file.name) || {}).size || 0;
+const r = await cloudnine.fs.readText(file.rel, { maxKB: Math.ceil(size / 1024) + 1 });
+if (r.truncated) {
+  // 只拿到一部分：**绝对不要**把这份半截内容写回去，会把后面的数据截掉
+  renderReadOnly(r.text, `文件 ${size} 字节，超过读取上限`);
+}
+```
 
 ### 6.3 插件里怎么写
 
@@ -355,6 +378,23 @@ await cloudnine.ui.markDirty(false);  // 已保存（或用户确认放弃）后
 > `defaultFor: [".json"]`，演示读 `file.rel`、标脏与 `ui.close` 被拒的完整状态机）。
 > 端到端验收：`node scripts/uitest-openwith.mjs`。
 
+### 6.7 沙箱里做不到的事（以及正确做法）
+
+插件跑在 `<iframe sandbox="allow-scripts allow-forms">` 里 —— opaque origin、没有 `allow-same-origin`、没有 `allow-modals`。
+下面这些不是「权限没开」，而是**没有对应 API**，每一条都给了可执行的做法：
+
+| 想做 | 实际行为 | 正确做法 |
+| --- | --- | --- |
+| `window.alert()` / `confirm()` / `prompt()` | **空操作**：不弹框、不阻塞、`confirm()` 直接返回 `false`。宿主不会替你弹 | 自己在插件里画弹层（一个全屏 `position:fixed` 遮罩 + 绝对定位的卡片，`z-index` 自定），用 Promise 接结果；要阻塞保存/关闭的确认一律走它 |
+| 让用户挑一个文件 / 选保存位置 | v1 **没有** 文件选择器 / 保存对话框方法 | 用 `fs.list(rel)` 自己搭目录浏览器（逐级进入、`..` 返回上级），文件名用 `<input>` 收；拼出 `rel` 后走 `fs.readText` / `fs.writeText`。文件名里不要出现 `/`、反斜杠、`.`、`..`，自己先拦一道（宿主只校验最终 `path`） |
+| `localStorage` / `sessionStorage` / `cookie` | opaque origin 下**抛 `SecurityError`**（拿不到存储） | 要持久化就声明 `storage` 权限走 `storage.get/set`（上限 1MB）；纯 UI 偏好放在内存里即可 |
+| `window.open` / `location.href = ...` | 被沙箱拦住（没有 `allow-popups` / `allow-top-navigation`） | 需要外链就让用户自己复制文本；需要多开就用宿主窗口（`window.multi`） |
+| 读剪贴板 | 没有 `clipboard.read` 权限，`navigator.clipboard.readText()` 在沙箱里也不可用 | 只能写；需要「粘贴」就提供输入框让用户手动粘贴 |
+| 执行命令 / 起子进程 / 自建后端 | v1 没有任何对应权限 | 没有替代方案；需要的话就不是插件，得宿主加能力 |
+
+> 参考实现：[`examples/plugins/json/`](../examples/plugins/json/) —— 自绘确认弹层、自绘「保存到…」目录浏览器、
+> 大文件按大小请求 `maxKB`、`truncated` 时硬只读，完整演示了上面每一条的写法。
+
 ---
 
 ## 7. 打包与上传
@@ -442,6 +482,7 @@ python scripts/plugins_smoke.py --url http://127.0.0.1:8499 --plugins-dir /tmp/c
 node scripts/uitest-plugins.mjs    # 外壳接入：图标 / 开窗 / 沙箱 / 主题注入 / 协议 / 错误码
 node scripts/uitest-todo.mjs       # 示例插件 todo 的端到端验收（含重启服务后的持久化、亮暗主题、窄宽度）
 node scripts/uitest-openwith.mjs   # 文件关联：打开方式 / defaultFor / file.rel / ui.markDirty / beforeunload
+node scripts/uitest-json-plugin.mjs # 示例插件 json 的端到端验收（8MB 读写上限 / 1.2MB 大文件 / 树视图 / 错误定位）
 ```
 
-三个脚本都支持 `--chrome`、`--port`、`--url`、`--keep`，默认不碰仓库里正在跑的实例。
+四个脚本都支持 `--chrome`、`--port`、`--url`、`--keep`，默认不碰仓库里正在跑的实例。

@@ -199,6 +199,8 @@
     user-select: none;
   }
   .gutter-inner { will-change: transform; }
+  /* 大文档不画行号时整列收起，别留一条空糟 */
+  .editor.no-gutter .gutter { display: none; }
   .gutter .ln { white-space: pre; }
   .gutter .ln.err-line { color: var(--danger-text); font-weight: 700; }
   .code-wrap { position: relative; flex: 1 1 auto; min-width: 0; min-height: 0; }
@@ -219,6 +221,9 @@
     scrollbar-color: var(--scrollbar-thumb) transparent;
   }
   .code-input::selection { background: var(--accent-soft); }
+  /* 超大文档：关掉高亮层，让 textarea 自己显示文字（彩色层要复制一整份文本进 DOM） */
+  .editor.no-hl .code-input { color: var(--text); -webkit-text-fill-color: currentColor; }
+  .editor.no-hl .code-input::selection { background: var(--accent-soft); }
   .code-input::placeholder { color: transparent; }
   .code-layer .ph { color: var(--text-3); }
 
@@ -528,13 +533,15 @@
   var cn = window.cloudnine;
 
   // ------------------------------------------------------------------ 常量
-  // 实测宿主限制（docs/plugins.md 未写全，见汇报）：
-  //   fs.readText 走 /api/fs/read?maxKB，默认 512KB 且插件无法调大 → 大文件只会拿到前 512KB
-  //   fs.writeText 的 text 在宿主侧限 1MB（checkText），超了回 INVALID_ARGUMENT
-  var MAX_EDIT_SIZE = 2 * 1024 * 1024;   // 超过 2MB 默认只读（产品策略）
-  var HOST_READ_LIMIT_KB = 512;
-  var HOST_WRITE_LIMIT = 1024 * 1024;
+  // 宿主能力（docs/plugins.md §6.2）：
+  //   fs.readText(rel, {maxKB}) 可显式请求读取上限，服务端默认 512KB、硬上限 8MB
+  //   fs.writeText 上限 8MB（UTF-8 字节），超过回 PAYLOAD_TOO_LARGE 并带真实体积
+  var MAX_EDIT_SIZE = 8 * 1024 * 1024;    // 工具上限：超过 8MB 只读（读也读不全）
+  var MAX_WRITE_BYTES = 8 * 1024 * 1024;  // 与宿主 fs.writeText 上限一致
+  var READ_MAX_KB = 8192;                 // 宿主硬上限
+  var PEEK_KB = 2048;                     // 超大文件只预览前 2MB，用不着把 8MB 全塞进 DOM
   var HL_LIMIT = 400000;                  // 超长文本关闭语法高亮（性能）
+  var GUTTER_MAX_LINES = 5000;            // 行数太多时不画行号（20 万行能画出几十万个节点）
   var FIND_LIMIT = 5000;
   var PAGINATE_THRESHOLD = 500;           // 数组/对象超过 500 项才分页
   var PAGE_SIZE = 200;
@@ -555,6 +562,7 @@
     encoding: 'utf-8',
     truncated: false,
     size: 0,
+    readKB: 0,
     readonly: false,
     forceEdit: false,
     encAcked: false,
@@ -984,6 +992,18 @@
   function renderGutter() {
     var lines = lineCount(S.text);
     var errLine = (S.parse && !S.parse.ok) ? S.parse.error.line : 0;
+    if (lines > GUTTER_MAX_LINES) {
+      // 大文档不画行号：几十万个节点会把窗口拖死，状态栏仍显示行数
+      els['pane-text'].classList.add('no-gutter');
+      if (gutterLines !== -1) {
+        gutterLines = -1;
+        gutterErrLine = -1;
+        els['gutter-inner'].innerHTML = '';
+      }
+      els['gutter-inner'].style.transform = 'translateY(' + (-ta.scrollTop) + 'px)';
+      return;
+    }
+    els['pane-text'].classList.remove('no-gutter');
     // 行数没变就不重建（大文件里每敲一个字都重建几千个行号会很卡）
     if (lines !== gutterLines || errLine !== gutterErrLine) {
       gutterLines = lines;
@@ -997,9 +1017,14 @@
     els['gutter-inner'].style.transform = 'translateY(' + (-ta.scrollTop) + 'px)';
   }
 
+  function highlightOff() { return S.text.length > HL_LIMIT; }
+
   function renderHighlight() {
     if (!S.hasDoc) { els['code-hl'].innerHTML = ''; return; }
     var text = S.text;
+    var off = highlightOff();
+    els['pane-text'].classList.toggle('no-hl', off);
+    if (off) { els['code-hl'].innerHTML = ''; return; }
     if (!text) {
       els['code-hl'].innerHTML = '<span class="ph">' + escapeHtml('在这里输入 JSON，例如 {"hello": "world"}') + '</span>\n';
       return;
@@ -1010,7 +1035,7 @@
       if (idx >= 0) marks.push({ start: idx, end: idx + 1, cls: 'err' });
     }
     var f = S.find;
-    if (f.open && f.query && f.matches.length) {
+    if (!off && f.open && f.query && f.matches.length) {
       for (var i = 0; i < f.matches.length; i++) {
         marks.push({
           start: f.matches[i].start,
@@ -1115,13 +1140,14 @@
     if (S.truncated && !S.forceEdit) {
       list.push({
         id: 'trunc', cls: 'warn', icon: '⚠',
-        text: '宿主只读取了前 ' + fmtBytes(HOST_READ_LIMIT_KB * 1024) + '（读取接口上限），文件实际 '
-          + fmtBytes(S.size) + '，内容不完整，已禁止编辑与保存，以免把文件截断。',
+        text: '文件 ' + fmtBytes(S.size) + '，超过工具上限 ' + fmtBytes(MAX_EDIT_SIZE)
+          + '，只载入了前 ' + fmtBytes((S.readKB || PEEK_KB) * 1024)
+          + '；内容不完整，已禁止编辑与保存，以免把文件截断。',
         actions: [{
           label: '仍然编辑', fn: function () {
             confirmModal({
               title: '内容不完整，仍然编辑？',
-              message: '这份文件只载入了前 ' + fmtBytes(HOST_READ_LIMIT_KB * 1024) + '（共 ' + fmtBytes(S.size)
+              message: '这份文件只载入了前 ' + fmtBytes((S.readKB || PEEK_KB) * 1024) + '（共 ' + fmtBytes(S.size)
                 + '）。保存会把整个文件覆盖成编辑框里的内容，**后面那部分会永久丢失**。',
               okText: '我明白，仍然编辑', danger: true
             }).then(function (ok) {
@@ -1137,7 +1163,7 @@
     } else if (S.size > MAX_EDIT_SIZE && !S.forceEdit) {
       list.push({
         id: 'big', cls: 'warn', icon: '⚠',
-        text: '文件 ' + fmtBytes(S.size) + '，超过 ' + fmtBytes(MAX_EDIT_SIZE) + ' 的编辑上限，当前为只读查看。',
+        text: '文件 ' + fmtBytes(S.size) + '，超过工具上限 ' + fmtBytes(MAX_EDIT_SIZE) + '，当前为只读查看。',
         actions: [{
           label: '仍然编辑', fn: function () {
             S.forceEdit = true;
@@ -1151,7 +1177,7 @@
     } else if (S.forceEdit && (S.truncated || S.size > MAX_EDIT_SIZE)) {
       list.push({
         id: 'forced', cls: 'warn', icon: '!',
-        text: '强制编辑中：' + (S.truncated ? '内容不完整（只有前 ' + fmtBytes(HOST_READ_LIMIT_KB * 1024) + '）' : '文件 ' + fmtBytes(S.size))
+        text: '强制编辑中：' + (S.truncated ? '内容不完整（只有前 ' + fmtBytes((S.readKB || PEEK_KB) * 1024) + '）' : '文件 ' + fmtBytes(S.size))
           + '，保存会整份覆盖。',
         actions: []
       });
@@ -1176,6 +1202,15 @@
       list.push({
         id: 'dup', cls: 'warn', icon: '⚠',
         text: '键名 "' + k.key + '" 重复（首次出现在第 ' + lc.line + ' 行 第 ' + lc.col + ' 列），解析时后者覆盖前者。',
+        actions: []
+      });
+    }
+    if (S.hasDoc && !S.truncated && (S.text.length > HL_LIMIT || lineCount(S.text) > GUTTER_MAX_LINES)) {
+      list.push({
+        id: 'bigdoc', cls: 'plain', icon: 'i',
+        text: '文档较大（' + lineCount(S.text) + ' 行 · ' + fmtBytes(byteLen(S.text))
+          + '）：已关闭语法高亮' + (lineCount(S.text) > GUTTER_MAX_LINES ? '与行号' : '')
+          + '以保证流畅，搜索 / 格式化 / 保存照常可用。',
         actions: []
       });
     }
@@ -1449,7 +1484,7 @@
     if (!S.hasDoc) { host.textContent = ''; return; }
     host.textContent = '';
     if (S.truncated) {
-      host.appendChild(treeNote('内容被截断，无法生成树视图', '宿主只读取了前 ' + fmtBytes(HOST_READ_LIMIT_KB * 1024) + '，整份内容不完整。'));
+      host.appendChild(treeNote('内容被截断，无法生成树视图', '只载入了前 ' + fmtBytes((S.readKB || PEEK_KB) * 1024) + '（文件 ' + fmtBytes(S.size) + '，超过工具上限 ' + fmtBytes(MAX_EDIT_SIZE) + '），整份内容不完整。'));
       return;
     }
     if (!S.parse || !S.parse.ok) {
@@ -1787,8 +1822,9 @@
       var e = S.parse && S.parse.error;
       return '语法错误未保存：' + (e ? e.message : '请先修好 JSON');
     }
-    if (S.text.length > HOST_WRITE_LIMIT) {
-      return '内容 ' + fmtBytes(byteLen(S.text)) + '，超过宿主写入上限 1 MB，无法保存';
+    var bytes = byteLen(S.text);
+    if (bytes > MAX_WRITE_BYTES) {
+      return '内容 ' + fmtBytes(bytes) + '，超过写入上限 ' + fmtBytes(MAX_WRITE_BYTES) + '，无法保存';
     }
     return null;
   }
@@ -2175,11 +2211,19 @@
     els['code-input'].readOnly = true;
 
     try {
-      var r = await cn.fs.readText(S.file.rel);
+      // 先问大小，再按需请求读取上限：≤8MB 的文件整份读进来（可编辑），
+      // 更大的只预览前 2MB（反正也存不回去，没必要把 8MB 文本塞进 DOM）
+      var knownSize = await statSize(S.file.rel, 0);
+      var maxKB = knownSize > MAX_EDIT_SIZE ? PEEK_KB
+        : (knownSize > 0 ? Math.min(READ_MAX_KB, Math.ceil(knownSize / 1024) + 1) : READ_MAX_KB);
+      var r = await cn.fs.readText(S.file.rel, { maxKB: maxKB });
       var text = typeof r === 'string' ? r : (r && typeof r.text === 'string' ? r.text : '');
       S.encoding = (r && r.encoding) || 'utf-8';
       S.truncated = !!(r && r.truncated);
-      S.size = await statSize(S.file.rel, byteLen(text));
+      // 内容被截断时，r.size 才是文件真实大小（不要拿截断后的字符数冒充）
+      S.size = (r && typeof r.size === 'number') ? r.size
+        : (knownSize || byteLen(text));
+      S.readKB = maxKB;
       S.readonly = S.truncated || S.size > MAX_EDIT_SIZE;
       S.text = text;
       S.savedText = text;
@@ -2192,7 +2236,7 @@
       if (cn && cn.ui) cn.ui.markDirty(false).catch(noop);
       refreshAll();
       setMsg(S.readonly
-        ? '已打开 ' + S.name + '（只读：' + (S.truncated ? '内容被截断' : '超过 2 MB') + '）'
+        ? '已打开 ' + S.name + '（只读：' + fmtBytes(S.size) + '，超过工具上限 ' + fmtBytes(MAX_EDIT_SIZE) + '）'
         : '已打开 ' + S.name + '（' + fmtBytes(S.size) + '）');
     } catch (e) {
       S.readonly = true;
@@ -2217,6 +2261,7 @@
     S.truncated = false;
     S.encoding = 'utf-8';
     S.size = 0;
+    S.readKB = 0;
     S.text = NEW_DOC_TEXT;
     S.savedText = NEW_DOC_TEXT;
     S.dirty = false;
@@ -2352,6 +2397,8 @@
       lines: lineCount(S.text),
       bytes: byteLen(S.text),
       size: S.size,
+      readKB: S.readKB || 0,
+      limitBytes: MAX_EDIT_SIZE,
       dirty: S.dirty,
       readonly: S.readonly,
       forceEdit: S.forceEdit,

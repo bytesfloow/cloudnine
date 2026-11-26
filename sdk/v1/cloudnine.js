@@ -221,7 +221,13 @@
     },
     fs: {
       list: function (p) { return call('fs.list', { path: p }); },
-      readText: function (p) { return call('fs.readText', { path: p }); },
+      // opts.maxKB：可显式请求读取上限（宿主透传给 /api/fs/read）；不传 = 默认 512KB。
+      // 服务端硬上限 8MB，超过的按 8MB 读，返回值里的 truncated 告诉你是否被截断。
+      readText: function (p, opts) {
+        var params = { path: p };
+        if (opts && typeof opts === 'object' && opts.maxKB != null) params.maxKB = Number(opts.maxKB);
+        return call('fs.readText', params);
+      },
       writeText: function (p, text) { return call('fs.writeText', { path: p, text: text }); }
     },
     clipboard: {
