@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { WINDOW_DEFAULTS as APP_WINDOW_DEFAULTS } from './apps/registry.jsx';
+import { WINDOW_DEFAULTS as APP_WINDOW_DEFAULTS, PLUGIN_WINDOW } from './apps/registry.jsx';
 
 // ---------- 桌面视图偏好（排序 / 隐藏文件）----------
 // 桌面图标位置不再手工摆放：桌面即主目录，所有图标同属一个目录，
@@ -78,6 +78,10 @@ let state = {
   // 已安装插件（GET /api/plugins 的 plugins 数组，服务端原样）
   // 移动端不拉取；拉取失败 / 401 一律按「无插件」处理，不阻塞桌面
   plugins: [],
+  // manifest 坏掉的插件目录（GET /api/plugins 的 invalid），设置窗口里要如实展示原因
+  pluginsInvalid: [],
+  pluginsLoaded: false,   // 首次列表是否已经有结果（设置窗口据此区分「加载中」与「一个都没装」）
+  pluginsError: '',       // 拉列表失败的原因（网络 / 401），空字符串 = 没失败
   // 窗口「未保存」标记（windowId → true）。单一真相：点 X / 任务栏关闭 /
   // 其它任何走 closeWindow 的入口、以及页面 beforeunload 都读这一份（见下面窗口管理段）
   dirtyWindows: {},
@@ -555,8 +559,92 @@ export function updateWindowProps(id, patch) {
 }
 
 // ---------- 插件 / 虚拟应用 ----------
-// 插件列表由桌面壳（Desktop.jsx）在登录后拉一次；失败一律按空列表处理
-export const setPlugins = (plugins) => setState({ plugins: Array.isArray(plugins) ? plugins : [] });
+// 插件列表是**外壳唯一真源**：登录后拉一次（Desktop.jsx），之后装 / 卸 / 覆盖安装都
+// 就地改它（upsertPlugin / dropPlugin），桌面图标、开始菜单「插件」分组、「打开方式」
+// 候选全部从这里派生 —— 所以装卸之后**不需要刷新页面**（这条替代了旧版的
+// 「装完必须刷新浏览器」，见 docs/plugins.md §8 第 6 条）。
+export const setPlugins = (plugins, invalid) => setState({
+  plugins: Array.isArray(plugins) ? plugins : [],
+  pluginsInvalid: Array.isArray(invalid) ? invalid : [],
+});
+
+/** 登录后拉一次列表；失败（401 / 网络）按「无插件」处理，不阻塞桌面启动 */
+export async function loadPlugins() {
+  try {
+    const { api } = await import('./api.js');
+    const r = await api.plugins();
+    setPlugins(r?.plugins, r?.invalid);
+    setState({ pluginsLoaded: true, pluginsError: '' });
+    return r;
+  } catch (e) {
+    setPlugins([]);
+    setState({ pluginsLoaded: true, pluginsError: e?.message || '读取插件列表失败' });
+    return null;
+  }
+}
+
+function persistHiddenApps(list) {
+  try { localStorage.setItem(DESKTOP_APPS_HIDDEN_KEY, JSON.stringify(list)); } catch { /* 忽略持久化失败 */ }
+}
+
+// 「从桌面移除」名单里去掉某个插件：重装之后图标理所当然要回来
+function unhideAppIn(state, appId) {
+  const hidden = state.desktopAppsHidden.filter((x) => x !== appId);
+  if (hidden.length !== state.desktopAppsHidden.length) persistHiddenApps(hidden);
+  return hidden;
+}
+
+/** 安装 / 覆盖安装成功后就地更新列表（服务端返回值就是一条完整的插件对象） */
+export function upsertPlugin(plugin) {
+  if (!plugin || !plugin.id) return;
+  setState((s) => {
+    const i = s.plugins.findIndex((p) => p.id === plugin.id);
+    const plugins = i < 0
+      ? [...s.plugins, plugin]
+      : s.plugins.map((p, j) => (j === i ? plugin : p));
+    return { plugins, desktopAppsHidden: unhideAppIn(s, `plugin:${plugin.id}`) };
+  });
+}
+
+/** 卸载后就地更新列表，并顺手收尾：关掉它的窗口、清脏标记、去掉桌面隐藏名单 */
+export function dropPlugin(id) {
+  setState((s) => {
+    const plugins = s.plugins.filter((p) => p.id !== id);
+    // 插件目录已经没了，留着它的窗口只会是一块 404 白板
+    const doomed = new Set(s.windows
+      .filter((w) => w.type === PLUGIN_WINDOW && w.props?.pluginId === id)
+      .map((w) => w.id));
+    const windows = doomed.size ? s.windows.filter((w) => !doomed.has(w.id)) : s.windows;
+    const dirtyWindows = { ...s.dirtyWindows };
+    doomed.forEach((wid) => delete dirtyWindows[wid]);
+    const nextFocus = doomed.has(s.focusId)
+      ? (windows.filter((w) => !w.minimized).sort((a, b) => b.z - a.z)[0]?.id || null)
+      : s.focusId;
+    return {
+      plugins,
+      windows,
+      dirtyWindows,
+      focusId: nextFocus,
+      recent: s.recent.filter((x) => !doomed.has(x)),
+      desktopAppsHidden: unhideAppIn(s, `plugin:${id}`),
+    };
+  });
+}
+
+/** 安装一个插件包（File / Blob，zip 原始字节）；成功后列表就地更新。抛错 = 失败原因可直接展示 */
+export async function installPlugin(file, opts = {}) {
+  const { api } = await import('./api.js');
+  const plugin = await api.pluginInstall(file, opts);
+  upsertPlugin(plugin);
+  return plugin;
+}
+
+/** 卸载一个插件（服务端删目录 + 私有数据）；成功后列表就地更新 */
+export async function uninstallPlugin(id) {
+  const { api } = await import('./api.js');
+  await api.pluginDelete(id);
+  dropPlugin(id);
+}
 
 function loadDesktopAppsHidden() {
   try {
@@ -570,7 +658,7 @@ export function setAppDesktopVisible(appId, visible) {
   const cur = new Set(loadDesktopAppsHidden());
   if (visible) cur.delete(appId); else cur.add(appId);
   const list = [...cur];
-  try { localStorage.setItem(DESKTOP_APPS_HIDDEN_KEY, JSON.stringify(list)); } catch { /* 忽略持久化失败 */ }
+  persistHiddenApps(list);
   setState({ desktopAppsHidden: list });
 }
 

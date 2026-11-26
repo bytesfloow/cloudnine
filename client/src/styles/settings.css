@@ -1,0 +1,157 @@
+/* ============ 设置窗口（左侧分区导航 + 右侧内容） ============
+   颜色 / 圆角 / 间距全部走既有令牌：侧栏 --sidebar-bg，卡片 --panel-bg，
+   描边 --line，强调 --accent / --accent-soft / --accent-text，语义色 --ok / --danger / --warn。
+   不引入任何新的字面色值，暗色主题下自动跟着变。 */
+
+.settings-window { display: flex; height: 100%; min-height: 0; overflow: hidden; }
+
+/* ---------- 分区导航 ---------- */
+.set-nav {
+  flex: none; width: 172px; padding: 10px 8px; display: flex; flex-direction: column; gap: 2px;
+  background: var(--sidebar-bg); border-right: 1px solid var(--win-border); overflow: auto;
+}
+.set-nav-head { font-size: 12px; font-weight: 700; color: var(--text-2); padding: 4px 9px 8px; }
+.set-nav-item {
+  position: relative; display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 7px 9px 7px 13px; border-radius: var(--radius-ctl); font-size: 12.5px; text-align: left;
+  color: var(--text); transition: background-color .12s ease;
+}
+.set-nav-item:hover { background: var(--hover); }
+.set-nav-item.active { background: var(--accent-soft); color: var(--accent-text); font-weight: 600; }
+.set-nav-item.active::before {
+  /* 选中条画在选中块自己的左缘（不跳出侧栏边界，否则看着像一条多余的竖线） */
+  content: ''; position: absolute; left: 4px; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 14px; border-radius: 2px; background: var(--accent);
+}
+.set-nav-item svg { flex: none; }
+.set-nav-count {
+  margin-left: auto; font-size: 10.5px; font-weight: 600; color: var(--text-2);
+  background: var(--active); border-radius: 8px; padding: 0 6px;
+}
+.set-nav-item.active .set-nav-count { background: var(--accent); color: var(--on-accent); }
+
+.set-main { flex: 1; min-width: 0; overflow: auto; padding: 14px 16px 18px; }
+.set-panel { display: flex; flex-direction: column; }
+
+/* ---------- 插件面板 ---------- */
+.plug-panel { display: flex; flex-direction: column; }
+.plug-file-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+.plug-drop {
+  display: flex; align-items: center; gap: 11px; padding: 12px; margin-bottom: 10px;
+  border: 1px dashed var(--line); border-radius: var(--radius-win); background: var(--panel-bg);
+  cursor: pointer; transition: border-color .15s, background-color .15s; min-width: 0;
+}
+.plug-drop:hover { border-color: var(--accent); }
+.plug-drop.dragging { border-color: var(--accent); background: var(--accent-soft); }
+.plug-drop.busy { cursor: default; border-style: solid; }
+.plug-drop-icon {
+  flex: none; width: 38px; height: 38px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--accent-soft); color: var(--accent-text);
+}
+.plug-drop-main { min-width: 0; }
+.plug-drop-title { font-size: 12.5px; font-weight: 600; }
+.plug-drop-link { color: var(--accent-text); margin-left: 3px; }
+.plug-drop-sub { font-size: 11.5px; color: var(--text-2); margin-top: 3px; line-height: 1.5; }
+
+.plug-progress-wrap { width: 100%; min-width: 0; }
+.plug-progress-top { display: flex; align-items: center; gap: 7px; font-size: 12px; margin-bottom: 7px; }
+.plug-progress-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plug-progress-pct { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--text-2); }
+/* 还没拿到上传进度（0%）时用不确定态：一条来回跑的带宽，避免“进度条是空的”看着像卡死 */
+.plug-progress.indeterminate i { width: 34% !important; animation: plug-sheen 1.1s ease-in-out infinite; }
+@keyframes plug-sheen {
+  from { transform: translateX(-80%); }
+  to { transform: translateX(300%); }
+}
+
+.plug-status-area { display: flex; flex-direction: column; gap: 6px; }
+.plug-status-area:empty { display: none; }
+.plug-status {
+  display: flex; align-items: center; gap: 8px; justify-content: space-between;
+  padding: 7px 10px; border-radius: var(--radius-ctl); font-size: 12px; line-height: 1.5;
+}
+.plug-status.ok { background: var(--ok-soft); color: var(--ok); }
+.plug-status.bad { background: var(--danger-soft); color: var(--danger-text); }
+.plug-status.bad .btn { flex: none; }
+
+.plug-invalid-block {
+  margin-top: 10px; padding: 9px 11px; border-radius: var(--radius-win);
+  background: var(--warn-soft); border: 1px solid var(--warn);
+}
+.plug-invalid-title { font-size: 12px; font-weight: 700; color: var(--warn); margin-bottom: 5px; }
+.plug-invalid-row { display: flex; gap: 8px; font-size: 11.5px; padding: 2px 0; min-width: 0; }
+.plug-invalid-dir { flex: none; color: var(--text); font-weight: 600; }
+.plug-invalid-err { color: var(--text-2); word-break: break-word; }
+
+.plug-loading { display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--text-2); font-size: 12.5px; padding: 24px 0; }
+
+.plug-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 5px; text-align: center;
+  padding: 28px 16px; border: 1px dashed var(--line); border-radius: var(--radius-win);
+  color: var(--text-2); margin-top: 10px;
+}
+.plug-empty-icon {
+  width: 52px; height: 52px; border-radius: 50%; margin-bottom: 4px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--accent-soft); color: var(--accent-text);
+}
+.plug-empty-title { font-size: 13px; font-weight: 600; color: var(--text); }
+.plug-empty-sub { font-size: 11.5px; line-height: 1.6; max-width: 380px; }
+
+.plug-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.plug-row {
+  display: flex; align-items: flex-start; gap: 11px; padding: 10px 12px;
+  background: var(--panel-bg); border: 1px solid var(--line); border-radius: var(--radius-win);
+  transition: box-shadow .15s, border-color .15s; min-width: 0;
+  /* 窄宽度（窗口拉到 600px 时内容区只剩 ~380px）下让按钮整行换行，不出横向滚动条 */
+  flex-wrap: wrap;
+}
+.plug-row:hover { border-color: var(--accent); box-shadow: var(--shadow-menu); }
+.plug-icon { flex: none; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; }
+.plug-icon-img { width: 34px; height: 34px; object-fit: contain; }
+.plug-main { flex: 1 1 190px; min-width: 0; }
+.plug-title-row { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+.plug-name { font-size: 13px; font-weight: 600; min-width: 0; }
+.plug-ver { flex: none; font-size: 11.5px; color: var(--text-2); }
+.plug-size { flex: none; margin-left: auto; font-size: 11px; color: var(--text-3); }
+.plug-meta { display: flex; align-items: center; gap: 5px; min-width: 0; margin-top: 2px; font-size: 11.5px; color: var(--text-2); }
+.plug-author { min-width: 0; max-width: 40%; }
+.plug-dot { flex: none; color: var(--text-3); }
+.plug-id { min-width: 0; }
+.plug-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 6px; }
+.plug-perm {
+  padding: 1px 7px; border-radius: 8px; font-size: 10.5px; font-weight: 600;
+  background: var(--accent-soft); color: var(--accent-text);
+}
+.plug-perm.none { background: var(--hover); color: var(--text-2); font-weight: 500; }
+.plug-ftypes { font-size: 11px; color: var(--text-3); word-break: break-word; }
+.plug-actions { flex: 0 0 auto; display: flex; gap: 6px; align-items: center; margin-left: auto; }
+
+/* ---------- 外观 / 关于 ---------- */
+.set-group { margin-bottom: 18px; }
+.set-group-title { font-size: 12.5px; font-weight: 700; margin-bottom: 8px; }
+.set-choices { display: flex; flex-wrap: wrap; gap: 8px; }
+.set-choice {
+  display: inline-flex; align-items: center; gap: 2px; padding: 6px 12px;
+  border: 1px solid var(--line); border-radius: var(--radius-ctl);
+  background: var(--panel-bg); font-size: 12.5px; transition: background-color .12s ease, border-color .12s ease;
+}
+.set-choice:hover { background: var(--hover); }
+.set-choice.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); font-weight: 600; }
+
+.about-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.about-logo {
+  width: 46px; height: 46px; flex: none; border-radius: var(--radius-win);
+  display: flex; align-items: center; justify-content: center;
+  background: var(--accent-soft); color: var(--accent-text);
+}
+.about-title { font-size: 15px; font-weight: 700; }
+.about-sub { font-size: 11.5px; color: var(--text-2); margin-top: 2px; }
+
+/* 窗口本身可能很窄（最小 560px）：导航固定宽度不变形，内容区自己收缩换行 */
+@media (max-width: 720px) {
+  .set-nav { width: 148px; }
+  .set-main { padding: 12px; }
+}

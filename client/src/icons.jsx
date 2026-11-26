@@ -289,6 +289,45 @@ export const IconPlugin = ({ size = 26 }) => {
   );
 };
 
+// 设置：48 视框彩色线描（与其它应用图标同一套），齿轮 + 内环
+// 齿轮齿用固定角度算出来，不手写一堆近似弧线：8 个齿、半径均匀。
+export const IconSettings = ({ size = 26 }) => {
+  const sw = A(size);
+  const teeth = Array.from({ length: 8 }, (_, i) => {
+    const a = (i * Math.PI) / 4;
+    return {
+      x1: 24 + Math.cos(a) * 12.6, y1: 24 + Math.sin(a) * 12.6,
+      x2: 24 + Math.cos(a) * 17.4, y2: 24 + Math.sin(a) * 17.4,
+    };
+  });
+  return (
+    <Svg size={size}>
+      <circle cx="24" cy="24" r="12.4" stroke={ACCENT} strokeWidth={sw} />
+      <circle cx="24" cy="24" r="4.6" stroke={ACCENT} strokeWidth={sw} />
+      <g stroke={ACCENT} strokeWidth={sw} strokeLinecap="round">
+        {teeth.map((t, i) => <line key={i} x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} />)}
+      </g>
+    </Svg>
+  );
+};
+
+// 小尺寸线性齿轮（开始菜单底部按钮 / 设置窗口导航，跟随 currentColor）
+export const IconGear = ({ size = 15 }) => {
+  const d = Array.from({ length: 8 }, (_, i) => {
+    const a = (i * Math.PI) / 4;
+    const x1 = 12 + Math.cos(a) * 6.2, y1 = 12 + Math.sin(a) * 6.2;
+    const x2 = 12 + Math.cos(a) * 8.6, y2 = 12 + Math.sin(a) * 8.6;
+    return `M${x1.toFixed(2)} ${y1.toFixed(2)}L${x2.toFixed(2)} ${y2.toFixed(2)}`;
+  }).join('');
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="12" cy="12" r="6.1" stroke="currentColor" strokeWidth="2.2" />
+      <circle cx="12" cy="12" r="2.3" stroke="currentColor" strokeWidth="2.2" />
+      <path d={d} stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+    </svg>
+  );
+};
+
 export const IconTrash = ({ size = 26, full }) => {
   const sw = A(size);
   const detail = size >= 28;

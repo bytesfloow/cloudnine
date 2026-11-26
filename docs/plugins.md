@@ -317,7 +317,8 @@ if (r.truncated) {
    （不要写死颜色，否则暗色主题下会瞎）、用 `cloudnine.ui.close()` / `ui.setTitle()` 接宿主窗口。
 3. **持久化**：`cloudnine.storage.get()` / `set(data)`，数据落 `<PLUGIN_DATA_DIR>/<id>.json`，序列化后上限 1MB。
    结构自己定，但要向后兼容：老数据里多出来的字段别直接丢，读的时候按字段名宽容解析。
-4. **装进去看效果**：`node scripts/plugin-dev-install.mjs mine`，然后刷新浏览器（见 §6.5）。
+4. **装进去看效果**：`node scripts/plugin-dev-install.mjs mine`，装完直接就能用（列表在 store 里，见 §6.5）；
+   也可以打成 zip 从「设置 → 插件」装（§6.5.2）。
 
 对照 `examples/plugins/todo/` 看这四步在真实应用里的样子：输入框 + 列表 + 筛选 + 空状态 + 键盘操作 + 窄宽度布局，
 全部在一个 HTML 文件里（内联 CSS/JS，不引 CDN），持久化就是每次改动后 `storage.set` 整个 JSON。
@@ -336,7 +337,8 @@ node scripts/plugin-dev-install.mjs todo --dir /tmp/cn-plugins   # 指到别的�
 - 它只是把 `examples/plugins/<name>/` **递归复制**成 `<PLUGINS_DIR>/<id>/`，落盘布局与 zip 安装后完全一致
   （先删旧目录再复制，所以删掉的文件不会残留）。
 - 不碰插件私有数据（`<PLUGIN_DATA_DIR>/<id>.json`）：反复安装同一插件不会丢你的待办 / 计数。
-- 装完刷新浏览器：插件列表只在登录时拉一次（§8 第 6 条），不刷新看不到新图标。
+- 装完**不用**刷新浏览器：插件列表已经进前端 store（§8 第 6 条），桌面图标与开始菜单「插件」分组就地更新。
+  不打包、直接在图形界面里装/卸/更新，见下面 §6.5.2。
 
 ### 6.5.1 dev 模式注意事项（vite dev server）
 
@@ -367,6 +369,26 @@ node scripts/plugin-dev-install.mjs todo --dir /tmp/cn-plugins   # 指到别的�
 不碰你正在跑的那两个），装 `json` / `todo` 两个真插件，断言 `/pa` 与 `/plugin-sdk` 走的是后端、
 插件窗口真的收到 `cn:ready`、控制台没有 CORS 报错。
 它**专跑 dev**，替代不了生产构建那套（`uitest-plugins` / `uitest-todo` / `uitest-json-plugin`），反之亦然。
+
+### 6.5.2 界面安装（设置 → 插件）
+
+不用命令行、不用 `curl`：普通用户从图形界面就能装 / 卸 / 更新插件。
+
+**入口**：开始菜单底部的「设置」按钮，或任务栏右下角头像菜单里的「设置…」。窗口左侧分区导航 → **插件**。
+
+| 区域 | 做什么 |
+| --- | --- |
+| 列表 | 每个插件一行：图标（服务端 `iconUrl` 的 `<img>`）、名称、版本、作者、插件 id、权限中文标签、能不能打开文件类型（`fileTypes`）。行尾「打开」= 直接启动插件窗口，「卸载」= 二次确认 |
+| 安装 | 把 zip 拖到虚线区，或点它（也有右上角「安装插件…」）选文件。上传中显示文件名 + 百分比进度；成功 / 失败都给可读文案 |
+| 覆盖 | 目标 id 已存在时服务端回 **409**，界面弹出「已存在「名字」vX，是否用 `xxx.zip` 覆盖安装？」——选取消则什么都不变，选覆盖才带 `?overwrite=1` 重试 |
+| 卸载 | 二次确认里明确写「会同时删除该插件的本地数据」。确认后前端同时收尾：列表移除、桌面图标/开始菜单项消失、它已经打开的窗口被关掉（不回 404 白板） |
+| 异常 | 一个都没装 = 空态；目录里 manifest 坏掉的插件单独列出并带原因（列表接口的 `invalid`）；zip 超过 **8MB** 在浏览器侧先拦下（不上传、不白等 413）；网络失败 / 401 给出该重试的提示 |
+
+后端接口没变（就是 §4 那三个）：`GET /api/plugins`、`POST /api/plugins/install`、`DELETE /api/plugins/:id`。
+**装 / 卸之后不需要刷新页面**：列表在 store 里，桌面图标与开始菜单跟着重渲染（§8 第 6 条）。
+
+> 已知缺口：列表接口目前**不返回插件包体积**（目录大小），所以界面上不显示体积；
+> 需要的话得在服务端 `publicPlugin()` 里加一个 `size` 字段（前端已按「有则显示」处理）。
 
 ### 6.6 文件关联与「未保存保护」
 
@@ -482,9 +504,11 @@ curl -b cookie.txt -X POST 'http://127.0.0.1:8480/api/plugins/install?overwrite=
 3. `<iframe sandbox="allow-scripts allow-forms" src={entryUrl}>` —— **不要加 `allow-same-origin`**，否则插件就能拿到宿主的 cookie 和 DOM。
 4. 由外壳负责 `cn:init` / `cn:call` / `cn:result` 的收发与权限判断（没有 `storage` 权限的插件调 `storage.*` 应回 `PERMISSION_DENIED`）。
 5. 卸载插件：`DELETE /api/plugins/:id`，然后从桌面/开始菜单移除并关掉它的窗口。
-6. **插件列表只在登录时拉一次**：外壳启动 / 登录后调一次 `GET /api/plugins`，结果挂在内存里。
-   装、卸、覆盖安装之后**必须刷新页面**，桌面图标 / 开始菜单 / 任务栏才会更新；v1 没有轮询也没有服务端推送，
-   不要指望 `DELETE` 的返回值能就地改外壳状态。
+6. **插件列表进 store，装 / 卸就地更新**：登录后调一次 `GET /api/plugins`（`client/src/store.js` 的
+   `loadPlugins()`），结果挂在 `state.plugins` / `state.pluginsInvalid`；设置 → 插件里安装 / 覆盖安装 /
+   卸载成功后用 `upsertPlugin()` / `dropPlugin()` **就地改这份数据**，桌面图标、开始菜单「插件」分组、
+   任务栏、`fileTypes` 的「打开方式」候选全部跟着重渲染 —— 所以**装、卸之后不需要刷新页面**
+   （改造前是必须刷新的）。`dropPlugin()` 还会关掉该插件已打开的窗口并清掉脏标记。
 7. 文件关联：按 `fileTypes` 往「打开方式」里追加候选项（只有声明了 `fileTypes` 的插件才追加），
    双击文件统一走 `fsops.openWithDefault()`（桌面 / 文件管理器窗口内 /「最近」同一份）：
    唯一 `defaultFor` → 直接进插件；有候选但无默认 → 弹「打开方式」选择器（内置默认选中）；无候选 → 内置行为。
@@ -502,6 +526,14 @@ npm run test:plugin   # 所有插件套件：外壳接入 / 示例插件 / 文�
 npm test              # 仓库全部套件（含桌面 UI 与读取解码）
 npm run --silent test -- --list          # 看套件清单与分组
 npm test -- --only=openwith              # 只跑一个（单个套件排障时用）
+
+# 也可以直接跑单个脚本（每个都自起临时环境，参数见各文件头注释）
+node scripts/uitest-plugins.mjs         # 外壳接入：图标 / 开窗 / 沙箱 / 主题注入 / 协议 / 错误码
+node scripts/uitest-todo.mjs            # 示例插件 todo 的端到端验收（含重启服务后的持久化、亮暗主题、窄宽度）
+node scripts/uitest-openwith.mjs        # 文件关联：打开方式 / defaultFor / file.rel / ui.markDirty / beforeunload
+node scripts/uitest-plugin-manager.mjs  # 设置 → 插件：列表 / 上传安装 / 409 覆盖 / 卸载 / 即时刷新 / 空态与暗色
+node scripts/uitest-json-plugin.mjs     # 示例插件 json 的端到端验收（8MB 读写上限 / 1.2MB 大文件 / 树视图 / 错误定位）
+node scripts/uitest-dev-plugin.mjs      # **dev 模式**：vite dev + 临时后端的 /pa、/plugin-sdk 代理与开窗（见 §6.5.1）
 ```
 
 每个套件都自己起一套临时环境（随机端口 + 临时 `DATA_DIR` / `PLUGINS_DIR` / `PLUGIN_DATA_DIR` / `FILE_ROOT`），跑完杀进程 + 删目录，**不碰** 8480 / 5173 上正在跑的实例。
@@ -512,6 +544,7 @@ npm test -- --only=openwith              # 只跑一个（单个套件排障时�
 | `plugins` | 外壳接入：图标 / 开窗 / 沙箱 / 主题注入 / postMessage 协议 / 错误码 |
 | `todo` | 示例插件 `todo` 端到端（含重启服务后的持久化、亮暗主题、窄宽度） |
 | `openwith` | 文件关联：打开方式 / `defaultFor` / `file.rel` / `ui.markDirty` / beforeunload |
+| `plugin-manager` | 设置 → 插件：列表 / 上传安装 / 409 覆盖确认（版本取响应字段）/ 卸载 / 列表与桌面即时刷新 / 空态与暗色 |
 | `json-plugin` | 示例插件 `json` 端到端（8MB 读写上限 / 1.2MB 大文件 / 树视图 / 错误定位） |
 | `md-plugin` | 示例插件 `markdown` 端到端（GFM / 消毒 / 大纲 / 大文件只读） |
 | `plugins-smoke` | 服务端 API 冒烟（401 / 列表 / 安装 / CSP / 穿越 / storage / 413 / 409 / 卸载 / SDK），python 标准库 |

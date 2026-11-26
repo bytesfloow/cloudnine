@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   IconFiles, IconTerminal, IconEditor, IconEye, IconInfo, IconTransfer, IconShare, IconDisk,
-  IconTrash, IconPlugin,
+  IconTrash, IconPlugin, IconSettings,
 } from '../icons.jsx';
 
 /* ============================================================================
@@ -111,6 +111,15 @@ export const BUILTIN_APPS = [
     props: { trash: true },
     match: (w) => !!w.props?.trash,
     iconProps: (st) => ({ full: st.trashCount > 0 }),
+  },
+  {
+    // 设置：**不进开始菜单的固定 7 项**（那 7 项的顺序与数量是既有契约，uitest 逐字断言），
+    // 入口在开始菜单底部的「设置」按钮与任务栏账户菜单（StartMenu.jsx / Taskbar.jsx）。
+    // multi: false —— 设置窗口同时只要一个（同类型再次启动 = 置顶已有窗口）。
+    id: 'settings', name: '设置', icon: IconSettings, windowType: 'settings',
+    defaults: { title: '设置', width: 760, height: 580, minWidth: 560, minHeight: 420, multi: false },
+    startMenu: false, taskbar: false, order: 80,
+    load: () => import('../windows/Settings.jsx'),
   },
 ];
 

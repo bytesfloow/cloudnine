@@ -264,6 +264,7 @@ export default function Taskbar() {
             <div className="account-popover">
               <div className="popover-header">{s.user}</div>
               <button className="dropdown-item" onClick={async () => { closePopover(); await changePasswordFlow(); }}>修改密码…</button>
+              <button className="dropdown-item" onClick={() => { closePopover(); openWindow('settings'); }}>设置…</button>
               <div className="dropdown-sep" />
               <button className="dropdown-item" onClick={() => setTheme('light')}><span className="di-check">{s.theme === 'light' ? '✓' : ''}</span>浅色主题</button>
               <button className="dropdown-item" onClick={() => setTheme('dark')}><span className="di-check">{s.theme === 'dark' ? '✓' : ''}</span>深色主题</button>

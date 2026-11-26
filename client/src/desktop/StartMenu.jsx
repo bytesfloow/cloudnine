@@ -1,13 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  useStore, getState, closePopover, activateOrOpen, openFile, bus, showDialog,
+  useStore, getState, closePopover, activateOrOpen, openFile, bus, showDialog, openWindow,
   minimizeAllWindows, dirname, fileCat, appLaunchProps,
 } from '../store.js';
 import { api } from '../api.js';
 import { lockFlow } from './account.js';
 import { START_MENU_APPS, pluginApps, AppIcon } from '../apps/registry.jsx';
 import {
-  IconSearch, IconNewFolder, IconUpload, IconGrid, IconDoc, IconPhoto, IconInfo,
+  IconSearch, IconNewFolder, IconUpload, IconGrid, IconDoc, IconPhoto, IconInfo, IconGear,
 } from '../icons.jsx';
 
 // 固定应用：严格 7 项，与旧底栏 Dock 的 7 项一一对应（docs §1.3 / §2.4）。
@@ -328,6 +328,14 @@ function StartMenuPanel() {
           onClick={() => { closePopover(); showDialog({ kind: 'about' }); }}
         >
           <IconInfo size={15} /><span>关于本系统</span>
+        </button>
+        <button
+          type="button"
+          className="sm-foot-btn sm-settings"
+          title="设置（插件管理 / 外观 / 关于）"
+          onClick={() => { closePopover(); openWindow('settings'); }}
+        >
+          <IconGear size={15} /><span>设置</span>
         </button>
         <button
           type="button"

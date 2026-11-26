@@ -74,6 +74,35 @@ export const api = {
   plugins: () => request('/api/plugins'),
   pluginStorage: (id) => request(`/api/plugins/${encodeURIComponent(id)}/storage`),
   pluginStorageSet: (id, data) => request(`/api/plugins/${encodeURIComponent(id)}/storage`, { method: 'PUT', body: { data } }),
+  // 安装：请求体是 zip 的**原始字节**（服务端上限 8MB），成功后返回新的插件对象；
+  // 已存在同一个 id 且没带 overwrite → 409（code=plugin_exists）。
+  // 这里用 XHR 而不是 fetch：只有 XHR 能拿到上传进度，8MB 的包干等没有任何反馈。
+  pluginInstall(file, { overwrite = false, onProgress } = {}) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `/api/plugins/install${overwrite ? '?overwrite=1' : ''}`);
+      xhr.setRequestHeader('Content-Type', 'application/zip');
+      xhr.upload.onprogress = (e) => {
+        if (onProgress && e.lengthComputable && e.total > 0) onProgress(Math.min(1, e.loaded / e.total));
+      };
+      xhr.onload = () => {
+        let data = null;
+        try { data = JSON.parse(xhr.responseText); } catch { /* 非 JSON 响应（如 413 的纯文本） */ }
+        if (xhr.status >= 200 && xhr.status < 300) return resolve(data);
+        const e = new Error(data?.error || `请求失败（${xhr.status}）`);
+        e.status = xhr.status;
+        e.code = data?.code;
+        if (xhr.status === 401) e.auth = true;
+        reject(e);
+      };
+      xhr.onerror = () => reject(new Error('网络错误：上传失败（无法连接服务器）'));
+      xhr.onabort = () => reject(new Error('上传已取消'));
+      xhr.ontimeout = () => reject(new Error('上传超时：服务器没有响应'));
+      xhr.send(file);
+    });
+  },
+  // 卸载：删插件目录 + 该插件的私有数据（服务端幂等）
+  pluginDelete: (id) => request(`/api/plugins/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   // 磁盘 / 任务 / 压缩
   disk: () => request('/api/disk'),

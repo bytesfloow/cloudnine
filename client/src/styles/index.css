@@ -28,6 +28,7 @@
        editor.css      567-611  文本编辑
        preview.css     612-695  预览窗口 + 简介窗口
        apps.css        696-777  传输 / 分享管理 / 磁盘监控
+       settings.css    ——       系统设置窗口（插件管理 / 外观 / 关于，本期新增）
        mobile.css      778-1097 移动端形态
        share.css       1098-1123 分享落地页
    ========================================================================== */
@@ -46,6 +47,7 @@
 @import './editor.css';
 @import './preview.css';
 @import './apps.css';
+@import './settings.css';
 @import './mobile.css';
 @import './share.css';
 @import './scrollbar.css';

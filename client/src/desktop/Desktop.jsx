@@ -1,10 +1,9 @@
 import React, { useEffect } from 'react';
 import {
-  useStore, bus, openWindow, closeWindow, closeContextMenu, closePopover, getState, showDialog, setState, setPlugins,
+  useStore, bus, openWindow, closeWindow, closeContextMenu, closePopover, getState, showDialog, loadPlugins,
   minimizeWindow, minimizeAllWindows, toggleShowDesktop, toggleMaxWindow, restoreWindow,
   openAltTab, cycleAltTab, commitAltTab, closeAltTab,
 } from '../store.js';
-import { api } from '../api.js';
 import { installPasteUpload } from '../pasteUpload.js';
 import { refreshDisk } from '../App.jsx';
 import WindowFrame from './WindowFrame.jsx';
@@ -220,13 +219,9 @@ export default function Desktop() {
 
   // 已安装插件：登录后拉一次，把 onDesktop / inStartMenu 交给外壳变成桌面图标与菜单项。
   // 失败（401 / 网络错）一律按「无插件」处理：插件拉不到不能挡住桌面启动。
-  useEffect(() => {
-    let alive = true;
-    api.plugins()
-      .then((r) => { if (alive) setPlugins(Array.isArray(r?.plugins) ? r.plugins : []); })
-      .catch(() => { if (alive) setPlugins([]); });
-    return () => { alive = false; };
-  }, []);
+  // 列表真相在 store（store.js 的插件段）；设置窗口里装 / 卸插件就地更新它，
+  // 桌面图标与开始菜单跟着重渲染 —— 不再需要刷新页面。
+  useEffect(() => { loadPlugins(); }, []);
 
   // Alt+Tab 必须在捕获阶段接：焦点在 xterm / 输入框时，元素级 keydown 会把 Tab 吃掉。
   // 只拦这一个组合，不影响其它键的优先级（终端 Ctrl+W 仍由它自己的捕获监听先处理）。
