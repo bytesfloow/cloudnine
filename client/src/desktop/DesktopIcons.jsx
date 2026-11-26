@@ -180,6 +180,13 @@ export default function DesktopIcons() {
     ]);
   }
 
+  // 「从桌面移除」的反向操作：把隐藏名单一次清空（图标随之回到桌面）。
+  // setAppDesktopVisible 每次都从 localStorage 重读名单，逐条置为可见是安全的；
+  // 没有它，移除就是死路（只能手改 localStorage，docs/win11-interaction-spec.md §1.7）。
+  function restoreDesktopApps() {
+    s.desktopAppsHidden.slice().forEach((id) => setAppDesktopVisible(id, true));
+  }
+
   // ---------- 选择 ----------
   function clickItem(e, entry, idx) {
     setSysSel(null); // 选中文件时取消系统图标的选中态
@@ -325,6 +332,8 @@ export default function DesktopIcons() {
         { label: '文件夹优先', checked: sort.dirsFirst, action: () => setDesktopSort({ ...sort, dirsFirst: !sort.dirsFirst }) },
       ] },
       { label: '刷新', action: () => load() },
+      // 只有真的藏过插件图标时才出现（常态不干扰）；列表为空时整项不渲染
+      ...(s.desktopAppsHidden.length ? [{ label: '恢复桌面应用图标', action: restoreDesktopApps }] : []),
       '-',
       {
         label: cb ? (cb.mode === 'copy' ? '粘贴项目' : '移动项目到此处') : '粘贴',
@@ -535,6 +544,9 @@ export default function DesktopIcons() {
                 setAppSel(app.id);
                 setDesktopSel([]);
                 setSysSel(null);
+                // 同时清框选锚点：否则先框选 / 点过文件再点插件图标，
+                // 之后 Shift 点文件会按旧 anchor 连选出一串（docs §1.7）
+                setAnchor(null);
                 setState({ focusId: null }); // 点桌面图标：焦点回到桌面
               }}
               onDoubleClick={(e) => { e.stopPropagation(); openApp(app); }}

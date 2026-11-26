@@ -591,13 +591,73 @@ async function main() {
   await shot('右键菜单-虚拟图标');
   await page.evaluate(() => document.querySelector('.context-menu [data-label="从桌面移除"]')?.click());
   await sleep(400);
-  check('「从桌面移除」后图标消失',
-    await page.evaluate(() => !document.querySelector('.desktop-appicon[data-app="plugin:hello"]')));
-  await page.evaluate(() => localStorage.removeItem('cloudnine-desktop-apps-hidden'));
+  const removed = await page.evaluate(() => ({
+    iconGone: !document.querySelector('.desktop-appicon[data-app="plugin:hello"]'),
+    hidden: JSON.parse(localStorage.getItem('cloudnine-desktop-apps-hidden') || 'null'),
+  }));
+  check('「从桌面移除」后图标消失', removed.iconGone);
+  check('「从桌面移除」把 plugin:hello 写进本地隐藏名单',
+    Array.isArray(removed.hidden) && removed.hidden.includes('plugin:hello'), JSON.stringify(removed.hidden));
+  await page.screenshot({ path: join(OUT_DIR, '14-桌面-图标已移除.png') });
+  console.log(`${DIM}    📸 14-桌面-图标已移除.png${RESET}`);
+
+  // 桌面空白右键：名单非空时才出现「恢复桌面应用图标」（反向操作不能是死路）
+  const blankMenu = async () => {
+    await page.mouse.click(1000, 520, { button: 'right' });
+    await page.waitForSelector('.context-menu', { timeout: 5000 }).catch(() => {});
+    return page.evaluate(() => [...document.querySelectorAll('.context-menu .dropdown-item')]
+      .map((e) => e.dataset.label || e.innerText.trim()).filter(Boolean));
+  };
+  const blankLabelsHidden = await blankMenu();
+  check('桌面空白右键在名单非空时出现「恢复桌面应用图标」',
+    blankLabelsHidden.includes('恢复桌面应用图标'), blankLabelsHidden.join(','));
+  await page.screenshot({ path: join(OUT_DIR, '16-桌面空白菜单-恢复桌面应用图标.png') });
+  console.log(`${DIM}    📸 16-桌面空白菜单-恢复桌面应用图标.png${RESET}`);
+  await page.evaluate(() => document.querySelector('.context-menu [data-label="恢复桌面应用图标"]')?.click());
+  await sleep(400);
+  const restored = await page.evaluate(() => ({
+    icon: !!document.querySelector('.desktop-appicon[data-app="plugin:hello"]'),
+    hidden: JSON.parse(localStorage.getItem('cloudnine-desktop-apps-hidden') || 'null'),
+  }));
+  check('「恢复桌面应用图标」后图标回到桌面、名单清空',
+    restored.icon && Array.isArray(restored.hidden) && restored.hidden.length === 0, JSON.stringify(restored));
+  await page.screenshot({ path: join(OUT_DIR, '15-桌面-图标已恢复.png') });
+  console.log(`${DIM}    📸 15-桌面-图标已恢复.png${RESET}`);
+  const blankLabelsEmpty = await blankMenu();
+  check('名单为空时不再出现「恢复桌面应用图标」（常态不干扰）',
+    !blankLabelsEmpty.includes('恢复桌面应用图标'), blankLabelsEmpty.join(','));
+  await page.keyboard.press('Escape');
+  await sleep(200);
+
+  // 框选锚点：先点文件立 anchor，再点插件图标——图标必须把 anchor 一并清掉，
+  // 否则接着 Shift 点文件会按旧锚点连选出一串
+  const anchorProbe = await page.evaluate(async () => {
+    const tick = (ms = 200) => new Promise((r) => setTimeout(r, ms));
+    const files = [...document.querySelectorAll('.desktop-icon[data-entry]')];
+    const first = files[0].dataset.entry;
+    const last = files[files.length - 1].dataset.entry;
+    files[0].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await tick();
+    const selAfterFirst = [...document.querySelectorAll('.desktop-icon[data-entry].selected')].map((e) => e.dataset.entry);
+    document.querySelector('.desktop-appicon[data-app="plugin:hello"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await tick();
+    const selAfterApp = [...document.querySelectorAll('.desktop-icon[data-entry].selected')].map((e) => e.dataset.entry);
+    const appSel = document.querySelectorAll('.desktop-appicon.selected').length;
+    files[files.length - 1].dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
+    await tick();
+    const sel = [...document.querySelectorAll('.desktop-icon[data-entry].selected')].map((e) => e.dataset.entry);
+    return { first, last, count: files.length, selAfterFirst, selAfterApp, appSel, sel };
+  });
+  check('点插件图标会清掉文件选中集（只选中图标自己）',
+    anchorProbe.selAfterApp.length === 0 && anchorProbe.appSel === 1, JSON.stringify(anchorProbe));
+  check('点插件图标后再 Shift 点文件不会按旧锚点连选（只选中被点的 1 项）',
+    anchorProbe.sel.length === 1 && anchorProbe.sel[0] === anchorProbe.last, JSON.stringify(anchorProbe));
+
   await page.reload({ waitUntil: 'networkidle2', timeout: 45000 });
   await page.waitForSelector('.desktop-appicon[data-app="plugin:hello"]', { timeout: 20000 }).catch(() => {});
-  check('清掉本地名单后图标回来（移除只是本地名单，没卸载插件）',
-    await page.evaluate(() => !!document.querySelector('.desktop-appicon[data-app="plugin:hello"]')));
+  check('恢复结果刷新后仍在（隐藏名单为空，图标不再被过滤）',
+    await page.evaluate(() => !!document.querySelector('.desktop-appicon[data-app="plugin:hello"]')
+      && JSON.parse(localStorage.getItem('cloudnine-desktop-apps-hidden') || '[]').length === 0));
 
   // ---------- 9 个 method / 参数校验 / 错误码（探针插件，权限只有 fs.read）----------
   section('宿主 method 与错误码（探针插件）');
