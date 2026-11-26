@@ -1,11 +1,14 @@
 // 桌面与「文件」窗口共用的文件操作。
 // 桌面改为直接呈现主目录后，两处需要的能力完全一致，集中在这里避免行为分叉。
 import {
-  bus, notify, setClipboard, openWindow, openFile, promptDialog, confirmDialog,
-  getState, setState, basename, dirname, joinPath, fileCat,
+  bus, notify, setClipboard, openWindow, openFile, promptDialog, confirmDialog, focusWindow,
+  getState, setState, basename, dirname, joinPath, fileCat, extname,
 } from './store.js';
 import { api } from './api.js';
 import { addUpload, pickFiles } from './transfers.js';
+import {
+  PLUGIN_WINDOW, pluginAppsForExt, defaultPluginForExt, pluginAppById,
+} from './apps/registry.jsx';
 
 // ---------- 新建 / 上传 ----------
 
@@ -254,11 +257,55 @@ export function copyPathText(path) {
 
 // ---------- 打开 ----------
 
-// 文件夹打开「文件」窗口；文件按类型分流到编辑器 / 预览
+// 文件名的扩展名（带点、小写）：'note.md' → '.md'；没有扩展名 / 只有前导点的文件名 → ''
+const extOf = (relOrName) => {
+  const e = extname(relOrName);
+  return e ? `.${e}` : '';
+};
+
+/**
+ * 用插件打开一个文件（文件关联 / 「打开方式 ▸ 用插件打开」共用）。
+ * 宿主给 PluginWindow 的只有 {pluginId, fileRel}，插件自己用 fs.readText(file.rel) 读内容。
+ * 同一插件 + 同一文件已经开着 → 只聚焦，不叠第二个窗口（一个文件一个窗口）。
+ */
+export function openWithPlugin(pluginId, fileRel) {
+  const st = getState();
+  const rel = String(fileRel || '');
+  const app = pluginAppById(st.plugins, pluginId);
+  if (!app) {
+    notify({ type: 'error', title: '插件不可用', body: `插件「${pluginId}」未安装或已被卸载。` });
+    return null;
+  }
+  const existing = st.windows.find((w) => w.type === PLUGIN_WINDOW
+    && w.props?.pluginId === pluginId && (w.props?.fileRel || '') === rel);
+  if (existing) { focusWindow(existing.id); return existing.id; }
+  api.addRecent(rel, basename(rel)).catch(() => {});
+  return openWindow(PLUGIN_WINDOW, { pluginId, fileRel: rel }, {
+    title: app.name,
+    size: app.size,
+    // 窗口身份 = 插件 + 文件：换一个文件就是另一个窗口，不会被 multi:false 误判成「同一个」
+    match: (w) => w.props?.pluginId === pluginId && (w.props?.fileRel || '') === rel,
+    geomKey: app.geomKey,
+  });
+}
+
+// 双击文件的默认程序：声明了 defaultFor 且没有冲突的插件优先，否则沿用内置分流。
+// 冲突（多个插件抢同一个扩展名）时返回 null —— 宁可不默认，也不猜。
+const defaultPluginFor = (path) => {
+  const hit = defaultPluginForExt(getState().plugins, extOf(path));
+  return hit && !hit.conflict ? hit.app : null;
+};
+
+// 文件夹打开「文件」窗口；文件按类型分流：插件默认关联 → 插件，否则编辑器 / 预览
 export function openEntry(entry, cwd) {
   const path = joinPath(cwd, entry.name);
   if (entry.type === 'dir') {
     openWindow('finder', { cwd: path });
+    return;
+  }
+  const def = defaultPluginFor(path);
+  if (def) {
+    openWithPlugin(def.pluginId, path);
     return;
   }
   openFile(path, entry.name);
@@ -270,19 +317,27 @@ export const isArchive = (entry) => entry.type !== 'dir' && fileCat(entry.name) 
 // ---------- 打开方式 ▸ ----------
 // 桌面图标右键与文件资源管理器条目右键共用这一份，两处的集合才不会分叉
 // （docs §1.5：用编辑器打开 / 用预览打开 / 在终端中打开（目录））。
+// 装了声明 fileTypes 的插件时，插件候选追加在末尾（「用「插件名」打开」）。
 // siblings：预览窗口左右切换用的同批文件；不传则只预览这一个。
 export function openWithItems(path, entry, { siblings = [] } = {}) {
   if (entry?.type === 'dir') {
     return [{ label: '在终端中打开', action: () => openWindow('terminal', { cwd: path }) }];
   }
   const list = siblings.length ? siblings : [path];
-  return [
+  const items = [
     { label: '用编辑器打开', action: () => openWindow('editor', { path, name: basename(path) }) },
     {
       label: '用预览打开',
       action: () => openWindow('preview', { path, siblings: list, index: Math.max(0, list.indexOf(path)) }),
     },
   ];
+  // 插件关联：只有声明了 fileTypes（且包含该扩展名）的插件才出现在这里；
+  // 没有 fileTypes 的插件永远不会是「打开方式」候选
+  const apps = pluginAppsForExt(getState().plugins, extOf(path));
+  for (const app of apps) {
+    items.push({ label: `用「${app.name}」打开`, action: () => openWithPlugin(app.pluginId, path) });
+  }
+  return items;
 }
 
 // ---------- 「最近」里的过期记录 ----------
@@ -328,6 +383,11 @@ export async function openRecentItem(item) {
   }
   if (!hit) return markRecentMissing(item);
   if (hit.type === 'dir') openWindow('finder', { cwd: item.path });
-  else await openFile(item.path, item.name);
+  else {
+    // 与双击同一套「默认程序」规则：声明了 defaultFor 的插件优先
+    const def = defaultPluginFor(item.path);
+    if (def) openWithPlugin(def.pluginId, item.path);
+    else await openFile(item.path, item.name);
+  }
   return 'opened';
 }

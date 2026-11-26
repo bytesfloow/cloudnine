@@ -1,0 +1,15 @@
+{
+  "id": "filelink-probe",
+  "name": "文件关联探针",
+  "version": "1.0.0",
+  "description": "示例插件：声明 fileTypes/defaultFor，双击 .json 文件时用它打开（含 ui.markDirty 演示）",
+  "author": "CloudNine",
+  "icon": "icon.svg",
+  "entry": "index.html",
+  "window": { "width": 680, "height": 520, "minWidth": 420, "minHeight": 320, "multi": true },
+  "permissions": ["fs.read"],
+  "fileTypes": [".json"],
+  "defaultFor": [".json"],
+  "onDesktop": true,
+  "inStartMenu": true
+}

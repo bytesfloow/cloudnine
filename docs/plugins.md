@@ -42,6 +42,8 @@ CloudNine 的插件是一份**纯静态前端包**：`plugin.json` + 一个入�
   "entry": "index.html",
   "window": { "width": 720, "height": 540, "minWidth": 420, "minHeight": 320, "multi": true },
   "permissions": ["storage"],
+  "fileTypes": [".json", ".jsonc"],
+  "defaultFor": [".json"],
   "onDesktop": true,
   "inStartMenu": true,
   "minHostVersion": "0.1.0"
@@ -66,12 +68,60 @@ CloudNine 的插件是一份**纯静态前端包**：`plugin.json` + 一个入�
 | `onDesktop` | — | boolean | `true` | 是否在桌面显示图标 |
 | `inStartMenu` | — | boolean | `true` | 是否进开始菜单 |
 | `minHostVersion` | — | string | `null` | 声明最低宿主版本（v1 服务端只透传、不拦截） |
+| `fileTypes` | — | string[] | `[]` | 能打开的扩展名，进「打开方式 ▸」；规则见 §2.1 |
+| `defaultFor` | — | string[] | `[]` | 双击时优先用我打开的扩展名（必须是 `fileTypes` 的子集）；规则见 §2.1 |
 
 以下字段会被**拒绝**（manifest 非法）：
 
 - `server`、`main`：v1 插件不能自带后端代码，只能是静态资源。
 - 未知权限（例如把 `fs.read` 写成 `files.read`）：宁可安装时报错，也不让插件「装上了但什么都不工作」。
 - `entry` / `icon` 里的绝对路径、盘符、`.`、`..` 路径段。
+- `fileTypes` / `defaultFor` 的取值不合法（见 §2.1），或 `defaultFor` 里有 `fileTypes` 没声明的扩展名。
+
+### 2.1 文件关联：`fileTypes` 与 `defaultFor`
+
+这两个字段让插件能「双击文件直接用」，而不是只能从图标 / 开始菜单启动。
+
+**取值规则（两个字段相同）**
+
+| 规则 | 说明 |
+| --- | --- |
+| 必须是数组 | 写成一个字符串（`"fileTypes": ".json"`）算 manifest 非法 |
+| 元素必须带点 | `.json` ✅ / `json` ❌ / `.` ❌ |
+| 字符集 | 点之后只允许字母数字与 `-` `_` `+`：`.json` `.tsx` `.tar-gz` ✅ / `.js on` ❌ |
+| 长度 | 整串 ≤ **16** 字符（含点） |
+| 数量 | ≤ **10** 项 |
+| 大小写 | 统一转小写后比较，写 `.JSON` 也行，服务端返回的是 `.json` |
+| 多段扩展名 | **不支持** `.tar.gz` 这种。前端按「最后一个点之后」取扩展名，声明多段只会永远匹配不上 |
+| 重复项 | 自动去重 |
+
+**`defaultFor` 的额外约束**：里面的每个扩展名都必须先出现在 `fileTypes` 里，否则 manifest 非法 ——
+避免出现「双击时号称默认，但打开方式里找不到我」这种自相矛盾的声明。
+
+**双击一个文件时的完整流转（外壳侧）**
+
+1. 取文件名最后一个点之后的部分当扩展名（小写）。无扩展名的文件（`Makefile`）不参与文件关联。
+2. 在已安装插件里找**所有** `fileTypes` 含该扩展名的插件：
+   - **没有** → 保持原有内置行为（文本走编辑器，图片/PDF/Office 等走预览）。
+   - **有** → 再从中筛 `defaultFor` 含该扩展名的：
+     - **恰好一个** → 直接打开这个插件的窗口，不再开内置程序。
+     - **有多个** → **不默认**，回退内置程序（用户仍可从「打开方式 ▸」里手动挑一个）。
+     - **一个都没有** → 回退内置程序。
+3. 打开插件窗口时宿主传 `{pluginId, fileRel}`；插件在 `cn:init` 里收到 `file: {rel, name, ext}`，
+   自己用 `cloudnine.fs.readText(file.rel)` 读内容、`fs.writeText` 写回（**需要相应权限**，见 §3）。
+4. 同一插件 + 同一文件已经开着 → 只聚焦已有窗口，不叠第二个；打开**另一个**文件是新窗口。
+
+**冲突规则（一句话）**：同一扩展名被多个插件声明 `defaultFor` 时**没有默认程序**，
+双击回退内置程序；「打开方式 ▸」里这些插件全部列出来，用户手动选谁就是谁。宿主不弹选择器、不随机挑。
+
+**旧插件兼容**：没有 `fileTypes` 的旧 manifest 照常加载，服务端把两个字段补成 `[]`，
+插件不会出现在「打开方式」里，双击行为与改造前完全一致。`fileTypes` 为空数组的插件同样不出现。
+
+**外壳兼容**：「打开方式」的候选只在 `client/src/fsops.js` 的 `openWithItems()` 里拼一次，
+桌面图标右键与文件资源管理器条目右键共用同一份，两处集合不会分叉。
+
+> v1.1 的已知边界：文件关联目前接在**桌面双击**与两处「打开方式 ▸」（以及「最近」列表）上。
+> 文件资源管理器窗口内部的双击仍走它自己的分流（内置编辑器 / 预览），这是下一步的事。
 
 ---
 
@@ -122,10 +172,13 @@ CloudNine 的插件是一份**纯静态前端包**：`plugin.json` + 一个入�
   "entryUrl": "/pa/3f2a…/hello/index.html",
   "iconUrl": "/pa/3f2a…/hello/icon.svg",
   "onDesktop": true,
-  "inStartMenu": true
+  "inStartMenu": true,
+  "fileTypes": [".json", ".jsonc"],
+  "defaultFor": [".json"]
 }
 ```
 
+`fileTypes` / `defaultFor` 总是数组（旧插件也会被补成 `[]`，前端不用判 `undefined`）。
 `entryUrl` / `iconUrl` **由服务端拼好**，前端不要自己拼 `/pa` 的 token。
 
 v1 **没有** enable / disable：装了就在，卸载就删。
@@ -168,7 +221,7 @@ GET /plugin-sdk/v1/cloudnine.js     # 公开，Content-Type: application/javascr
 
 | 方向 | 消息 |
 | --- | --- |
-| host → iframe | `{type:'cn:init', v:1, pluginId, theme:{'--accent':'#0a7cff',…}, locale:'zh-CN'}` |
+| host → iframe | `{type:'cn:init', v:1, pluginId, theme:{'--accent':'#0a7cff',…}, locale:'zh-CN', file}` |
 | iframe → host | `{type:'cn:ready', v:1}` |
 | iframe → host | `{type:'cn:call', id, method, params}` |
 | host → iframe | `{type:'cn:result', id, ok:true, value}` / `{type:'cn:result', id, ok:false, error:{code,message}}` |
@@ -179,6 +232,7 @@ GET /plugin-sdk/v1/cloudnine.js     # 公开，Content-Type: application/javascr
 
 - SDK 在收到 `cn:init` 之前**不发起任何调用**；3 秒内没收到 init 的调用直接以 `NOT_READY` 拒绝。
 - 收到 init 后把 `theme` 逐项 `document.documentElement.style.setProperty(k, v)` 注入，然后回 `cn:ready`。
+- `cn:init.file` 是 `{rel, name, ext}` 或 `null`（§6.6）。`ext` 带点且小写（`.json`），无扩展名时为 `''`。
 - 每次调用 8 秒超时 → `TIMEOUT`；host 返回的错误原样变成带 `code` 的 `Error`。
 
 ### 6.2 宿主侧必须实现的方法
@@ -193,9 +247,11 @@ GET /plugin-sdk/v1/cloudnine.js     # 公开，Content-Type: application/javascr
 | `clipboard.writeText` | `{text}` | `{ok:true}` |
 | `notify` | `{title, body}` | `{ok:true}` |
 | `ui.setTitle` | `{title}` | `{ok:true}` |
-| `ui.close` | — | `{ok:true}` |
+| `ui.markDirty` | `{dirty:boolean}` | `{ok:true, dirty}`；脏状态下点 X / 刷新页面都会被拦（§6.6） |
+| `ui.close` | — | `{ok:true}`；**窗口处于脏状态时返回错误 `UNSAVED_CHANGES`**，宿主不替用户丢数据 |
 
 错误码约定：`NOT_READY`、`TIMEOUT`、`INVALID_ARGUMENT`、`PERMISSION_DENIED`、`FS_NOT_FOUND`、`INTERNAL`（宿主也可自定义）。
+宿主自己在「脏状态下 `ui.close`」这一条上返回 `UNSAVED_CHANGES`。
 
 ### 6.3 插件里怎么写
 
@@ -221,7 +277,8 @@ GET /plugin-sdk/v1/cloudnine.js     # 公开，Content-Type: application/javascr
 ```
 
 完整可运行的例子见 [`examples/plugins/hello/`](../examples/plugins/hello/)（主题色块 + storage 持久化的点击计数），
-真正能用的小应用见 [`examples/plugins/todo/`](../examples/plugins/todo/)（待办清单：增删改查 + 筛选 + 明暗跟随 + 键盘与窄宽度）。
+真正能用的小应用见 [`examples/plugins/todo/`](../examples/plugins/todo/)（待办清单：增删改查 + 筛选 + 明暗跟随 + 键盘与窄宽度），
+文件关联的最小例子见 [`examples/plugins/filelink-probe/`](../examples/plugins/filelink-probe/)（§6.6）。
 
 ### 6.4 写一个自己的插件（最小可用 4 步）
 
@@ -252,6 +309,47 @@ node scripts/plugin-dev-install.mjs todo --dir /tmp/cn-plugins   # 指到别的�
   （先删旧目录再复制，所以删掉的文件不会残留）。
 - 不碰插件私有数据（`<PLUGIN_DATA_DIR>/<id>.json`）：反复安装同一插件不会丢你的待办 / 计数。
 - 装完刷新浏览器：插件列表只在登录时拉一次（§8 第 6 条），不刷新看不到新图标。
+
+### 6.6 文件关联与「未保存保护」
+
+声明了 `fileTypes` 之后，双击对应类型的文件就会打开你的插件（规则、冲突与回退见 §2.1）。
+宿主**不会**把文件内容塞进消息里，只告诉你「打开的是哪个文件」：
+
+```js
+const file = cloudnine.file;          // {rel, name, ext} 或 null
+if (file) {
+  // 需要 fs.read 权限；rel 是相对 FILE_ROOT 的路径，与 fs.* 接口同一口径
+  const r = await cloudnine.fs.readText(file.rel);
+  render(r.text);
+}
+```
+
+- 从桌面图标 / 开始菜单启动时 `cloudnine.file` 是 `null` —— 两条入口共用同一个页面，两种都得处理。
+- 写回就用 `cloudnine.fs.writeText(file.rel, text)`（需要 `fs.write`）。v1 不新增任何文件类方法，
+  `fs.writeText` 带 `force`，宿主不做「外部已修改」冲突检测。
+- `file.ext` 带点且小写（`.json`），无扩展名时为 `''`；`file.name` 只是文件名，不包含目录。
+
+未保存保护：
+
+```js
+await cloudnine.ui.markDirty(true);   // 标题前出现 *，点 X / 刷新页面会先问一句
+await cloudnine.ui.markDirty(false);  // 已保存（或用户确认放弃）后调回来
+```
+
+宿主行为（外壳实现见 `client/src/desktop/WindowFrame.jsx`）：
+
+- **标题**：脏时渲染成 `*<标题>`，自动化测试据此判断脏状态。
+- **点 X**：只对这一个脏窗口弹一次「未保存的更改」确认框；取消 = 什么都不做，窗口继续开着。
+- **刷新 / 关标签（`beforeunload`）**：只要有**任意**窗口脏着就拦一次。浏览器本身只会弹一个原生确认框，
+  所以多个脏窗口也只会问一次 —— 不会出现「一刷新弹好几个框」。
+- **脏状态下 `ui.close`** 返回 `UNSAVED_CHANGES`：宿主不替用户丢数据。插件想自己关窗，
+  先保存再 `markDirty(false)`，然后 `ui.close()`。
+- 窗口被关掉 / 卸载时脏标记自动清掉，不会让后续刷新一直被拦。
+- 宿主只负责「拦一下 + 问一句」；保存 / 放弃的具体流程完全由插件自己实现（v1 没有宿主级保存钩子）。
+
+> 参考实现：[`examples/plugins/filelink-probe/`](../examples/plugins/filelink-probe/)（`fileTypes: [".json"]` +
+> `defaultFor: [".json"]`，演示读 `file.rel`、标脏与 `ui.close` 被拒的完整状态机）。
+> 端到端验收：`node scripts/uitest-openwith.mjs`。
 
 ---
 
@@ -295,8 +393,9 @@ curl -b cookie.txt -X POST 'http://127.0.0.1:8480/api/plugins/install?overwrite=
 
 ## 8. 桌面图标与开始菜单（外壳渲染约定）
 
-服务端**只提供数据**：`GET /api/plugins` 返回每个插件的 `entryUrl` / `iconUrl` / `onDesktop` / `inStartMenu` / `window`。
-图标格子、开始菜单条目、任务栏按钮都由**外壳（前端）渲染**，服务端不生成任何 HTML 列表页。
+服务端**只提供数据**：`GET /api/plugins` 返回每个插件的 `entryUrl` / `iconUrl` / `onDesktop` / `inStartMenu` / `window` /
+`fileTypes` / `defaultFor`。图标格子、开始菜单条目、任务栏按钮、「打开方式」候选都由**外壳（前端）渲染**，
+服务端不生成任何 HTML 列表页。
 
 外壳需要做的事：
 
@@ -310,6 +409,9 @@ curl -b cookie.txt -X POST 'http://127.0.0.1:8480/api/plugins/install?overwrite=
 6. **插件列表只在登录时拉一次**：外壳启动 / 登录后调一次 `GET /api/plugins`，结果挂在内存里。
    装、卸、覆盖安装之后**必须刷新页面**，桌面图标 / 开始菜单 / 任务栏才会更新；v1 没有轮询也没有服务端推送，
    不要指望 `DELETE` 的返回值能就地改外壳状态。
+7. 文件关联：按 `fileTypes` 往「打开方式」里追加候选项（只有声明了 `fileTypes` 的插件才追加），
+   双击文件时按 `defaultFor` 选默认程序（多个插件抢同一扩展名 → 不默认，回退内置）。详见 §2.1 / §6.6。
+8. 脏窗口：`ui.markDirty(true)` 后窗口标题前加 `*`，点 X 与 `beforeunload` 都要确认（§6.6）。
 
 ---
 
@@ -333,6 +435,7 @@ python scripts/plugins_smoke.py --url http://127.0.0.1:8499 --plugins-dir /tmp/c
 ```bash
 node scripts/uitest-plugins.mjs    # 外壳接入：图标 / 开窗 / 沙箱 / 主题注入 / 协议 / 错误码
 node scripts/uitest-todo.mjs       # 示例插件 todo 的端到端验收（含重启服务后的持久化、亮暗主题、窄宽度）
+node scripts/uitest-openwith.mjs   # 文件关联：打开方式 / defaultFor / file.rel / ui.markDirty / beforeunload
 ```
 
-两个脚本都支持 `--chrome`、`--port`、`--keep`，默认不碰仓库里正在跑的实例。
+三个脚本都支持 `--chrome`、`--port`、`--url`、`--keep`，默认不碰仓库里正在跑的实例。

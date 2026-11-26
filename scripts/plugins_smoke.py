@@ -16,7 +16,8 @@
 
 覆盖：未登录 401 / 登录后空列表 / 安装 hello / entryUrl 直取 + CSP sandbox /
 错 token 404 / 路径穿越 400-404 / storage 往返 / 超 1MB 413 / 非法 manifest 进 invalid /
-install zip 成功与重复 409 / 覆盖安装 / DELETE 后 404 / SDK 公开可取 / 无 storage 权限 403。
+install zip 成功与重复 409 / 覆盖安装 / DELETE 后 404 / SDK 公开可取 / 无 storage 权限 403 /
+文件关联：fileTypes / defaultFor 的非法取值全部 400、合法值小写化去重、旧 manifest 补空数组。
 """
 
 import argparse
@@ -300,6 +301,70 @@ def main():
     st, body, _h, raw = c.json("POST", "/api/plugins/install", zip_flat(many), headers={"Content-Type": "application/zip"})
     r.check("条目超过 200 的 zip 被拒绝（400）", st == 400, f"status={st} body={body or raw[:160]}")
 
+    # ---------- 10b. 文件关联字段（fileTypes / defaultFor）的 manifest 校验 ----------
+    def assoc_zip(pid, extra):
+        manifest = {"id": pid, "name": pid, "version": "1.0.0"}
+        manifest.update(extra)
+        return zip_flat({"plugin.json": manifest, "index.html": "<html><body>x</body></html>"})
+
+    def expect_400(label, pid, extra):
+        s, b, _h, rw = c.json("POST", "/api/plugins/install", assoc_zip(pid, extra), headers={"Content-Type": "application/zip"})
+        r.check(label, s == 400, f"status={s} body={b or rw[:160]}")
+
+    expect_400("fileTypes 元素不带点（\"json\"）→ 400", "bad-ext-nodot", {"fileTypes": ["json"]})
+    expect_400("fileTypes 元素只有一个点（\".\"）→ 400", "bad-ext-onlydot", {"fileTypes": ["."]})
+    expect_400("fileTypes 元素含非法字符（\".js on\"）→ 400", "bad-ext-chars", {"fileTypes": [".js on"]})
+    expect_400("fileTypes 元素超过 16 字符 → 400", "bad-ext-long", {"fileTypes": ["." + "a" * 16]})
+    expect_400("fileTypes 超过 10 项 → 400", "bad-ext-many",
+               {"fileTypes": [f".e{i}" for i in range(11)]})
+    expect_400("fileTypes 不是数组 → 400", "bad-ext-type", {"fileTypes": ".json"})
+    expect_400("defaultFor 不在 fileTypes 里 → 400", "bad-default",
+               {"fileTypes": [".json"], "defaultFor": [".md"]})
+    expect_400("defaultFor 但完全没有 fileTypes → 400", "bad-default-only", {"defaultFor": [".json"]})
+
+    # 合法：大小写会被规范成小写，重复项去重
+    st, body, _h, raw = c.json("POST", "/api/plugins/install",
+                               assoc_zip("extok", {"fileTypes": [".JSON", ".Md", ".json"],
+                                                   "defaultFor": [".json"]}),
+                               headers={"Content-Type": "application/zip"})
+    r.check("带 fileTypes/defaultFor 的 zip 能装上（200）", st == 200 and (body or {}).get("id") == "extok",
+            f"status={st} body={body or raw[:160]}")
+    r.check("响应里的 fileTypes 已小写化并去重", (body or {}).get("fileTypes") == [".json", ".md"],
+            f"fileTypes={(body or {}).get('fileTypes')}")
+    r.check("响应里的 defaultFor 原样带出", (body or {}).get("defaultFor") == [".json"],
+            f"defaultFor={(body or {}).get('defaultFor')}")
+
+    st, body, _h, _raw = c.json("GET", "/api/plugins")
+    listed = next((p for p in (body or {}).get("plugins") or [] if p.get("id") == "extok"), None)
+    r.check("列表接口也带出 fileTypes / defaultFor",
+            listed is not None and listed.get("fileTypes") == [".json", ".md"] and listed.get("defaultFor") == [".json"],
+            f"listed={listed}")
+
+    # 旧 manifest（没有这两个字段）不受影响，服务端补空数组
+    st, body, _h, raw = c.json("POST", "/api/plugins/install",
+                               assoc_zip("oldplug", {}), headers={"Content-Type": "application/zip"})
+    r.check("旧 manifest（没有 fileTypes/defaultFor）仍能安装", st == 200 and (body or {}).get("id") == "oldplug",
+            f"status={st} body={body or raw[:160]}")
+    r.check("旧 manifest 的 fileTypes / defaultFor 补成空数组",
+            (body or {}).get("fileTypes") == [] and (body or {}).get("defaultFor") == [],
+            f"body={body}")
+
+    # 已安装目录里 manifest 非法（fileTypes 坏了）→ 只进 invalid，不让列表 500
+    if args.plugins_dir:
+        bad_assoc = os.path.join(args.plugins_dir, "badassoc")
+        os.makedirs(bad_assoc, exist_ok=True)
+        with open(os.path.join(bad_assoc, "plugin.json"), "w", encoding="utf-8") as f:
+            json.dump({"id": "badassoc", "name": "坏关联", "version": "1.0.0",
+                       "fileTypes": ["json"]}, f, ensure_ascii=False)
+        st, body, _h, _raw = c.json("GET", "/api/plugins")
+        invalids = [x.get("dir") for x in (body or {}).get("invalid") or []]
+        r.check("fileTypes 非法的插件目录只进 invalid（列表不 500）",
+                st == 200 and "badassoc" in invalids, f"status={st} invalid={invalids}")
+        r.check("非法 fileTypes 的插件不出现在 plugins 列表",
+                all(p.get("id") != "badassoc" for p in (body or {}).get("plugins") or []), f"body={body}")
+    else:
+        r.skip("fileTypes 非法的目录进 invalid", "未提供 --plugins-dir/PLUGINS_DIR")
+
     st, body, _h, raw = c.json("POST", "/api/plugins/install", b"PK\x03\x04" + b"\0" * (9 * 1024 * 1024), headers={"Content-Type": "application/zip"})
     r.check("安装请求体超 8MB 返回 413", st == 413, f"status={st} body={str(body)[:120]}")
 
@@ -333,9 +398,15 @@ def main():
 
     # ---------- 清理 ----------
     c.json("DELETE", "/api/plugins/noperm")
+    c.json("DELETE", "/api/plugins/extok")
+    c.json("DELETE", "/api/plugins/oldplug")
     if bad_dir and os.path.isdir(bad_dir):
         import shutil
         shutil.rmtree(bad_dir, ignore_errors=True)
+    bad_assoc_dir = os.path.join(args.plugins_dir, "badassoc") if args.plugins_dir else None
+    if bad_assoc_dir and os.path.isdir(bad_assoc_dir):
+        import shutil
+        shutil.rmtree(bad_assoc_dir, ignore_errors=True)
 
     return r.summary()
 

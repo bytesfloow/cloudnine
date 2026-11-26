@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>文件关联探针</title>
+<style>
+  /* 宿主会通过 cn:init 注入真实主题变量，这里的 :root 只是单独打开页面时的兜底 */
+  :root {
+    --bg: #f3f3f3;
+    --text: #1b1b1b;
+    --text-2: #5a5a5a;
+    --panel-bg: #fafafa;
+    --win-border: #dcdcdc;
+    --accent: #0a7cff;
+    --accent-soft: rgba(10, 124, 255, 0.12);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    padding: 16px 18px;
+    font: 13px/1.6 "Segoe UI", system-ui, -apple-system, "Microsoft YaHei", sans-serif;
+    background: var(--panel-bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow: auto;
+  }
+  h1 { margin: 0; font-size: 15px; }
+  .meta { display: flex; flex-direction: column; gap: 2px; }
+  .meta b { font-weight: 600; }
+  .rel { color: var(--text-2); font-family: Consolas, monospace; font-size: 12px; word-break: break-all; }
+  .badge {
+    display: inline-block; padding: 0 6px; border-radius: 10px;
+    background: var(--accent-soft); color: var(--accent); font-size: 11px; font-family: Consolas, monospace;
+  }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  button {
+    font: inherit; padding: 5px 12px; border-radius: 6px;
+    border: 1px solid var(--win-border); background: var(--bg); color: var(--text); cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  pre {
+    flex: 1 1 auto; min-height: 120px; margin: 0; padding: 10px 12px;
+    background: var(--bg); border: 1px solid var(--win-border); border-radius: 8px;
+    font-family: Consolas, "Courier New", monospace; font-size: 12px;
+    white-space: pre-wrap; word-break: break-all; overflow: auto;
+  }
+  .state { color: var(--text-2); font-size: 12px; }
+</style>
+</head>
+<body>
+  <h1>文件关联探针</h1>
+  <div class="meta">
+    <div>文件：<b id="file-name">（无）</b> <span class="badge" id="file-ext"></span></div>
+    <div class="rel" id="file-rel">（从桌面图标启动，没有关联文件）</div>
+  </div>
+  <div class="row">
+    <button id="dirty-on" class="primary">标记未保存</button>
+    <button id="dirty-off">标记已保存</button>
+    <button id="close-btn">ui.close</button>
+  </div>
+  <div class="state">脏状态：<span id="dirty-state">clean</span>　ui.close：<span id="close-result">-</span></div>
+  <pre id="content">（等待 cn:init）</pre>
+
+  <script src="/plugin-sdk/v1/cloudnine.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var $ = function (id) { return document.getElementById(id); };
+
+    // 自动化测试用的钩子：把宿主给的东西原样挂出来，避免只能靠 innerText 断言
+    window.__probe = { ready: false, file: null };
+
+    (async function () {
+      await cloudnine.ready();          // 等宿主注入主题 + file
+      var file = cloudnine.file;        // {rel, name, ext} 或 null
+      window.__probe.ready = true;
+      window.__probe.file = file;
+
+      if (file) {
+        $('file-name').textContent = file.name;
+        $('file-ext').textContent = file.ext || '无扩展名';
+        $('file-rel').textContent = file.rel;
+        try {
+          // 内容一律用 fs.readText 自己读：宿主只告诉“哪个文件”，不传内容
+          var r = await cloudnine.fs.readText(file.rel);
+          $('content').textContent = (r && r.text) || '';
+        } catch (e) {
+          $('content').textContent = '读取失败：' + ((e && e.code) || e);
+        }
+      } else {
+        $('content').textContent = '没有关联文件（从图标 / 开始菜单启动）。\n' +
+          '双击一个 .json 文件或右键「打开方式」试试。';
+      }
+
+      $('dirty-on').onclick = async function () {
+        await cloudnine.ui.markDirty(true);
+        $('dirty-state').textContent = 'dirty';
+      };
+      $('dirty-off').onclick = async function () {
+        await cloudnine.ui.markDirty(false);
+        $('dirty-state').textContent = 'clean';
+      };
+      $('close-btn').onclick = function () {
+        cloudnine.ui.close().then(
+          function () { $('close-result').textContent = 'ok'; },
+          function (e) {
+            $('close-result').textContent = (e && e.code) || 'error';
+            // 脏状态下宿主会拒绝：这是设计好的（数据是用户的，宿主不替它丢）
+            setTimeout(function () {
+              cloudnine.ui.markDirty(false).then(function () {
+                $('dirty-state').textContent = 'clean';
+                cloudnine.ui.close();
+              });
+            }, 800);
+          }
+        );
+      };
+    })();
+  })();
+  </script>
+</body>
+</html>

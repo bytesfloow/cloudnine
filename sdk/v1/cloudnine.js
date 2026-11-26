@@ -3,7 +3,8 @@
  * 用 <script src="/plugin-sdk/v1/cloudnine.js"></script> 引入，挂到 window.cloudnine。
  *
  * 协议（全部走 window.postMessage，插件永远不直接访问 parent/top 的其它属性）：
- *   host → iframe: {type:'cn:init', v:1, pluginId, theme:{--var:'值'}, locale}
+ *   host → iframe: {type:'cn:init', v:1, pluginId, theme:{--var:'值'}, locale, file}
+ *                  file = {rel, name, ext}（文件关联打开）或 null（从图标 / 开始菜单启动）
  *   iframe → host: {type:'cn:ready', v:1}
  *   iframe → host: {type:'cn:call', id, method, params}
  *   host → iframe: {type:'cn:result', id, ok:true, value} | {id, ok:false, error:{code,message}}
@@ -25,6 +26,7 @@
   var pluginId = null;
   var theme = {};
   var locale = null;
+  var file = null;
   var seq = 0;
   var pending = Object.create(null);   // callId -> {ok, fail}
   var waiters = [];                    // 等 init 的回调
@@ -71,6 +73,17 @@
     }
   }
 
+  // host 传来的 file 可能是 null（图标启动）/ 缺字段（旧宿主）：一律归一成三字段对象或 null，
+  // 这样插件里不用写 `host.file && host.file.rel` 这种防御代码
+  function normalizeFile(f) {
+    if (!f || typeof f !== 'object' || typeof f.rel !== 'string' || !f.rel) return null;
+    return {
+      rel: f.rel,
+      name: typeof f.name === 'string' ? f.name : f.rel.split('/').pop(),
+      ext: typeof f.ext === 'string' ? f.ext.toLowerCase() : ''
+    };
+  }
+
   function emit(name, payload) {
     var list = handlers[name];
     if (!list || !list.length) return;
@@ -93,10 +106,12 @@
       }
       pluginId = d.pluginId || pluginId;
       if (d.locale) locale = d.locale;
+      // 文件关联：宿主只告诉“打开的是哪个文件”，内容插件自己用 fs.readText 读
+      file = normalizeFile(d.file);
       applyTheme(d.theme);
       booted = true;
       initTimedOut = false;
-      readyResolve({ pluginId: pluginId, theme: theme, locale: locale });
+      readyResolve({ pluginId: pluginId, theme: theme, locale: locale, file: file });
       flushWaiters();
       post({ type: 'cn:ready', v: 1 });
       return;
@@ -194,6 +209,8 @@
     get pluginId() { return pluginId; },
     get theme() { return theme; },
     get locale() { return locale; },
+    // 文件关联打开时的 {rel, name, ext}；从图标启动时为 null
+    get file() { return file; },
     ready: function () { return readyPromise; },
     call: call,
     on: on,
@@ -212,6 +229,8 @@
     },
     ui: {
       setTitle: function (title) { return call('ui.setTitle', { title: String(title) }); },
+      // 脏状态：true 时窗口标题前加 *，用户点 X / 刷新页面都会被拦一遭
+      markDirty: function (dirty) { return call('ui.markDirty', { dirty: !!dirty }); },
       close: function () { return call('ui.close'); }
     }
   };

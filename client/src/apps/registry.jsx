@@ -175,6 +175,9 @@ export function pluginApps(plugins) {
     taskbar: false, // 插件默认不固定，打开的插件窗口按「每窗口一个按钮」出现在任务栏
     onDesktop: p.onDesktop !== false,
     order: 1000 + i,
+    // 文件关联（v1.1）：服务端已把缺失字段补成 []，这里再兜一层
+    fileTypes: Array.isArray(p.fileTypes) ? p.fileTypes : [],
+    defaultFor: Array.isArray(p.defaultFor) ? p.defaultFor : [],
   }));
 }
 
@@ -197,6 +200,40 @@ export function appForWindow(win, plugins) {
     return pluginApps(plugins).find((a) => a.pluginId === win.props.pluginId) || appByWindowType(PLUGIN_WINDOW);
   }
   return appByWindowType(win.type);
+}
+
+/* ============================ 文件关联（v1.1） ============================ */
+
+// 扩展名一律带点、小写：'.json'。名字里没有点（Makefile）或只有前导点（.gitignore）时为 ''，
+// 与 store.js 的 extname() 口径一致（那边返回不带点的 'json'，调用方加点）。
+const normExt = (ext) => String(ext || '').trim().toLowerCase();
+
+/** 能打开某扩展名的插件应用（按 manifest.fileTypes）；没有 fileTypes 的插件永远不在这里出现 */
+export function pluginAppsForExt(plugins, ext) {
+  const e = normExt(ext);
+  if (!e) return [];
+  return pluginApps(plugins).filter((a) => a.fileTypes.includes(e));
+}
+
+/**
+ * 某扩展名的默认插件（manifest.defaultFor）：
+ *   { app }                    唯一声明 → 双击该扩展名文件直接用它
+ *   { conflict:true, apps }    多个插件抢同一扩展名 → **不默认**，回退内置程序打开
+ *   null                       没有插件声明默认
+ * 冲突时不弹选择器、不猜：静默回退，用户仍可从「打开方式」里手动选一个。
+ */
+export function defaultPluginForExt(plugins, ext) {
+  const e = normExt(ext);
+  if (!e) return null;
+  const apps = pluginAppsForExt(plugins, e).filter((a) => a.defaultFor.includes(e));
+  if (!apps.length) return null;
+  if (apps.length > 1) return { conflict: true, apps };
+  return { app: apps[0] };
+}
+
+/** 单插件条目：文件关联打开时按 pluginId 取（找不到 = 插件已被卸载） */
+export function pluginAppById(plugins, pluginId) {
+  return pluginApps(plugins).find((a) => a.pluginId === pluginId) || null;
 }
 
 /**

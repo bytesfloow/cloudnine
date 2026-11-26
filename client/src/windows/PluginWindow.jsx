@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useStore, setWindowTitle, closeWindow, notify, bus } from '../store.js';
+import { useStore, setWindowTitle, closeWindow, notify, bus, basename, extname } from '../store.js';
 import { api } from '../api.js';
 import { IconRefresh, IconPlugin } from '../icons.jsx';
+import { setWindowDirty, isWindowDirty } from '../desktop/WindowFrame.jsx';
 
 /* ============================================================================
    插件宿主窗口（PluginHost）
@@ -10,11 +11,16 @@ import { IconRefresh, IconPlugin } from '../icons.jsx';
    就没有同源 —— 读不到宿主的 cookie / DOM，也不能直接调宿主接口，只能 postMessage。
 
    协议（sdk/v1/cloudnine.js 对端）：
-     host → iframe  {type:'cn:init', v:1, pluginId, theme, locale}
+     host → iframe  {type:'cn:init', v:1, pluginId, theme, locale, file}
      iframe → host  {type:'cn:ready'}
      iframe → host  {type:'cn:call', id, method, params}
      host → iframe  {type:'cn:result', id, ok, value|error}
      host → iframe  {type:'cn:theme', theme}（主题切换时增量下发）
+
+   文件关联（props.fileRel → cn:init 里的 file: {rel,name,ext}）：
+     插件窗口有两种来源：应用图标（file 为 null）与文件关联 / 打开方式（带 fileRel）。
+     后者不把内容塞进消息里，只告诉插件“哪个文件”——插件用 fs.readText(file.rel) 自己读，
+     因为内容可能很大，而且写回必须走 fs.writeText 才能拿到“外部已修改”这类校验。
 
    安全边界：
      - 只接受 event.source === iframe.contentWindow 且 event.origin === 'null'
@@ -109,9 +115,20 @@ function checkText(v, field, max = 1024 * 1024) {
   return v;
 }
 
+// 文件关联的入参：props.fileRel（相对 FILE_ROOT 的路径，与 fs.* 接口同一口径）
+// → cn:init 里的 file 对象，三种字段都只做展示/分流，读写一律用 rel
+function filePayloadOf(fileRel) {
+  if (typeof fileRel !== 'string' || !fileRel) return null;
+  const name = basename(fileRel);
+  const ext = extname(name);
+  return { rel: fileRel, name, ext: ext ? `.${ext}` : '' };
+}
+
 export default function PluginWindow({ win }) {
   const s = useStore();
   const pluginId = win.props?.pluginId || '';
+  const fileRel = win.props?.fileRel || '';
+  const file = filePayloadOf(fileRel);
   const plugin = (s.plugins || []).find((p) => p.id === pluginId) || null;
   const entryUrl = plugin?.entryUrl || '';
   const perms = plugin?.permissions || [];
@@ -134,6 +151,9 @@ export default function PluginWindow({ win }) {
 
   useEffect(() => clearReadyTimer, []);
 
+  // 窗口消失（被关 / 被卸载）时清掉脏标记：否则 beforeunload 会为一个不存在的窗口反复拦住刷新
+  useEffect(() => () => setWindowDirty(win.id, false), [win.id]);
+
   // iframe 挂载（首次 / 重新加载）就开始计时：入口 404 时不会触发 load，只能靠它兜底
   useEffect(() => {
     if (failed || !entryUrl) return undefined;
@@ -155,8 +175,9 @@ export default function PluginWindow({ win }) {
   }, []);
 
   const sendInit = useCallback(() => {
-    send({ type: 'cn:init', v: 1, pluginId, theme: readThemeVars(), locale: 'zh-CN' });
-  }, [pluginId, send]);
+    // file: 有文件关联时是 {rel,name,ext}，从应用图标启动时是 null（旧行为不变）
+    send({ type: 'cn:init', v: 1, pluginId, theme: readThemeVars(), locale: 'zh-CN', file });
+  }, [pluginId, send, fileRel]);
 
   // 主题切换：把新的变量表增量推给插件（协议里的可选 cn:theme）
   useEffect(() => bus.on('theme-changed', () => {
@@ -222,7 +243,17 @@ export default function PluginWindow({ win }) {
         setWindowTitle(win.id, title);
         return { ok: true };
       }
+      case 'ui.markDirty': {
+        if (typeof p.dirty !== 'boolean') throw new CallError('INVALID_ARGUMENT', 'ui.markDirty 的 dirty 必须是布尔值');
+        setWindowDirty(win.id, p.dirty);
+        return { ok: true, dirty: p.dirty };
+      }
       case 'ui.close': {
+        // 脏状态不允许插件自己把窗口关掉：数据是用户的，宿主不替它丢；
+        // 插件要关就先 markDirty(false)（如已保存），或者让用户点 X 确认
+        if (isWindowDirty(win.id)) {
+          throw new CallError('UNSAVED_CHANGES', '窗口还有未保存的更改，请先保存并 markDirty(false)');
+        }
         closeWindow(win.id);
         return { ok: true };
       }

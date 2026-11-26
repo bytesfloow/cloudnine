@@ -39,6 +39,13 @@ const PERMISSIONS = ['storage', 'fs.read', 'fs.write', 'clipboard.write', 'notif
 // v1 明确不支持插件自带后端代码
 const FORBIDDEN_KEYS = ['server', 'main'];
 const STORAGE_LIMIT = 1024 * 1024; // 插件私有数据上限 1MB（序列化后）
+// 文件关联（v1.1）：fileTypes / defaultFor 里的扩展名
+//   - 必须带点、只允许字母数字与 - _ +、整串 ≤ 16（含点）；不支持 .tar.gz 这种多段扩展名
+//     （前端按「最后一个点之后」取扩展名，声明多段只会永远匹配不上）
+//   - 统一转小写后比较，插件写 ".JSON" 也会被规范成 ".json"
+//   - 一个插件最多声明 10 个
+const EXT_RE = /^\.[a-z0-9][a-z0-9_+-]*$/;
+const MAX_FILE_TYPES = 10;
 
 const DEFAULTS = {
   entry: 'index.html',
@@ -55,6 +62,28 @@ function relAssetPath(v, field) {
   if (p.split('/').some((s) => s === '..' || s === '.')) throw err(400, `manifest 字段 ${field} 不能包含 . 或 .. 路径段`);
   if (p.length > 300) throw err(400, `manifest 字段 ${field} 过长`);
   return p;
+}
+
+/**
+ * 扩展名数组校验（fileTypes / defaultFor 共用）：
+ * 必须是数组、元素必须是以点开头的小写化扩展名、≤ 16 字符、≤ 10 项。
+ * 非法一律抛 400 —— 与 permissions 里的未知权限同样处理：宁可安装时报错，
+ * 也不接受一个「装上了但双击文件没反应」的插件。
+ */
+function extList(v, field) {
+  if (!Array.isArray(v)) throw err(400, `manifest 字段 ${field} 必须是数组（例如 [".json", ".md"]）`);
+  if (v.length > MAX_FILE_TYPES) throw err(400, `manifest 字段 ${field} 最多 ${MAX_FILE_TYPES} 项`);
+  const out = [];
+  for (const raw of v) {
+    if (typeof raw !== 'string') throw err(400, `manifest 字段 ${field} 的元素必须是字符串：${JSON.stringify(raw)}`);
+    const ext = raw.trim().toLowerCase();
+    if (ext.length > 16) throw err(400, `manifest 字段 ${field} 的扩展名过长（最多 16 字符）：${raw}`);
+    if (!EXT_RE.test(ext)) {
+      throw err(400, `manifest 字段 ${field} 的扩展名非法（需以 . 开头、只含字母数字与 - _ +）：${JSON.stringify(raw)}`);
+    }
+    out.push(ext);
+  }
+  return [...new Set(out)];
 }
 
 function intInRange(v, def, min, max) {
@@ -111,6 +140,18 @@ export function normalizeManifest(raw, dirName = null) {
     permissions = [...new Set(raw.permissions)];
   }
 
+  // 文件关联：fileTypes 让插件出现在「打开方式」里；defaultFor 里的扩展名双击时优先用它。
+  // 旧 manifest 没有这两个字段 → 空数组（不影响加载，也不会进打开方式）
+  const fileTypes = raw.fileTypes === undefined || raw.fileTypes === null ? [] : extList(raw.fileTypes, 'fileTypes');
+  let defaultFor = [];
+  if (raw.defaultFor !== undefined && raw.defaultFor !== null) {
+    defaultFor = extList(raw.defaultFor, 'defaultFor');
+    const missing = defaultFor.filter((e) => !fileTypes.includes(e));
+    if (missing.length) {
+      throw err(400, `manifest 字段 defaultFor 里的扩展名必须先声明在 fileTypes 里：${missing.join(' ')}`);
+    }
+  }
+
   const w = raw.window && typeof raw.window === 'object' && !Array.isArray(raw.window) ? raw.window : {};
   const window = {
     width: intInRange(w.width, DEFAULTS.window.width, 200, 4096),
@@ -134,6 +175,8 @@ export function normalizeManifest(raw, dirName = null) {
     permissions,
     onDesktop: flag(raw.onDesktop, true),
     inStartMenu: flag(raw.inStartMenu, true),
+    fileTypes,
+    defaultFor,
     minHostVersion: asString(raw.minHostVersion)?.trim().slice(0, 32) || null,
   };
 }
@@ -221,6 +264,10 @@ function publicPlugin(m) {
     iconUrl: m.icon ? pluginAssetUrl(m.id, m.icon) : null,
     onDesktop: m.onDesktop,
     inStartMenu: m.inStartMenu,
+    // 文件关联（v1.1）：前端据此把插件放进「打开方式」，并按 defaultFor 决定双击默认程序。
+    // 旧插件没有这两个字段 → 服务端补空数组，前端不需要判 undefined
+    fileTypes: m.fileTypes || [],
+    defaultFor: m.defaultFor || [],
   };
 }
 
