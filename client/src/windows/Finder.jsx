@@ -5,7 +5,7 @@ import {
   setState, setFinderSel, basename, dirname, joinPath, fmtSize, fileCat, TEXT_EDITABLE,
 } from '../store.js';
 import { api } from '../api.js';
-import { addUpload, pickFiles } from '../transfers.js';
+import { addUpload, pickFiles, uploadStats } from '../transfers.js';
 import {
   createItem, uploadTo, copyToClipboard, cutToClipboard, pasteInto, trashItems, renameItem,
   downloadItem, downloadItems, compressItems, extractItem, shareItem, shareBlockReason, copyPathText, isArchive,
@@ -31,6 +31,8 @@ export default function Finder({ win }) {
   const [showHidden, setShowHidden] = useState(!!win.props.showHidden);
   const [query, setQuery] = useState('');
   const [searchMode, setSearchMode] = useState(false);
+  // 搜索框默认收起成图标（宽窗由 CSS 容器查询直接展开）：展开态是纯视觉状态，不影响 query/searchMode
+  const [searchOpen, setSearchOpen] = useState(false);
   const [sort, setSort] = useState({ key: 'name', asc: true });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -151,7 +153,12 @@ export default function Finder({ win }) {
       case 'viewList': setView('list'); return;
       case 'toggleHidden': setShowHidden((v) => !v); return;
       case 'refresh': return load();
-      case 'focus-search': return containerRef.current?.querySelector('.finder-search input')?.focus();
+      case 'focus-search': {
+        // 窄窗下搜索框是收起的，先展开再聚焦（选择器 .finder-search input 保持不变：Ctrl+F / F3 靠它）
+        setSearchOpen(true);
+        setTimeout(() => containerRef.current?.querySelector('.finder-search input')?.focus(), 0);
+        return;
+      }
       case 'goHome': return navigate(st.homeRel || '');
       case 'goRoot': return navigate('');
       case 'goTrash': return navigate('__trash__');
@@ -526,8 +533,6 @@ export default function Finder({ win }) {
         isTrash={isTrash}
         query={query}
         searchMode={searchMode}
-        setQuery={setQuery}
-        runSearch={runSearch}
       />
 
       <FinderCommandBar
@@ -539,6 +544,13 @@ export default function Finder({ win }) {
         act={act}
         sortItems={sortItems}
         onDeleteForever={deleteForeverSelected}
+        query={query}
+        setQuery={setQuery}
+        runSearch={runSearch}
+        searchMode={searchMode}
+        searchOpen={searchOpen}
+        setSearchOpen={setSearchOpen}
+        upStats={uploadStats()}
       />
 
       <div className="finder-main">

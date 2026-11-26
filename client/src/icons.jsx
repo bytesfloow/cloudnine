@@ -576,6 +576,66 @@ export const IconInfo = ({ size = 15 }) => (
   </svg>
 );
 
+/* ---------------- 文件资源管理器命令栏图标（T18 新增 7 枚） ----------------
+   命令按钮是「图标 16 + 中文 12.5」的 32px 高控件，所以统一 24 视框、
+   stroke: currentColor、描边 2.1、圆头圆角，与上面那组中性线性图标同一语言；
+   这样图标能跟着 --text-2 / --text / --danger-text / --on-accent 一起变色。
+
+   ⚠️ 删除不用现有的 IconTrash：那枚是 48 视框 + 固定 ACCENT 蓝（桌面 / 开始菜单），
+   塞进 16px 按钮既糊又不跟 --danger-text 走，所以另起一枚 currentColor 版本。 */
+
+export const IconFolderPlus = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3.2 7.3A2.3 2.3 0 0 1 5.5 5h4.2l2 2.4h7.1A2.3 2.3 0 0 1 21 9.7v7.9a2.3 2.3 0 0 1-2.3 2.3H5.5a2.3 2.3 0 0 1-2.3-2.3V7.3Z" />
+    <path d="M12.2 11v5.2M9.6 13.6h5.2" />
+  </svg>
+);
+export const IconFolderUp = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3.2 7.3A2.3 2.3 0 0 1 5.5 5h4.2l2 2.4h7.1A2.3 2.3 0 0 1 21 9.7v7.9a2.3 2.3 0 0 1-2.3 2.3H5.5a2.3 2.3 0 0 1-2.3-2.3V7.3Z" />
+    <path d="M12.2 16.6v-5.6m0 0L9.8 13.4M12.2 11l2.4 2.4" />
+  </svg>
+);
+export const IconCut = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="6.6" cy="17.6" r="2.6" />
+    <circle cx="17.4" cy="17.6" r="2.6" />
+    <path d="M8.5 15.8 18.6 4M15.5 15.8 5.4 4" />
+  </svg>
+);
+export const IconCopy = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="8.4" y="8.4" width="11.6" height="11.6" rx="2.2" />
+    <path d="M15.6 5.6a2.2 2.2 0 0 0-2.2-2.2H6.2A2.2 2.2 0 0 0 4 5.6v7.2a2.2 2.2 0 0 0 2.2 2.2" />
+  </svg>
+);
+export const IconRename = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4.3 19.7h4l10.6-10.6a2.4 2.4 0 0 0-3.4-3.4L4.9 16.3l-.6 3.4Z" />
+    <path d="M14.4 6.9 17.8 10.3" />
+  </svg>
+);
+export const IconTrashLine = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4.2 6.6h15.6" />
+    <path d="M9.6 6.6V4.9a1.4 1.4 0 0 1 1.4-1.4h2a1.4 1.4 0 0 1 1.4 1.4v1.7" />
+    <path d="M6.5 6.6l.85 12.1a1.8 1.8 0 0 0 1.8 1.7h5.7a1.8 1.8 0 0 0 1.8-1.7l.85-12.1" />
+    <path d="M10.4 10.6v6M13.6 10.6v6" />
+  </svg>
+);
+export const IconSort = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M7 19.8V4.6m0 0L3.7 7.9M7 4.6l3.3 3.3" />
+    <path d="M17 4.2v15.2m0 0 3.3-3.3M17 19.4l-3.3-3.3" />
+  </svg>
+);
+export const IconDetails = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3.4" y="4.6" width="17.2" height="14.8" rx="2.2" />
+    <path d="M3.4 9.2h17.2M9.6 9.2v10.2" />
+  </svg>
+);
+
 /* ---------------- 当前色系图标（移动端上传卡 / 开始菜单最近文件） ----------------
    这四枚在调用点靠 CSS 的 color 上色（.m-upload-card:nth-child(n) svg / --sm-icon），
    所以继续吃 currentColor，只在造型与描边上统一到新规范。 */

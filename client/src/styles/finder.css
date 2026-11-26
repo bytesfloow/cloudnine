@@ -1,53 +1,164 @@
 /* ============ 文件资源管理器 ============ */
-.finder { display: flex; flex-direction: column; height: 100%; }
-.finder-toolbar {
-  flex: none; display: flex; align-items: center; gap: 4px; padding: 6px 8px; min-width: 0;
-  border-bottom: 1px solid var(--line); background: var(--bar-bg);
-}
-/* 地址栏（工具栏内的面包屑）：点空白处 = 前往文件夹 */
-.finder-address {
-  flex: 1; min-width: 40px; min-height: 24px; flex-wrap: nowrap;
-  align-items: center; overflow: hidden; padding: 0 4px; border-radius: var(--radius-ctl); cursor: text;
-}
-.finder-address:hover { background: var(--hover); }
-.finder-address > * { flex: none; }
-.crumb-static { cursor: default; }
+/* 两行式头部（docs/design/finder-toolbar.md 方案 A）：
+     地址行 34px（后退/前进/上一级 + 长路径药丸）
+     命令行 40px（五组命令 + 分隔线 + 右簇：上传进度 / 更多 / 搜索）
+   --bar-bg 两行共用，只保留命令行那条底线，避免“三条一样的横条 + 三道线”。
 
-/* 命令栏：新建 ▸ ｜ 上传 ｜ 剪贴板 ｜ 重命名/删除 ｜ 排序 ▸ 查看 ▾ ⋯ */
-.finder-cmdbar {
-  flex: none; display: flex; align-items: center; gap: 2px; padding: 4px 8px; min-width: 0;
-  border-bottom: 1px solid var(--line); background: var(--bar-bg); overflow: hidden;
+   ⚠️ container-type 挂在 .finder 上：断点量的是**窗口宽度**，不是视口宽度。
+   命令按钮的三段降级（标签 → 32×32 图标 → 收进「更多」）前两段走下面 @container，
+   第三段由 FinderCommandBar 的 JS 打包逻辑兜底（CSS 没法把按钮搬进菜单）。 */
+.finder { display: flex; flex-direction: column; height: 100%; container-type: inline-size; container-name: finder; }
+
+/* ---------- 第一行 · 地址行 ---------- */
+.finder-toolbar {
+  flex: none; display: flex; align-items: center; gap: 2px; height: 34px; padding: 0 10px;
+  background: var(--bar-bg); min-width: 0; overflow: hidden;
 }
-.cmd-group { display: flex; align-items: center; gap: 2px; flex: none; }
-.cmd-sep { flex: none; width: 1px; height: 18px; margin: 0 5px; background: var(--line); }
-.cmd-btn {
-  height: 26px; padding: 0 8px; border-radius: var(--radius-ctl); display: inline-flex; align-items: center;
-  gap: 3px; color: var(--text); font-size: 12.5px; white-space: nowrap;
-}
-.cmd-btn:hover:not(:disabled) { background: var(--hover); }
-.cmd-btn:active:not(:disabled) { background: var(--pressed); }
-.cmd-btn:disabled { color: var(--text-3); cursor: default; }
-.cmd-btn.danger { color: var(--danger-text); }
-.cmd-caret { display: inline-flex; align-items: center; opacity: .65; }
-.cmd-split { display: inline-flex; align-items: center; }
-.cmd-split-caret { width: 18px; padding: 0; justify-content: center; opacity: .8; }
+.fx-nav { display: flex; align-items: center; gap: 2px; flex: none; }
 .tb-btn {
-  width: 28px; height: 26px; border-radius: var(--radius-ctl); display: inline-flex;
-  align-items: center; justify-content: center; color: var(--text); font-size: 14px;
+  width: 28px; height: 28px; border-radius: var(--radius-ctl); display: inline-flex;
+  align-items: center; justify-content: center; color: var(--text-2); font-size: 14px; flex: none;
 }
-.tb-btn:hover:not(:disabled) { background: var(--hover); }
+.tb-btn:hover:not(:disabled) { background: var(--active); color: var(--text); }
 .tb-btn:active:not(:disabled) { background: var(--pressed); }
+.tb-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .tb-btn:disabled { color: var(--text-3); cursor: default; }
 .tb-btn.active { background: var(--accent-soft); color: var(--accent-text); }
-.tb-view { display: flex; gap: 2px; margin: 0 3px; padding: 0 4px; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
-.finder-search {
-  flex: 1; max-width: 280px; margin-left: auto; display: flex; align-items: center; gap: 6px;
-  background: var(--input-bg); border: 1px solid var(--line); border-radius: var(--radius-ctl); padding: 3px 8px;
-  color: var(--text-2);
+.tb-sep { flex: none; width: 1px; height: 20px; margin: 0 8px; background: var(--line); }
+
+/* 地址药丸：底用 --win-bg（暗色下 --input-bg 与 --bar-bg 同色，药丸会只剩一条描边） */
+.finder-address {
+  flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 1px; height: 26px;
+  padding: 0 3px; border: 1px solid var(--line); border-radius: var(--radius-ctl);
+  background: var(--win-bg); overflow: hidden; cursor: text;
 }
-.finder-search input { border: none; background: none; box-shadow: none; flex: 1; padding: 2px 0; min-width: 40px; }
+.finder-address:hover { border-color: var(--text-3); }
+.crumb {
+  display: inline-flex; align-items: center; min-width: 0; flex: 0 1 auto; height: 20px; padding: 0 6px;
+  border-radius: 3px; color: var(--text-2); font-size: 12.5px; white-space: nowrap; text-align: left;
+}
+.crumb > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.crumb:hover { background: var(--hover); color: var(--text); }
+.crumb:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.crumb.current { color: var(--text); font-weight: 600; flex: 0 0 auto; max-width: 62%; }
+.crumb-static { cursor: default; }
+.crumb-more { flex: none; min-width: 22px; justify-content: center; padding: 0 4px; letter-spacing: 1px; }
+.crumb-sep { flex: none; display: inline-flex; color: var(--text-3); }
+.crumb-note { color: var(--accent-text); margin-left: 8px; font-size: 12.5px; white-space: nowrap; }
+
+/* ---------- 第二行 · 命令行 ---------- */
+.finder-cmdbar {
+  flex: none; display: flex; align-items: center; gap: 0; height: 40px; padding: 0 8px;
+  background: var(--bar-bg); border-bottom: 1px solid var(--line); min-width: 0; overflow: hidden;
+}
+.cmd-groups { display: flex; align-items: center; min-width: 0; flex: none; }
+.cmd-group { display: flex; align-items: center; gap: 2px; flex: none; }
+.cmd-sep { flex: none; width: 1px; height: 20px; margin: 0 8px; background: var(--line); }
+.finder-cmdbar .cmd-btn {
+  position: relative; height: 32px; padding: 0 10px; gap: 6px; border-radius: var(--radius-ctl);
+  display: inline-flex; align-items: center; color: var(--text); font-size: 12.5px;
+  white-space: nowrap; flex: none; max-width: none;
+}
+.cmd-ico { display: inline-flex; color: var(--text-2); flex: none; }
+.cmd-label { overflow: hidden; text-overflow: ellipsis; }
+/* 悬停用 --active(7%) 而不是 --hover(4%)：这是设计稿唯一“有意加强”的一处 */
+.finder-cmdbar .cmd-btn:hover:not(:disabled) { background: var(--active); }
+.finder-cmdbar .cmd-btn:hover:not(:disabled) .cmd-ico { color: var(--text); }
+.finder-cmdbar .cmd-btn:active:not(:disabled) { background: var(--pressed); }
+.finder-cmdbar .cmd-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* 禁用态：字与图标一起退到 --text-3；不用 opacity，与 base.css 的禁用约定一致 */
+.finder-cmdbar .cmd-btn:disabled { color: var(--text-3); background: none; cursor: default; }
+.finder-cmdbar .cmd-btn:disabled .cmd-ico { color: var(--text-3); }
+.finder-cmdbar .cmd-btn.is-primary {
+  background: var(--accent); color: var(--on-accent); font-weight: 600; padding: 0 10px 0 11px;
+}
+.finder-cmdbar .cmd-btn.is-primary .cmd-ico { color: var(--on-accent); }
+.finder-cmdbar .cmd-btn.is-primary .cmd-caret { color: var(--on-accent); opacity: .85; }
+.finder-cmdbar .cmd-btn.is-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.finder-cmdbar .cmd-btn.is-primary:active:not(:disabled) { background: var(--accent-active); }
+.finder-cmdbar .cmd-btn.is-primary:disabled { background: var(--hover); color: var(--text-3); }
+.finder-cmdbar .cmd-btn.is-primary:disabled .cmd-ico { color: var(--text-3); }
+.finder-cmdbar .cmd-btn.danger { color: var(--danger-text); }
+.finder-cmdbar .cmd-btn.danger .cmd-ico { color: var(--danger-text); }
+.finder-cmdbar .cmd-btn.danger:hover:not(:disabled) { background: var(--danger-soft); }
+.finder-cmdbar .cmd-btn.danger:disabled,
+.finder-cmdbar .cmd-btn.danger:disabled .cmd-ico { color: var(--text-3); }
+.finder-cmdbar .cmd-btn.is-icon { width: 32px; padding: 0; justify-content: center; }
+.finder-cmdbar .cmd-btn.is-icon .cmd-label { display: none; }
+.cmd-caret { display: inline-flex; align-items: center; color: var(--text-3); flex: none; margin-left: -2px; }
+.cmd-btn.is-primary .cmd-caret { margin-left: 0; }
+.cmd-split { display: inline-flex; align-items: stretch; flex: none; border-radius: var(--radius-ctl); }
+.cmd-split > .cmd-btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.cmd-split-caret {
+  width: 18px; padding: 0 !important; justify-content: center;
+  border-top-left-radius: 0; border-bottom-left-radius: 0;
+  box-shadow: inset 1px 0 0 var(--line); color: var(--text-2);
+}
+/* 上传中：按钮自己带进度（底边 2px 的进度条），不另开弹层 */
+.finder-cmdbar .cmd-btn.is-uploading::after {
+  content: ''; position: absolute; left: 8px; right: 8px; bottom: 2px; height: 2px; border-radius: 1px;
+  background: linear-gradient(to right, var(--accent) var(--up, 0%), var(--active) var(--up, 0%));
+}
+
+/* 右簇：上传进度胶囊 + 更多 + 搜索（更多与搜索同一簇，贴右）。
+   两簇都 flex:none：宁可溢出让 JS 收按钮，也不能让 flex 缩小把按钮压到邻居身上 */
+.cmd-right { display: flex; align-items: center; gap: 8px; margin-left: auto; flex: none; min-width: 0; padding-left: 8px; }
+.fx-up {
+  display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; flex: none;
+  border-radius: 100px; background: var(--accent-soft); color: var(--accent-text);
+  font-size: 11.5px; font-weight: 600; white-space: nowrap;
+}
+.fx-up-track { width: 56px; height: 3px; border-radius: 2px; background: var(--active); overflow: hidden; flex: none; }
+.fx-up-bar { display: block; height: 100%; border-radius: 2px; background: var(--accent); transition: width .2s linear; }
+.fx-up-n { font-variant-numeric: tabular-nums; }
+
+.finder-search {
+  display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 6px; width: 200px; min-width: 0; flex: none;
+  border: 1px solid var(--line); border-radius: var(--radius-ctl); background: var(--win-bg); color: var(--text-3);
+}
+.finder-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.finder-search input { flex: 1; min-width: 0; height: 100%; border: none; background: none; box-shadow: none; padding: 0; font-size: 12.5px; color: var(--text); }
 .finder-search input:focus { box-shadow: none; }
-.clear-btn { color: var(--text-2); font-size: 14px; padding: 0 2px; }
+.fx-search-ico { display: inline-flex; flex: none; }
+.finder-search .clear-btn { display: inline-flex; align-items: center; justify-content: center; color: var(--text-2); padding: 0; flex: none; border-radius: 3px; }
+.finder-search .clear-btn:hover { color: var(--text); background: var(--active); }
+/* 搜索默认收起成图标：命令行里的输入框只在外层容器里收放，移动端 .finder-search 不受影响 */
+.finder-cmdbar .finder-search { display: none; }
+.finder-cmdbar .finder-search.is-open { display: flex; }
+
+/* ---------- 三段降级（容器查询：量窗口宽度） ----------
+   ≥1090 全标签 → <1090 次要动作收成 32×32 图标 → JS 兜底收进「更多」
+   注意“图标态”必须把文案一并 display:none：只改 width 会让 label 溢出 32px 的按钮叠到邻居身上。 */
+/* 搜索：≥760 常显输入框（默认 860 宽的窗口打开就有得用），更窄才收成图标。
+   阈值不跟标签档（1090）对齐是有意的：默认窗口宽度就够放下「图标 + 输入框」，
+   而输入框必须在 DOM 里可见，Ctrl+F / F3 / 老用例的 .finder-search input 才聚焦得到。 */
+@container finder (min-width: 760px) {
+  .finder-cmdbar .finder-search { display: flex; }
+  .finder-cmdbar .fx-search-toggle { display: none; }
+}
+@container finder (max-width: 1089px) {
+  .finder-cmdbar .cmd-btn { width: 32px; padding: 0; justify-content: center; gap: 0; }
+  .finder-cmdbar .cmd-btn .cmd-label { display: none; }
+  .finder-cmdbar .cmd-sep { display: none; }
+  .finder-cmdbar .cmd-btn.keep-label { width: auto; padding: 0 10px; gap: 6px; }
+  .finder-cmdbar .cmd-btn.keep-label .cmd-label { display: inline; }
+  .finder-cmdbar .cmd-btn.is-primary.keep-label { padding: 0 10px 0 11px; }
+  .finder-cmdbar .cmd-btn.is-primary.keep-label .cmd-caret { margin-left: 0; }
+  .finder-cmdbar .cmd-btn.keep-label .cmd-caret { margin-left: -2px; }
+  /* 宽度吃紧时进度胶囊收成「轨道 + 百分比」（让出 ~40px，别为了一个词把命令挤走） */
+  .finder-cmdbar .fx-up { padding: 0 7px; gap: 5px; }
+  .finder-cmdbar .fx-up-label { display: none; }
+}
+@container finder (max-width: 619px) {
+  /* 第三档：只留主操作「新建」的中文标签，其余一律纯图标 */
+  .finder-cmdbar .cmd-btn.keep-label:not(.is-primary) { width: 32px; padding: 0; justify-content: center; gap: 0; }
+  .finder-cmdbar .cmd-btn.keep-label:not(.is-primary) .cmd-label { display: none; }
+  .finder-cmdbar { padding: 0 6px; }
+  .cmd-right { gap: 6px; padding-left: 6px; }
+  .fx-up { width: 24px; height: 24px; padding: 0; justify-content: center; }
+  .fx-up .fx-up-n { display: none; }
+  .fx-up-track { width: 16px; }
+}
 
 .finder-main { flex: 1; display: flex; min-height: 0; }
 .finder-sidebar {
@@ -65,12 +176,6 @@
 .sb-item.active { background: var(--accent); color: var(--on-accent); }
 
 .finder-content { flex: 1; position: relative; overflow: auto; padding: 10px 12px 20px; }
-/* 面包屑已上提到地址栏（§1.4）：留在工具栏里时不再承担内容区的上边距 */
-.finder-crumbs { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; color: var(--text-2); margin-bottom: 10px; font-size: 12px; }
-.finder-toolbar .finder-crumbs { margin: 0 4px; }
-.crumb { padding: 2px 6px; border-radius: var(--radius-ctl); color: var(--text); font-weight: 600; }
-.crumb:hover { background: var(--hover); }
-.crumb-note { color: var(--accent-text); margin-left: 8px; }
 .finder-loading, .finder-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 60px 20px; color: var(--text-2); }
 
 .icon-grid { display: grid; grid-template-columns: repeat(auto-fill, 96px); gap: 6px; }
