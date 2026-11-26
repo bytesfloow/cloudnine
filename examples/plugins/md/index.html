@@ -254,6 +254,8 @@
     pointer-events: none;
   }
   .app:not(.linenums) .hl .ln::before { content: ''; }
+  /* 降级成单块纯文本时没有逐行结构，行号只能藏掉（否则整篇只有一个 “1”） */
+  .hl .ln.plain::before { content: ''; }
   .hl .ln.active { background: var(--hover); }
 
   /* token：只许改颜色 / 背景 / 装饰线 —— 改字重字号就会和 textarea 错位 */
@@ -300,6 +302,17 @@
   #st-save[data-state="dirty"] { color: var(--warn); font-weight: 600; }
   #st-save[data-state="error"] { color: var(--danger-text); font-weight: 600; }
   #st-save[data-state="readonly"] { color: var(--warn); }
+  /* 状态栏里的「大文档提示」与「悬停链接」：都能被长 URL / 长文案撑破，一律截断 */
+  #st-note {
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: var(--warn);
+  }
+  #st-note:empty { display: none; }
+  #st-link {
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: var(--accent-text); font-family: var(--mono); font-size: 11px;
+  }
+  #st-link[hidden] { display: none; }
 
   /* ---------------- 预览排版 ---------------- */
   .md {
@@ -399,6 +412,12 @@
   .md .md-img-missing svg { flex: none; color: var(--text-3); }
   .md .md-img-missing .md-img-name { color: var(--text); font-family: var(--mono); font-size: 11.5px; }
   .md .md-link-off { color: var(--text-2); text-decoration: underline dotted var(--text-3); cursor: help; }
+  .md .md-truncated {
+    margin: 1em 0; padding: 9px 12px;
+    border: 1px dashed var(--line); border-radius: 8px;
+    background: var(--hover);
+    font-size: 12.5px; color: var(--text-2);
+  }
 
   /* ---------------- 欢迎页 ---------------- */
   .welcome {
@@ -437,14 +456,15 @@
 
   /* ---------------- 轻提示 ---------------- */
   .toast {
-    position: fixed; left: 50%; bottom: 46px; transform: translateX(-50%);
+    position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%);
     z-index: 90;
-    max-width: 82%;
-    padding: 7px 13px;
-    border-radius: 14px;
-    background: var(--menu-bg); color: var(--text);
-    border: 1px solid var(--line);
-    box-shadow: var(--shadow-soft, 0 6px 18px rgba(0, 0, 0, .18));
+    max-width: 84%;
+    padding: 8px 14px;
+    border-radius: 12px;
+    /* 深底浅字（暗色主题反过来）：白底页面上也一定看得见，不靠阴影撑 */
+    background: var(--text); color: var(--bg);
+    border: 1px solid transparent;
+    box-shadow: var(--shadow-menu, 0 8px 22px rgba(0, 0, 0, .22));
     font-size: 12.5px; line-height: 1.45;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     opacity: 0; pointer-events: none;
@@ -590,6 +610,8 @@
     <span class="num" id="st-counts">0 字 · 0 词 · 1 行</span>
     <span class="num" id="st-cursor">行 1，列 1</span>
     <span class="spacer"></span>
+    <span id="st-note"></span>
+    <span id="st-link" hidden></span>
     <span id="st-mode">分栏</span>
     <span id="st-save" data-state="saved">已保存</span>
   </div>
@@ -604,10 +626,16 @@
 
   var cn = window.cloudnine;
 
-  // 宿主 fs.readText 默认最多读 512KB（server/src/fs.js 的 maxKB 默认值），
-  // 超过就 truncated —— 用截断内容写回会吃掉半篇文档，所以直接进只读预览。
-  var READ_LIMIT = 512 * 1024;
-  var MAX_EDIT = 1024 * 1024;
+  // 宿主 fs.readText 的读写上限（docs/plugins.md §6.2「读写上限」）：
+  //   不传 maxKB = 默认 512KB，硬上限 8192KB（8MB）；writeText 上限 8MB（UTF-8 字节）。
+  // 所以打开文件时必须「先问大小、再按需读」，不能无脑吃默认 512KB。
+  var READ_MAX_KB = 8192;                       // 宿主硬上限
+  var MAX_EDIT_BYTES = 8 * 1024 * 1024;         // 工具上限：≤8MB 整份读进来可编辑可保存
+  var PEEK_KB = 2048;                           // >8MB 只预览前 2MB（反正也存不回去）
+  var HL_LINE_LIMIT = 4000;                     // 超过这么多行不再逐行高亮（保输入流畅）
+  var PLAIN_HL_CHARS = 400000;                  // 超过这么多字符同样降级（行很长时行数不够也卡）
+  var PREVIEW_CHAR_BUDGET = 200000;             // 预览最多渲染这么多字符，超出只预览前一段
+  var SLOW_PREVIEW_CHARS = 200000;              // 大文档：预览晚一拍重画
   var PREF_VERSION = 1;
   var GUTTER_ON = 46;
 
@@ -630,6 +658,8 @@
     preview: document.getElementById('preview'),
     counts: document.getElementById('st-counts'),
     cursor: document.getElementById('st-cursor'),
+    note: document.getElementById('st-note'),
+    link: document.getElementById('st-link'),
     modeLabel: document.getElementById('st-mode'),
     save: document.getElementById('st-save'),
     welcome: document.getElementById('welcome'),
@@ -647,6 +677,11 @@
     doc: null,          // {rel, name}
     text: '',
     savedText: '',
+    size: 0,            // 文件真实字节数（fs.readText 返回的 size）
+    readKB: 0,          // 本次请求的读取上限（KB）
+    truncated: false,
+    badEncoding: false, // 截断处编码被误判（整段会乱码）：预览不显示原文
+    plainHL: false,     // 大文档：已降级为「不高亮」
     dirty: false,
     readOnly: false,
     saving: false,
@@ -670,7 +705,21 @@
   }
   function escAttr(s) { return esc(s).replace(/\n/g, ' '); }
   function basename(p) { return String(p || '').split(/[\\/]/).pop() || String(p || ''); }
+  function dirOf(p) {
+    var s = String(p || '');
+    var i = s.lastIndexOf('/');
+    return i < 0 ? '' : s.slice(0, i);
+  }
   function clamp(n, lo, hi) { return n < lo ? lo : n > hi ? hi : n; }
+  function fmtBytes(n) {
+    var v = Number(n) || 0;
+    if (v < 1024) return v + ' B';
+    if (v < 1024 * 1024) return (v / 1024).toFixed(1) + ' KB';
+    return (v / 1024 / 1024).toFixed(2) + ' MB';
+  }
+  function byteLen(s) {
+    try { return new TextEncoder().encode(String(s || '')).length; } catch (e) { return String(s || '').length; }
+  }
 
   // 沙箱 iframe 里 Chrome 会拒统「无用户激活的脚本 focus()」（控制台会报
   // Permissions policy violation）。只在确实有用户激活时才移动焦点。
@@ -683,12 +732,30 @@
     } catch (e) { return false; }
   }
 
+  function setNote(text) {
+    el.note.textContent = text || '';
+  }
+
+  // 悬停在预览里的链接上时，状态栏显示完整 URL（沙箱里没有浏览器状态栏可看）
+  function setLink(url) {
+    if (url) {
+      el.link.textContent = url;
+      el.link.title = url;
+      el.link.hidden = false;
+    } else {
+      el.link.textContent = '';
+      el.link.hidden = true;
+    }
+  }
+
   var toastTimer = null;
   function toast(msg) {
-    el.toast.textContent = msg;
+    var text = String(msg == null ? '' : msg);
+    el.toast.textContent = text.length > 72 ? text.slice(0, 71) + '…' : text;
+    el.toast.title = text;
     el.toast.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { el.toast.classList.remove('show'); }, 1900);
+    toastTimer = setTimeout(function () { el.toast.classList.remove('show'); }, 2400);
   }
 
   /* ==================================================================== */
@@ -1084,40 +1151,96 @@
 
   /* ---------------- 块 → HTML ---------------- */
 
+  function renderBlock(b) {
+    var ln = ' data-line="' + b.line + '"';
+    switch (b.type) {
+      case 'heading':
+        return '<h' + b.level + ' id="h-' + b.line + '"' + ln + '>' + renderInline(b.text) + '</h' + b.level + '>';
+      case 'para':
+        return '<p' + ln + '>' + renderInline(b.text) + '</p>';
+      case 'hr':
+        return '<hr' + ln + '>';
+      case 'code':
+        return '<div class="md-code"' + ln + '>' +
+          '<div class="md-code-bar"><span class="md-code-lang">' + esc(b.lang || 'text') + '</span>' +
+          '<button type="button" class="md-copy" data-copy="1" title="复制这段代码">复制</button></div>' +
+          '<pre><code>' + highlightCode(b.code, b.lang) + '</code></pre></div>';
+      case 'quote':
+        return '<blockquote' + ln + '>' + renderBlocks(b.children) + '</blockquote>';
+      case 'list':
+        return renderList(b.items, b.ordered, b.start, ln);
+      case 'table':
+        return renderTable(b, ln);
+      default:
+        return '';
+    }
+  }
+
   function renderBlocks(blocks) {
     var html = '';
-    for (var i = 0; i < blocks.length; i++) {
-      var b = blocks[i];
-      var ln = ' data-line="' + b.line + '"';
-      switch (b.type) {
-        case 'heading':
-          html += '<h' + b.level + ' id="h-' + b.line + '"' + ln + '>' + renderInline(b.text) + '</h' + b.level + '>';
-          break;
-        case 'para':
-          html += '<p' + ln + '>' + renderInline(b.text) + '</p>';
-          break;
-        case 'hr':
-          html += '<hr' + ln + '>';
-          break;
-        case 'code':
-          html += '<div class="md-code"' + ln + '>' +
-            '<div class="md-code-bar"><span class="md-code-lang">' + esc(b.lang || 'text') + '</span>' +
-            '<button type="button" class="md-copy" data-copy="1" title="复制这段代码">复制</button></div>' +
-            '<pre><code>' + highlightCode(b.code, b.lang) + '</code></pre></div>';
-          break;
-        case 'quote':
-          html += '<blockquote' + ln + '>' + renderBlocks(b.children) + '</blockquote>';
-          break;
-        case 'list':
-          html += renderList(b.items, b.ordered, b.start, ln);
-          break;
-        case 'table':
-          html += renderTable(b, ln);
-          break;
-        default:
-          break;
-      }
+    for (var i = 0; i < blocks.length; i++) html += renderBlock(blocks[i]);
+    return html;
+  }
+
+  function blockCost(b) {
+    if (!b) return 0;
+    if (b.type === 'code') return (b.code || '').length;
+    if (b.type === 'quote') return 200 + (b.children || []).reduce(function (n, c) { return n + blockCost(c); }, 0);
+    if (b.type === 'list') {
+      var n2 = 0;
+      (function walk(node) { (node.items || []).forEach(function (it) { n2 += (it.text || '').length; if (it.children) walk(it.children); }); })(b.items);
+      return n2;
     }
+    if (b.type === 'table') return (b.head || []).join('').length + (b.rows || []).reduce(function (n, r) { return n + r.join('').length; }, 0);
+    return (b.text || '').length;
+  }
+
+  function blockText(b) {
+    if (!b) return '';
+    if (b.type === 'code') return b.code || '';
+    if (b.type === 'para' || b.type === 'heading') return b.text || '';
+    if (b.type === 'quote') return (b.children || []).map(blockText).join('\n');
+    if (b.type === 'list') {
+      var lines = [];
+      (function walk(node) { (node.items || []).forEach(function (it) { lines.push(it.text || ''); if (it.children) walk(it.children); }); })(b.items);
+      return lines.join('\n');
+    }
+    if (b.type === 'table') {
+      return (b.head || []).join(' ') + '\n' + (b.rows || []).map(function (r) { return r.join(' '); }).join('\n');
+    }
+    return '';
+  }
+
+  // 预览只渲染前 PREVIEW_CHAR_BUDGET 个字符：8MB 文档也不要把整个 DOM 撑爆
+  // （编辑 / 保存始终是完整内容，这里只是“看不完”的折中）
+  function previewHtml(blocks) {
+    if (state.badEncoding) {
+      return '<p class="md-truncated">这份文件只载入了前 ' + fmtBytes((state.readKB || PEEK_KB) * 1024)
+        + '，且截断点切在多字节字符中间，宿主把编码判成了 gb18030 —— 显示出来只会是一堆乱码，'
+        + '所以这里不渲染原文。请用桌面「编辑器」打开完整文件。</p>';
+    }
+    var total = (state.text || '').length;
+    if (total <= PREVIEW_CHAR_BUDGET) return renderBlocks(blocks);
+    var budget = 0;
+    var html = '';
+    for (var i = 0; i < blocks.length; i++) {
+      var cost = blockCost(blocks[i]);
+      if (budget + cost > PREVIEW_CHAR_BUDGET) {
+        // 一个大块（比如几万行的一个段落）就能吃满预算：渲染它的前一段，
+        // 否则预览里只剩标题 + 一句“文档较大”，看着像坏了
+        var room = PREVIEW_CHAR_BUDGET - budget;
+        if (room > 200) {
+          html += '<p data-line="' + blocks[i].line + '">'
+            + renderInline(blockText(blocks[i]).slice(0, room)) + '…</p>';
+          budget += room;
+        }
+        break;
+      }
+      budget += cost;
+      html += renderBlock(blocks[i]);
+    }
+    html += '<p class="md-truncated">文档较大：预览只渲染了前 ' + Math.round(budget / 1000) + ' 千字符'
+      + '（全文 ' + fmtBytes(byteLen(state.text)) + '），编辑与保存始终针对完整文件。</p>';
     return html;
   }
 
@@ -1208,7 +1331,7 @@
 
   // 行号装订线宽度按行数位数算：上千行时 46px 会把数字挤到正文上
   function applyGutterWidth() {
-    if (!state.linenums) {
+    if (!state.linenums || state.plainHL) {
       el.app.style.removeProperty('--gutter-w');
       return;
     }
@@ -1218,7 +1341,21 @@
   }
 
   function renderHighlight(lines, activeLine) {
+    // 超大文档：逐行包 <div> + 逐行 tokenize 会让每次按键都卡一下，
+    // 这里降级成“整篇一段纯文本”（字符、行高完全一致，光标不会飘），语法高亮关掉。
+    // 用 textContent 而不是转义后 innerHTML：几 MB 文本也不用每键重跑一遍正则。
+    state.plainHL = lines.length > HL_LINE_LIMIT || (state.text || '').length > PLAIN_HL_CHARS;
     applyGutterWidth();
+    if (state.plainHL) {
+      var box = document.createElement('div');
+      box.className = 'ln plain';
+      box.setAttribute('data-n', '1');
+      box.textContent = state.text || '';
+      el.hl.textContent = '';
+      el.hl.appendChild(box);
+      updatePlainHint();
+      return;
+    }
     var out = [];
     var fence = null;   // {marker:'`'|'~', len:n}
     for (var i = 0; i < lines.length; i++) {
@@ -1243,6 +1380,17 @@
     el.hl.innerHTML = out.join('');
     // 空文档也要有一行
     if (!lines.length) el.hl.innerHTML = '<div class="ln active" data-n="1"><br></div>';
+    updatePlainHint();
+  }
+
+  // 大文档降级的说明放状态栏，不弹窗不阻塞
+  function updatePlainHint() {
+    var parts = [];
+    if (state.plainHL) parts.push('大文档：语法高亮已关闭');
+    if ((state.text || '').length > PREVIEW_CHAR_BUDGET && previewVisible()) {
+      parts.push('预览只显示前 ' + Math.round(PREVIEW_CHAR_BUDGET / 10000) + ' 万字符，编辑与保存不受影响');
+    }
+    setNote(parts.join(' · '));
   }
 
   /* ==================================================================== */
@@ -1307,7 +1455,7 @@
     renderHighlight(lines, cursorLine());
     updateStats();
     updateCursor();
-    schedulePreview(90);
+    schedulePreview((state.text || '').length > SLOW_PREVIEW_CHARS ? 700 : 90);
   }
 
   var previewTimer = null;
@@ -1326,9 +1474,10 @@
 
   function renderPreview() {
     if (!previewVisible()) { el.preview.innerHTML = ''; state.map = []; return; }
-    el.preview.innerHTML = renderBlocks(state.blocks || []);
+    el.preview.innerHTML = previewHtml(state.blocks || []);
     wirePreview();
     buildScrollMap();
+    updatePlainHint();
   }
 
   function wirePreview() {
@@ -1344,6 +1493,16 @@
           if (img.parentNode) img.parentNode.replaceChild(span, img);
         });
       })(imgs[i]);
+    }
+    // 悬停链接：状态栏显示完整 URL（移开就恢复）
+    var links = el.preview.querySelectorAll('a');
+    for (var k = 0; k < links.length; k++) {
+      (function (a) {
+        a.addEventListener('mouseenter', function () { setLink(a.getAttribute('href') || ''); });
+        a.addEventListener('mouseleave', function () { setLink(''); });
+        a.addEventListener('focus', function () { setLink(a.getAttribute('href') || ''); });
+        a.addEventListener('blur', function () { setLink(''); });
+      })(links[k]);
     }
   }
 
@@ -1532,6 +1691,12 @@
     state.loaded = true;
     el.welcome.hidden = true;
     el.docName.textContent = state.doc ? state.doc.name : '未命名';
+    el.docName.title = state.doc
+      ? state.doc.name + ' · ' + fmtBytes(state.size || byteLen(state.text))
+      : '未打开文件';
+    ta.scrollTop = 0;
+    el.hl.scrollTop = 0;
+    el.previewPane.scrollTop = 0;
     el.docName.classList.remove('muted');
     setMode(state.mode, { silent: true });
     renderAll();
@@ -1545,20 +1710,68 @@
     el.banner.hidden = false;
   }
 
+  // 先问大小（fs.list 的 size 是真实字节数），再按需请求读取上限：
+  // ≤ 8MB 整份读进来（可编辑），> 8MB 只读预览前 2MB
+  function statSize(rel) {
+    return cn.fs.list(dirOf(rel)).then(function (r) {
+      var base = basename(rel);
+      var hit = ((r && r.entries) || []).filter(function (e) { return e.name === base; })[0];
+      return hit && typeof hit.size === 'number' ? hit.size : 0;
+    }).catch(function () { return 0; });
+  }
+
+  // 截断读取可能把多字节字符切在中间：服务端 TextDecoder(fatal) 一抛就把整篇退回 gb18030，
+  // 整段花屏（实测 maxKB=2048 花屏、2047 正常）。换几个相邻 KB 边界重试，直到解回 utf-8。
+  function readTextSmart(rel, maxKB) {
+    var tries = [maxKB, maxKB - 1, maxKB - 2, maxKB - 3].filter(function (kb) { return kb > 0; });
+    var i = 0;
+    var first = null;
+    function next() {
+      if (i >= tries.length) return Promise.resolve(first);
+      var kb = tries[i++];
+      return cn.fs.readText(rel, { maxKB: kb }).then(function (r) {
+        if (!first) first = r;
+        if (!r || !r.truncated || (r.encoding || 'utf-8') === 'utf-8') {
+          if (r) r.__kb = kb;
+          return r;
+        }
+        return next();
+      });
+    }
+    return next();
+  }
+
   function loadDoc(file) {
     state.doc = { rel: file.rel, name: file.name || basename(file.rel) };
     if (cn) cn.ui.setTitle(state.doc.name).catch(function () {});
     el.docName.textContent = state.doc.name;
-    return cn.fs.readText(file.rel).then(function (r) {
+    el.docName.title = state.doc.name;
+    state.size = 0;
+    state.readKB = 0;
+    return statSize(file.rel).then(function (knownSize) {
+      var overLimit = knownSize > MAX_EDIT_BYTES;
+      var maxKB = overLimit ? PEEK_KB
+        : (knownSize > 0 ? Math.min(READ_MAX_KB, Math.ceil(knownSize / 1024) + 1) : READ_MAX_KB);
+      state.readKB = maxKB;
+      return readTextSmart(file.rel, maxKB);
+    }).then(function (r) {
       var text = typeof r === 'string' ? r : (r && r.text) || '';
       var truncated = !!(r && typeof r === 'object' && r.truncated);
-      // 只有截断才危险（写回会丢内容）；1MB 以上也统一按只读处理
-      var tooBig = truncated || text.length >= MAX_EDIT || String(text).length >= READ_LIMIT;
-      state.readOnly = tooBig;
+      if (r && typeof r === 'object' && r.__kb) state.readKB = r.__kb;
+      // 所有边界都解不出 utf-8：预览会是一堆乱码，宁可不显示
+      state.badEncoding = !!(truncated && r && r.encoding && r.encoding !== 'utf-8');
+      // truncated 才是真危险信号（内容不完整，写回去会吃掉后半篇）；size 是文件真实字节数
+      var size = (r && typeof r.size === 'number' && r.size > 0) ? r.size : byteLen(text);
+      state.size = size;
+      state.truncated = truncated;
+      state.readOnly = truncated || size > MAX_EDIT_BYTES;
       openDocText(text);
-      if (tooBig) {
-        showBanner('文件较大（宿主只返回了前 512 KB，其余未读取）：当前只能预览，' +
-          '直接保存会用不完整的内容覆盖原文件，所以编辑已关闭。请用桌面「编辑器」打开大文件。');
+      if (state.readOnly) {
+        var shown = fmtBytes((state.readKB || PEEK_KB) * 1024);
+        showBanner('文件 ' + fmtBytes(size) + '，超过 ' + fmtBytes(MAX_EDIT_BYTES) + ' 的编辑上限：'
+          + '只载入了前 ' + shown + '，当前为只读预览。'
+          + '直接用不完整的内容保存会弄丢后半篇，所以编辑已关闭。'
+          + (state.badEncoding ? '（截断处切在多字节字符中间，宿主把编码误判成了 gb18030，所以预览不显示原文。）' : ''));
         setMode('preview', { silent: true });
       } else {
         showBanner('');
@@ -1840,17 +2053,23 @@
   el.preview.addEventListener('click', function (ev) {
     var a = ev.target && ev.target.closest ? ev.target.closest('a') : null;
     if (a) {
-      // 沙箱 iframe 没有 allow-popups：target=_blank 打不开，改成把链接复制给用户
+      // 沙箱 iframe 没 allow-popups，自己 window.open 一定被拦；交给宿主的
+      // ui.openExternal（宿主只放行 http/https/mailto，被拦会退化为复制链接）
       ev.preventDefault();
       var href = a.getAttribute('href') || '';
-      if (!href) return;
-      if (cn) {
-        cn.clipboard.writeText(href).then(function () {
-          toast('链接已复制：' + href);
-        }).catch(function () {
-          toast('链接：' + href);
-        });
-      }
+      if (!href || !cn) return;
+      cn.ui.openExternal(href).then(function (r) {
+        if (r && r.copied) {
+          toast('没能直接开标签页，链接已复制：' + (r.url || href));
+        } else if (r && r.opened) {
+          toast('已在新标签页打开：' + (r.url || href));
+        } else {
+          toast('链接：' + (r && r.url ? r.url : href));
+        }
+      }).catch(function (e) {
+        // 宿主拒了（比如拿不到权限 / url 不合法）：至少让用户看到地址
+        toast('无法打开链接（' + ((e && e.message) || e) + '）：' + href);
+      });
       return;
     }
     var copy = ev.target && ev.target.closest ? ev.target.closest('[data-copy]') : null;
@@ -2030,6 +2249,8 @@
     return {
       mode: state.mode, dirty: state.dirty, readOnly: state.readOnly,
       doc: state.doc, chars: state.text.length,
+      size: state.size, readKB: state.readKB, truncated: state.truncated, plainHL: state.plainHL,
+      badEncoding: state.badEncoding,
       headings: state.headings ? state.headings.length : 0,
       outline: state.outline, linenums: state.linenums, split: state.split,
       dragging: splitDragging

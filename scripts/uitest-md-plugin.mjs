@@ -237,9 +237,11 @@ async function prepareEnv() {
   writeFileSync(join(filesRoot, 'note.md'), NOTE_MD, 'utf8');
   writeFileSync(join(filesRoot, 'alt.markdown'), '# 另一种扩展名\n\n.mdown / .markdown 也要能用。\n', 'utf8');
   writeFileSync(join(filesRoot, 'xss.md'), XSS_MD, 'utf8');
-  // > 1MB：宿主 fs.readText 只会给前 512KB（truncated=true），插件据此进只读预览
-  const bigLine = ('大文件行 '.repeat(30) + 'lorem ipsum dolor sit amet '.repeat(40) + '\n');
-  writeFileSync(join(filesRoot, 'big.md'), bigLine.repeat(1200), 'utf8');
+  // ~2MB：旧版宿主会截断在 512KB，现在（8MB 硬上限）应该整份读进来可编辑可保存
+  const bigLine = ('大文件行 '.repeat(20) + 'lorem ipsum dolor sit amet '.repeat(30) + '\n');
+  writeFileSync(join(filesRoot, 'big.md'), '# 大文档\n\n' + bigLine.repeat(1800), 'utf8');
+  // ~9MB：超过宿主 8MB 上限 → 只能只读预览前 2MB
+  writeFileSync(join(filesRoot, 'huge.md'), '# 超大文档\n\n' + bigLine.repeat(8000), 'utf8');
   writeFileSync(join(filesRoot, 'readme.txt'), 'cloudnine md uitest\n');
 
   const out = await installPlugin();
@@ -1091,30 +1093,199 @@ async function main() {
     (await previewInfo(frame)).missingImgs.length >= 1);
   await closeAllWindows();
 
-  // ---------- 13. 大文件只读 ----------
-  section('大文件（>1MB）只读预览');
+  // ---------- 12b. 预览外链交给宿主打开 ----------
+  section('预览外链：云九宿主 ui.openExternal（协议闸门 + 真开标签页）');
+  frame = await openFileEntry('note.md');
+  await frame.evaluate(() => document.querySelector('[data-mode="preview"]').click());
+  await sleep(320);
+
+  // 在宿主页面里装上 window.open / clipboard 探针：
+  // 真实浏览器里 noopener 会让 window.open 返回 null，这里返回个对象模拟“开成功了”，
+  // 只为把「宿主确实调了 window.open」这个事实坐实（不依赖真实弹窗/网络）
+  await page.evaluate(() => {
+    window.__openCalls = [];
+    window.__clipCalls = [];
+    window.__origOpen = window.open;
+    window.__origClipboard = navigator.clipboard;
+    window.open = function (u, t, f) { window.__openCalls.push({ u, t, f }); return {}; };
+    try {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText: function (t) { window.__clipCalls.push(t); return Promise.resolve(); } },
+      });
+    } catch { /* 拿不到剪贴板就跳过降级断言 */ }
+  });
+
+  const guard = await frame.evaluate(async () => {
+    const bad = ['javascript:alert(1)', 'data:text/html,<b>x</b>', 'file:///etc/passwd', './other.md', 'vbscript:msgbox'];   
+    const badOut = [];
+    for (const u of bad) {
+      try { await window.cloudnine.ui.openExternal(u); badOut.push({ u, code: 'NO_ERROR' }); }
+      catch (e) { badOut.push({ u, code: e.code || 'ERR' }); }
+    }
+    const goodOut = [];
+    for (const u of ['https://example.com/x?y=1', 'http://example.com/', 'mailto:dev@example.com']) {
+      try { goodOut.push({ u, r: await window.cloudnine.ui.openExternal(u) }); }
+      catch (e) { goodOut.push({ u, code: e.code || 'ERR' }); }
+    }
+    return { badOut, goodOut };
+  });
+  check('宿主拒绝 javascript: / data: / file: / vbscript: / 相对路径（INVALID_ARGUMENT）',
+    guard.badOut.every((x) => x.code === 'INVALID_ARGUMENT'), JSON.stringify(guard.badOut));
+  check('http / https / mailto 都放行且返回 opened:true',
+    guard.goodOut.every((g) => g.r && g.r.ok && g.r.opened === true), JSON.stringify(guard.goodOut));
+  const openedCalls = await page.evaluate(() => window.__openCalls.map((c) => ({ u: c.u, t: c.t, f: c.f })));
+  check('放行 3 次 = 宿主 window.open 调 3 次，且都是 _blank + noopener,noreferrer',
+    openedCalls.length === 3 && openedCalls.every((c) => c.t === '_blank' && /noopener/.test(c.f || '')
+      && /noreferrer/.test(c.f || '')), JSON.stringify(openedCalls));
+
+  // 悬停显示完整 URL → 点击 → 宿主打开一次
+  await page.evaluate(() => { window.__openCalls = []; });
+  // 链接在文末附近，先滚到视口中间（否则点击坐标落在 iframe 外面）
+  await frame.evaluate(() => document.querySelector('#preview a').scrollIntoView({ block: 'center' }));
+  await sleep(300);
+  const linkRect = await rectInFrame(frame, '#preview a');
+  const offLink = await frameOffset();
+  await page.mouse.move(offLink.x + linkRect.x + 6, offLink.y + linkRect.y + linkRect.h / 2);
+  await sleep(250);
+  const hoverState = await frame.evaluate(() => ({
+    text: document.getElementById('st-link').textContent.trim(),
+    hidden: document.getElementById('st-link').hidden,
+  }));
+  check('鼠标悬停预览链接 → 状态栏显示完整 URL',
+    hoverState.hidden === false && hoverState.text === 'https://example.com/docs', JSON.stringify(hoverState));
+  await page.mouse.click(offLink.x + linkRect.x + 6, offLink.y + linkRect.y + linkRect.h / 2);
+  await sleep(500);
+  const clickCalls = await page.evaluate(() => window.__openCalls.map((c) => c.u));
+  const clickToast = await frame.evaluate(() => document.getElementById('toast').textContent.trim());
+  check('点击预览外链 → 宿主就打开这一次，URL 与 href 一致',
+    clickCalls.length === 1 && clickCalls[0] === 'https://example.com/docs', JSON.stringify(clickCalls));
+  check('插件提示「已在新标签页打开」', /已在新标签页打开/.test(clickToast), clickToast);
+  await shot('外链点击提示');
+  await page.mouse.move(offLink.x + 4, offLink.y + 4);
+  await sleep(200);
+  const leaveState = await frame.evaluate(() => document.getElementById('st-link').hidden);
+  check('鼠标移开后状态栏的 URL 消失', leaveState === true, String(leaveState));
+
+  // 降级：宿主 window.open 直接抛错 → 复制链接 + toast
+  await page.evaluate(() => {
+    window.open = function () { throw new Error('popup blocked'); };
+    window.__clipCalls = [];
+  });
+  await page.mouse.click(offLink.x + linkRect.x + 6, offLink.y + linkRect.y + linkRect.h / 2);
+  await sleep(500);
+  const degraded = await page.evaluate(() => ({ clip: window.__clipCalls.slice() }));
+  const degradedToast = await frame.evaluate(() => document.getElementById('toast').textContent.trim());
+  check('宿主打不开时退化为复制链接（clipboard 收到完整 URL）',
+    degraded.clip.length === 1 && degraded.clip[0] === 'https://example.com/docs', JSON.stringify(degraded.clip));
+  check('降级时插件提示「链接已复制」', /已复制/.test(degradedToast), degradedToast);
+  await shot('外链降级-已复制');
+  // 还原宿主探针
+  await page.evaluate(() => {
+    if (window.__origOpen) window.open = window.__origOpen;
+    if (window.__origClipboard) {
+      try { Object.defineProperty(navigator, 'clipboard', { configurable: true, value: window.__origClipboard }); } catch {}
+    }
+  });
+  await closeAllWindows();
+
+  // ---------- 13a. 大文档（~2MB）：可编辑可保存 ----------
+  section('大文档（~2MB）：完整读取 / 可编辑 / 保存后磁盘一致');
   frame = await openFileEntry('big.md');
-  const bigState = await frame.waitForFunction(() => window.__mdState && window.__mdState().readOnly, { timeout: 20000 })
-    .then(() => true).catch(() => false);
-  const big = bigState ? await frame.evaluate(() => ({
+  const bigLoaded = await frame.waitForFunction(
+    () => window.__mdState && window.__mdState().size > 1024 * 1024 && window.__mdState().doc,
+    { timeout: 30000, polling: 100 },
+  ).then(() => true).catch(() => false);
+  const big = bigLoaded ? await frame.evaluate(() => ({
+    st: window.__mdState(),
+    banner: !document.getElementById('banner').hidden,
+    editorLen: document.getElementById('editor').value.length,
+    readOnly: document.getElementById('editor').readOnly,
+    note: document.getElementById('st-note').textContent.trim(),
+    previewLen: document.getElementById('preview').textContent.length,
+    truncatedNote: document.querySelector('#preview .md-truncated')?.textContent.trim() || '',
+    hlLines: document.querySelectorAll('#hl .ln').length,
+    docTitle: document.getElementById('doc-name').title,
+  })) : null;
+  check('~2MB 文档整份读入（不再是 512KB 截断）',
+    big?.st.readOnly === false && big?.st.truncated === false
+    && big?.st.size > 1024 * 1024 && big?.editorLen > 500000 && !big?.readOnly,
+    JSON.stringify({ size: big?.st.size, readKB: big?.st.readKB, len: big?.editorLen, ro: big?.readOnly }));
+  check('没有「只读」提示条，编辑/分栏按钮都可用',
+    big?.banner === false && await frame.evaluate(() => !document.querySelector('[data-mode="edit"]').disabled
+      && !document.querySelector('[data-mode="split"]').disabled), JSON.stringify({ banner: big?.banner }));
+  check('大文档自动降级：语法高亮关闭（单块高亮层）并在状态栏说明',
+    big?.st.plainHL === true && big?.hlLines === 1 && /语法高亮已关闭/.test(big?.note || ''),
+    JSON.stringify({ plainHL: big?.st.plainHL, hlLines: big?.hlLines, note: big?.note }));
+  await frame.waitForFunction(() => !!document.querySelector('#preview .md-truncated'), { timeout: 20000 })
+    .catch(() => {});
+  const bigTruncNote = await frame.evaluate(() => document.querySelector('#preview .md-truncated')?.textContent.trim() || '');
+  check('预览只渲染前一段并给出说明（不把 2MB 全塞进 DOM）',
+    /预览只渲染了前/.test(bigTruncNote), bigTruncNote);
+
+  // 真的编辑 + 保存，然后回读磁盘对比（字节级）
+  const bigMarker = 'BIG-DOC-SAVE-' + Date.now().toString(36);
+  // 先切到编辑态：大文档默认可能停在预览（上次视图记忆），隐藏的 textarea 点不到
+  await frame.evaluate(() => document.querySelector('[data-mode="edit"]').click());
+  await sleep(300);
+  await shot('大文档-可编辑');
+  await clickInFrame(frame, '#editor');
+  await page.keyboard.down('Control'); await page.keyboard.press('End'); await page.keyboard.up('Control');
+  await page.keyboard.type('\n\n## 大文档编辑验证\n\n' + bigMarker + '\n');
+  const bigDirty = await frame.waitForFunction(() => document.getElementById('st-save').dataset.state === 'dirty',
+    { timeout: 10000, polling: 100 }).then(() => true).catch(() => false);
+  check('2MB 文档可以输入（脏标记出现，没被锁成只读）', bigDirty);
+  await key('KeyS');
+  const bigSaved = await frame.waitForFunction(() => document.getElementById('st-save').textContent.trim() === '已保存',
+    { timeout: 20000, polling: 150 }).then(() => true).catch(() => false);
+  const bigEditorValue = await frame.evaluate(() => document.getElementById('editor').value);
+  const bigDisk = readFileRoot('big.md');
+  check('2MB 文档保存成功（状态栏回到已保存）', bigSaved);
+  check('保存后磁盘内容与编辑器内容完全一致（含新 marker）',
+    bigDisk === bigEditorValue && (bigDisk || '').includes(bigMarker),
+    `disk=${(bigDisk || '').length} editor=${bigEditorValue.length} marker=${(bigDisk || '').includes(bigMarker)}`);
+  check('保存后文件仍然 > 1MB（没有把大文件写空/截断）', (bigDisk || '').length > 1024 * 1024,
+    String((bigDisk || '').length));
+  await shot('大文档-保存后');
+  await closeAllWindows();
+
+  // ---------- 13b. 超 8MB：只读预览 ----------
+  section('超 8MB：只读预览（truncated 降级）');
+  frame = await openFileEntry('huge.md');
+  const hugeLoaded = await frame.waitForFunction(() => window.__mdState && window.__mdState().readOnly,
+    { timeout: 30000, polling: 150 }).then(() => true).catch(() => false);
+  await frame.waitForFunction(() => !!document.querySelector('#preview .md-truncated'), { timeout: 25000 })
+    .catch(() => {});
+  const huge = hugeLoaded ? await frame.evaluate(() => ({
     st: window.__mdState(),
     banner: !document.getElementById('banner').hidden,
     bannerText: document.getElementById('banner-text').textContent.trim(),
-    readOnly: document.getElementById('editor').readOnly,
     modeLabel: document.getElementById('st-mode').textContent.trim(),
     editDisabled: document.querySelector('[data-mode="edit"]').disabled,
     splitDisabled: document.querySelector('[data-mode="split"]').disabled,
     saveDisabled: document.getElementById('btn-save').disabled,
-    saveText: document.getElementById('st-save').textContent.trim(),
     previewLen: document.getElementById('preview').textContent.length,
+    previewText: document.getElementById('preview').textContent.slice(0, 200),
+    truncatedNote: document.querySelector('#preview .md-truncated')?.textContent.trim() || '',
   })) : null;
-  check('大文件进入只读预览（readOnly + 提示条）', big?.st.readOnly === true && big?.banner === true, JSON.stringify(big?.st));
-  check('提示条说明「只返回前 512KB / 禁止保存」，不惊悚', /512 KB/.test(big?.bannerText || '')
-    && /只能预览/.test(big?.bannerText || ''), big?.bannerText);
-  check('只读时强制预览态、编辑/分栏按钮禁用、保存按钮禁用',
-    big?.modeLabel === '预览' && big?.editDisabled && big?.splitDisabled && big?.saveDisabled, JSON.stringify(big));
-  check('大文件仍然渲染出预览内容（不是空白）', (big?.previewLen || 0) > 1000, String(big?.previewLen));
-  await shot('大文件-只读');
+  check('超过 8MB 的文件降级为只读预览（truncated）',
+    huge?.st.readOnly === true && huge?.st.truncated === true && huge?.st.size > 8 * 1024 * 1024,
+    JSON.stringify({ size: huge?.st.size, readKB: huge?.st.readKB, truncated: huge?.st.truncated }));
+  check('只请求了前 2MB（readKB≈2048），不是无脑吃 8MB',
+    (huge?.st.readKB || 0) >= 2044 && (huge?.st.readKB || 0) <= 2048, String(huge?.st.readKB));
+  check('截断点落在多字节字符中间时换 KB 边界重试，预览不是乱码',
+    huge?.st.badEncoding === false && /超大文档/.test(huge?.previewText || '') && !/瓒/.test(huge?.previewText || ''),
+    JSON.stringify({ bad: huge?.st.badEncoding, head: (huge?.previewText || '').slice(0, 20) }));
+  check('提示条写真实体积 + 8.00 MB 上限 + 只读了前 2MB',
+    huge?.banner === true && /8\.00 MB/.test(huge?.bannerText || '')
+    && /2\.00 MB/.test(huge?.bannerText || '') && /只读/.test(huge?.bannerText || ''), huge?.bannerText);
+  check('只读时强制预览、编辑/分栏/保存全禁用',
+    huge?.modeLabel === '预览' && huge?.editDisabled && huge?.splitDisabled && huge?.saveDisabled,
+    JSON.stringify({ mode: huge?.modeLabel, e: huge?.editDisabled, s: huge?.splitDisabled, save: huge?.saveDisabled }));
+  check('仍有预览内容（含「预览只渲染了前…」说明）',
+    (huge?.previewLen || 0) > 1000 && /预览只渲染了前/.test(huge?.truncatedNote || ''),
+    JSON.stringify({ len: huge?.previewLen, note: (huge?.truncatedNote || '').slice(0, 40) }));
+  await shot('超大文件-只读');
   await closeAllWindows();
 
   // ---------- 14. 主题 ----------
