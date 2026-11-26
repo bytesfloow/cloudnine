@@ -251,6 +251,7 @@ GET /plugin-sdk/v1/cloudnine.js     # 公开，Content-Type: application/javascr
 | `notify` | `{title, body}` | `{ok:true}` |
 | `ui.setTitle` | `{title}` | `{ok:true}` |
 | `ui.markDirty` | `{dirty:boolean}` | `{ok:true, dirty}`；脏状态下点 X / 刷新页面都会被拦（§6.6） |
+| `ui.openExternal` | `{url}` | `{ok:true, opened, copied, url}`：在**用户浏览器**里打开外链。宿主严格只放行 `http:` / `https:` / `mailto:`，其它协议（`javascript:` / `data:` / `file:` / 相对路径）一律 `INVALID_ARGUMENT`；放行后宿主用 `window.open(url,'_blank','noopener,noreferrer')` 打一个新标签页，调用直接抛错时退化为把链接写进剪贴板（`opened:false, copied:true`）。**无需权限**（只开外链，不读页面）。注意：`noopener` 依规范会让 `window.open` 返回 `null`，所以 `opened:true` 表示「宿主调用成功」，不等于一定能确认标签页已经出现 |
 | `ui.close` | — | `{ok:true}`；**窗口处于脏状态时返回错误 `UNSAVED_CHANGES`**，宿主不替用户丢数据 |
 
 错误码约定：`NOT_READY`、`TIMEOUT`、`INVALID_ARGUMENT`、`PERMISSION_DENIED`、`FS_NOT_FOUND`、`PAYLOAD_TOO_LARGE`、`INTERNAL`（宿主也可自定义）。
@@ -304,7 +305,8 @@ if (r.truncated) {
 
 完整可运行的例子见 [`examples/plugins/hello/`](../examples/plugins/hello/)（主题色块 + storage 持久化的点击计数），
 真正能用的小应用见 [`examples/plugins/todo/`](../examples/plugins/todo/)（待办清单：增删改查 + 筛选 + 明暗跟随 + 键盘与窄宽度），
-文件关联的最小例子见 [`examples/plugins/filelink-probe/`](../examples/plugins/filelink-probe/)（§6.6）。
+文件关联的最小例子见 [`examples/plugins/filelink-probe/`](../examples/plugins/filelink-probe/)（§6.6），
+带预览的编辑器见 [`examples/plugins/md/`](../examples/plugins/md/)（Markdown：三态视图 + GFM 预览 + 自写高亮 + `ui.openExternal` 开外链）。
 
 ### 6.4 写一个自己的插件（最小可用 4 步）
 
@@ -418,7 +420,7 @@ await cloudnine.ui.markDirty(false);  // 已保存（或用户确认放弃）后
 | `window.alert()` / `confirm()` / `prompt()` | **空操作**：不弹框、不阻塞、`confirm()` 直接返回 `false`。宿主不会替你弹 | 自己在插件里画弹层（一个全屏 `position:fixed` 遮罩 + 绝对定位的卡片，`z-index` 自定），用 Promise 接结果；要阻塞保存/关闭的确认一律走它 |
 | 让用户挑一个文件 / 选保存位置 | v1 **没有** 文件选择器 / 保存对话框方法 | 用 `fs.list(rel)` 自己搭目录浏览器（逐级进入、`..` 返回上级），文件名用 `<input>` 收；拼出 `rel` 后走 `fs.readText` / `fs.writeText`。文件名里不要出现 `/`、反斜杠、`.`、`..`，自己先拦一道（宿主只校验最终 `path`） |
 | `localStorage` / `sessionStorage` / `cookie` | opaque origin 下**抛 `SecurityError`**（拿不到存储） | 要持久化就声明 `storage` 权限走 `storage.get/set`（上限 1MB）；纯 UI 偏好放在内存里即可 |
-| `window.open` / `location.href = ...` | 被沙箱拦住（没有 `allow-popups` / `allow-top-navigation`） | 需要外链就让用户自己复制文本；需要多开就用宿主窗口（`window.multi`） |
+| `window.open` / `location.href = ...` | 被沙箱拦住（没有 `allow-popups` / `allow-top-navigation`） | 外链用 `cloudnine.ui.openExternal(url)`（宿主代开，只放行 http/https/mailto）；需要多开就用宿主窗口（`window.multi`） |
 | 读剪贴板 | 没有 `clipboard.read` 权限，`navigator.clipboard.readText()` 在沙箱里也不可用 | 只能写；需要「粘贴」就提供输入框让用户手动粘贴 |
 | 执行命令 / 起子进程 / 自建后端 | v1 没有任何对应权限 | 没有替代方案；需要的话就不是插件，得宿主加能力 |
 

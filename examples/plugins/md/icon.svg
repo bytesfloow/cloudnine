@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Markdown">
+  <!-- Markdown 图标：圆角底 + 「M↓」记号（Markdown 的通用标识）。
+       24px 下仍认得出：字母笔画粗 4.4，箭头底部与字母同基线。 -->
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#0a7cff" />
+  <path d="M14 45V21.5l7.6 8.4 7.6-8.4V45" fill="none" stroke="#ffffff" stroke-width="4.6"
+        stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M44 21.5v17" fill="none" stroke="#ffffff" stroke-width="4.6" stroke-linecap="round" />
+  <path d="M37.6 33.2 44 40.2l6.4-7" fill="none" stroke="#ffffff" stroke-width="4.6"
+        stroke-linecap="round" stroke-linejoin="round" />
+</svg>

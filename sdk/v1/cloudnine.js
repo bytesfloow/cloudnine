@@ -237,6 +237,10 @@
       setTitle: function (title) { return call('ui.setTitle', { title: String(title) }); },
       // 脏状态：true 时窗口标题前加 *，用户点 X / 刷新页面都会被拦一遭
       markDirty: function (dirty) { return call('ui.markDirty', { dirty: !!dirty }); },
+      // 在用户浏览器里打开外链：插件沙箱没有 allow-popups，只能请宿主代劳。
+      // 宿主只放行 http / https / mailto，其余协议回 INVALID_ARGUMENT（javascript:/data:/file: 全拒）。
+      // 返回 {ok, opened, copied, url}：opened=false 时宿主已尝试把链接复制到剪贴板。
+      openExternal: function (url) { return call('ui.openExternal', { url: String(url) }); },
       close: function () { return call('ui.close'); }
     }
   };

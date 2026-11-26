@@ -27,6 +27,8 @@ import { IconRefresh, IconPlugin } from '../icons.jsx';
        其它窗口 / 宿主自己页面发来的一律丢弃。
      - 每个 method 都校验参数 + 权限声明（permissions），没有权限回 PERMISSION_DENIED。
      - 单次调用 8 秒超时（SDK 侧也有，这里兜服务端卡住的场景）。
+     - `ui.openExternal` 是唯一能“跳出沙箱”的出口：只放行 http / https / mailto，
+       其它协议（javascript: / data: / file: …）一律 INVALID_ARGUMENT。
    ========================================================================== */
 
 const CALL_TIMEOUT = 8000;
@@ -119,6 +121,8 @@ function checkText(v, field, max = 1024 * 1024) {
 const READ_MAX_KB = 8192;
 // writeText 的上限按 UTF-8 字节算（中文一个字 3 字节，按字符数卡会让上限飘）
 const MAX_WRITE_BYTES = 8 * 1024 * 1024;
+// ui.openExternal 的协议白名单：多一个都不行（javascript:/data:/file: 全拒）
+const OPEN_EXTERNAL_PROTOCOLS = ['http:', 'https:', 'mailto:'];
 // clipboard 只写文本，上限 256KB（整棵 JSON 子树也能塞下）
 const MAX_CLIPBOARD_BYTES = 256 * 1024;
 
@@ -289,6 +293,52 @@ export default function PluginWindow({ win }) {
         if (typeof p.dirty !== 'boolean') throw new CallError('INVALID_ARGUMENT', 'ui.markDirty 的 dirty 必须是布尔值');
         markWindowDirty(win.id, p.dirty);
         return { ok: true, dirty: p.dirty };
+      }
+      case 'ui.openExternal': {
+        // 插件无法用 window.open（沙箱没有 allow-popups），外链统一交给宿主开：
+        // 这里就是那道闸门 —— 只放行 http / https / mailto，其它协议一律 INVALID_ARGUMENT
+        // （javascript: 会变成“在用户浏览器里执行代码”，data:/file: 同理，全部拒掉）
+        const raw = typeof p.url === 'string' ? p.url.trim() : '';
+        if (!raw) throw new CallError('INVALID_ARGUMENT', 'ui.openExternal 缺少 url');
+        if (raw.length > 4096) throw new CallError('INVALID_ARGUMENT', 'ui.openExternal 的 url 过长');
+        let parsed;
+        try {
+          parsed = new URL(raw);
+        } catch {
+          throw new CallError('INVALID_ARGUMENT', 'ui.openExternal 只接受绝对地址（需要带 http:// 或 https:// 或 mailto:）');
+        }
+        if (!OPEN_EXTERNAL_PROTOCOLS.includes(parsed.protocol)) {
+          throw new CallError('INVALID_ARGUMENT',
+            `ui.openExternal 只允许 http / https / mailto，收到 ${parsed.protocol}`);
+        }
+        const href = parsed.href;
+        // 注意：`noopener` 在规范里要求 window.open 返回 null，所以不能拿返回值判断成败；
+        // 只有“调用直接抛错”才算没打开，此时退化成复制链接（用户还能自己粘到浏览器）。
+        let threw = false;
+        try {
+          window.open(href, '_blank', 'noopener,noreferrer');
+        } catch {
+          threw = true;
+        }
+        if (!threw) return { ok: true, opened: true, copied: false, url: href };
+        let copied = false;
+        try {
+          await navigator.clipboard.writeText(href);
+          copied = true;
+        } catch {
+          // 非安全上下文（http://IP 部署）里 navigator.clipboard 不可用，退回 execCommand
+          try {
+            const ta = document.createElement('textarea');
+            ta.value = href;
+            ta.setAttribute('readonly', '');
+            ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+            document.body.appendChild(ta);
+            ta.select();
+            copied = document.execCommand('copy');
+            ta.remove();
+          } catch { copied = false; }
+        }
+        return { ok: true, opened: false, copied, url: href };
       }
       case 'ui.close': {
         // 脏状态不允许插件自己把窗口关掉：数据是用户的，宿主不替它丢；
