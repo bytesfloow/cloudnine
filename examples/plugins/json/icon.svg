@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="JSON 工具">
+  <!-- JSON 图标：强调色圆角底 + 一对花括号，中间三颗「节点」表示树视图。
+       24px 下仍能分辨：括号臂宽 3.6、开口 24、三颗点半径 1.8 垂直排开。 -->
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#0a7cff" />
+  <g fill="none" stroke="#ffffff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M26.5 14.5c-3.6 0-5.8 2.2-5.8 5.8v3.6c0 2.1-1.6 3.6-3.2 3.6 1.6 0 3.2 1.5 3.2 3.6v3.6c0 3.6 2.2 5.8 5.8 5.8" />
+    <path d="M37.5 14.5c3.6 0 5.8 2.2 5.8 5.8v3.6c0 2.1 1.6 3.6 3.2 3.6-1.6 0-3.2 1.5-3.2 3.6v3.6c0 3.6-2.2 5.8-5.8 5.8" />
+  </g>
+  <g fill="#ffffff">
+    <circle cx="32" cy="24.2" r="1.9" />
+    <circle cx="32" cy="32" r="1.9" />
+    <circle cx="32" cy="39.8" r="1.9" />
+  </g>
+</svg>
