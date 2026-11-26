@@ -47,6 +47,13 @@
 - 文件接口做路径规范化与根目录边界校验
 - 分享令牌不可枚举
 
+**插件**
+
+- 插件是一份纯静态前端包（`plugin.json` + 入口 HTML），装进 `<DATA_DIR>/plugins/<id>/` 后就和内置应用一样出现在桌面、开始菜单里，双击打开成窗口
+- 页面跑在 `<iframe sandbox="allow-scripts allow-forms">` 里，只能通过宿主提供的少量能力工作：私有存储（1MB）、读 / 写 `FILE_ROOT` 内的文本文件、写剪贴板、弹桌面通知；没有后端、拿不到终端
+- 示例插件：`examples/plugins/hello`（主题色块 + 计数）、`examples/plugins/todo`（待办清单）；改完跑 `node scripts/plugin-dev-install.mjs todo`，刷新浏览器即可
+- 清单字段、权限、错误码、通信协议、打包上传与自测脚本见 **[docs/plugins.md](docs/plugins.md)**
+
 ## 技术栈
 
 | 层 | 选型 |

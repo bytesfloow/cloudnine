@@ -187,7 +187,7 @@ GET /plugin-sdk/v1/cloudnine.js     # 公开，Content-Type: application/javascr
 | --- | --- | --- |
 | `storage.get` | — | `{data}`（服务端原样；SDK 会帮你取出 `data`） |
 | `storage.set` | `{data}` | `{ok:true, size}` |
-| `fs.list` | `{path}` | 宿主自定义（建议 `{entries:[{name,dir,size,mtime}]}`） |
+| `fs.list` | `{path}` | `{entries:[{name, dir, size, mtime}]}`：`dir` 是布尔（服务端 `type === 'dir'`）、`size` 字节、`mtime` = 服务端的 `mtimeMs`。宿主是拿 `GET /api/fs/list?path=` 自己拼的，那个接口实际返回 `{path, entries:[{name, type, size, mtimeMs, birthtimeMs, atimeMs, mode, modeStr, uid, gid, hidden, target}], free, total}`，`type` 取 `file` / `dir` / `symlink` / `broken`（**不是** `{dir, size, mtime}`，别把两个形状记混） |
 | `fs.readText` | `{path}` | `{text}` 或字符串 |
 | `fs.writeText` | `{path,text}` | `{ok:true}` |
 | `clipboard.writeText` | `{text}` | `{ok:true}` |
@@ -220,11 +220,44 @@ GET /plugin-sdk/v1/cloudnine.js     # 公开，Content-Type: application/javascr
 </script>
 ```
 
-完整可运行的例子见 [`examples/plugins/hello/`](../examples/plugins/hello/)（主题色块 + storage 持久化的点击计数）。
+完整可运行的例子见 [`examples/plugins/hello/`](../examples/plugins/hello/)（主题色块 + storage 持久化的点击计数），
+真正能用的小应用见 [`examples/plugins/todo/`](../examples/plugins/todo/)（待办清单：增删改查 + 筛选 + 明暗跟随 + 键盘与窄宽度）。
+
+### 6.4 写一个自己的插件（最小可用 4 步）
+
+1. **建目录 + manifest**：`examples/plugins/mine/plugin.json`，`id` 必须和目录名一致，
+   按需声明 `permissions`（只读写自己的数据就写 `["storage"]`），`entry` 默认 `index.html`。
+2. **写入口页**：`index.html` 里 `<script src="/plugin-sdk/v1/cloudnine.js"></script>`，
+   再做三件事 —— `await cloudnine.ready()` 等宿主注入主题、把颜色全写成 `var(--accent)` / `var(--panel-bg)` 这类令牌
+   （不要写死颜色，否则暗色主题下会瞎）、用 `cloudnine.ui.close()` / `ui.setTitle()` 接宿主窗口。
+3. **持久化**：`cloudnine.storage.get()` / `set(data)`，数据落 `<PLUGIN_DATA_DIR>/<id>.json`，序列化后上限 1MB。
+   结构自己定，但要向后兼容：老数据里多出来的字段别直接丢，读的时候按字段名宽容解析。
+4. **装进去看效果**：`node scripts/plugin-dev-install.mjs mine`，然后刷新浏览器（见 §6.5）。
+
+对照 `examples/plugins/todo/` 看这四步在真实应用里的样子：输入框 + 列表 + 筛选 + 空状态 + 键盘操作 + 窄宽度布局，
+全部在一个 HTML 文件里（内联 CSS/JS，不引 CDN），持久化就是每次改动后 `storage.set` 整个 JSON。
+
+### 6.5 开发期安装（不打包也能迭代）
+
+```bash
+node scripts/plugin-dev-install.mjs todo            # 安装 / 覆盖安装
+node scripts/plugin-dev-install.mjs todo --remove    # 从插件目录删掉
+node scripts/plugin-dev-install.mjs --list           # 列出示例插件与安装状态
+node scripts/plugin-dev-install.mjs todo --dir /tmp/cn-plugins   # 指到别的插件目录
+```
+
+- 目标 `PLUGINS_DIR` 的解析规则与服务端 `server/src/config.js` 一致：
+  `PLUGINS_DIR` 环境变量 > `server/config.json` 的 `pluginsDir` > `<DATA_DIR>/plugins`；`--dir` 直接覆盖。
+- 它只是把 `examples/plugins/<name>/` **递归复制**成 `<PLUGINS_DIR>/<id>/`，落盘布局与 zip 安装后完全一致
+  （先删旧目录再复制，所以删掉的文件不会残留）。
+- 不碰插件私有数据（`<PLUGIN_DATA_DIR>/<id>.json`）：反复安装同一插件不会丢你的待办 / 计数。
+- 装完刷新浏览器：插件列表只在登录时拉一次（§8 第 6 条），不刷新看不到新图标。
 
 ---
 
 ## 7. 打包与上传
+
+> 迭代阶段不必每次都打包 zip，用 §6.5 的开发期安装脚本即可；分发 / 上传到别的实例再看下面。
 
 zip 结构两种都支持：
 
@@ -268,10 +301,15 @@ curl -b cookie.txt -X POST 'http://127.0.0.1:8480/api/plugins/install?overwrite=
 外壳需要做的事：
 
 1. 用 `onDesktop` / `inStartMenu` 决定放在哪里，`iconUrl` 当图标（懒加载，失败回退到内置的通用插件图标）。
+   桌面图标是**虚拟应用图标**：排在系统图标之后、文件图标之前，不可拖拽 / 重命名 / 框选 / 删除，
+   右键只有「打开」「从桌面移除」（移除只进 localStorage 名单），完整规则见 `docs/win11-interaction-spec.md` §1.7。
 2. 打开窗口时用 `window` 里的尺寸做初始值，`multi` 决定是否允许同 id 多开。
 3. `<iframe sandbox="allow-scripts allow-forms" src={entryUrl}>` —— **不要加 `allow-same-origin`**，否则插件就能拿到宿主的 cookie 和 DOM。
 4. 由外壳负责 `cn:init` / `cn:call` / `cn:result` 的收发与权限判断（没有 `storage` 权限的插件调 `storage.*` 应回 `PERMISSION_DENIED`）。
 5. 卸载插件：`DELETE /api/plugins/:id`，然后从桌面/开始菜单移除并关掉它的窗口。
+6. **插件列表只在登录时拉一次**：外壳启动 / 登录后调一次 `GET /api/plugins`，结果挂在内存里。
+   装、卸、覆盖安装之后**必须刷新页面**，桌面图标 / 开始菜单 / 任务栏才会更新；v1 没有轮询也没有服务端推送，
+   不要指望 `DELETE` 的返回值能就地改外壳状态。
 
 ---
 
@@ -289,3 +327,12 @@ curl -c /tmp/cn.txt -X POST http://127.0.0.1:8499/api/init \
 # 全链路冒烟（401 / 列表 / 安装 / CSP / 穿越 / storage / 413 / 409 / 卸载 / SDK）
 python scripts/plugins_smoke.py --url http://127.0.0.1:8499 --plugins-dir /tmp/cn-plugins/plugins
 ```
+
+浏览器端（自己起临时环境 + 跑完清理，需 `puppeteer-core` + 本机 Chrome）：
+
+```bash
+node scripts/uitest-plugins.mjs    # 外壳接入：图标 / 开窗 / 沙箱 / 主题注入 / 协议 / 错误码
+node scripts/uitest-todo.mjs       # 示例插件 todo 的端到端验收（含重启服务后的持久化、亮暗主题、窄宽度）
+```
+
+两个脚本都支持 `--chrome`、`--port`、`--keep`，默认不碰仓库里正在跑的实例。

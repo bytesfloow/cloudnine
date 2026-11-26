@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="light dark" />
+<title>待办事项</title>
+<style>
+  /* ------------------------------------------------------------------------
+     配色全部来自宿主 cn:init 注入的 --* 令牌（见 docs/plugins.md §6.1）：
+     亮 / 暗主题切换时宿主会补发 cn:theme，SDK 直接改 documentElement 的内联变量，
+     所以这里只要一路 var() 下来就自动跟随宿主，没有一处写死的颜色。
+
+     唯一的「兜底」块挂在 :root:not([data-cn-host]) 上：只有没装进桌面、
+     单独用浏览器打开这个文件（拿不到 --* 令牌）时才生效，脚本一收到 cn:init
+     就打上 data-cn-host，兜底色随之失效。
+     ------------------------------------------------------------------------ */
+  :root:not([data-cn-host]) {
+    --bg: #f3f3f3;
+    --text: #1b1b1b;
+    --text-2: #5a5a5a;
+    --text-3: #6f6f6f;
+    --panel-bg: #fafafa;
+    --input-bg: #ffffff;
+    --line: #e5e5e5;
+    --hover: rgba(0, 0, 0, 0.04);
+    --active: rgba(0, 0, 0, 0.07);
+    --accent: #0a7cff;
+    --accent-hover: #0a6ee0;
+    --accent-active: #0963c9;
+    --accent-soft: rgba(10, 124, 255, 0.12);
+    --accent-text: #0a7cff;
+    --on-accent: #ffffff;
+    --danger: #c42b1c;
+    --danger-text: #c0271c;
+    --danger-soft: #fdeceb;
+    --radius-ctl: 4px;
+    --radius-win: 8px;
+    --scrollbar-thumb: rgba(127, 127, 140, 0.4);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font: 14px/1.5 "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .app { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+
+  /* ---------------- 新增栏 ---------------- */
+  .new-bar {
+    display: flex; gap: 8px; align-items: center;
+    padding: 14px 16px 10px;
+  }
+  .new-input {
+    flex: 1 1 auto; min-width: 0;
+    font: inherit; color: var(--text);
+    background: var(--input-bg);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-ctl);
+    padding: 8px 10px;
+    transition: border-color .12s, box-shadow .12s;
+  }
+  .new-input::placeholder { color: var(--text-3); }
+  .new-input:hover { border-color: var(--text-3); }
+  .new-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft);
+  }
+  .new-input:disabled { background: var(--hover); color: var(--text-3); cursor: not-allowed; }
+
+  .btn {
+    flex: none;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    font: inherit; line-height: 1.4;
+    padding: 7px 14px;
+    border-radius: var(--radius-ctl);
+    border: 1px solid transparent;
+    background: transparent; color: var(--text);
+    cursor: pointer;
+    transition: background .12s, border-color .12s, color .12s;
+  }
+  .btn:disabled { cursor: not-allowed; }
+  .btn.primary {
+    background: var(--accent); border-color: var(--accent); color: var(--on-accent);
+  }
+  .btn.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+  .btn.primary:active:not(:disabled) { background: var(--accent-active); border-color: var(--accent-active); }
+  .btn.primary:disabled { opacity: .5; }
+  .btn.ghost { border-color: var(--line); color: var(--text); }
+  .btn.ghost:hover:not(:disabled) { background: var(--hover); border-color: var(--text-3); }
+  .btn.ghost:active:not(:disabled) { background: var(--active); }
+  .btn.ghost:disabled { color: var(--text-3); border-color: var(--line); opacity: .7; }
+
+  /* ---------------- 工具条：筛选 + 清除已完成 ---------------- */
+  .toolbar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 0 16px 10px;
+  }
+  .seg {
+    display: inline-flex; gap: 2px; padding: 2px;
+    border-radius: var(--radius-ctl);
+    background: var(--hover);
+  }
+  .seg button {
+    display: inline-flex; align-items: center; gap: 6px;
+    font: inherit; font-size: 13px;
+    padding: 5px 10px; border: 0; border-radius: calc(var(--radius-ctl) - 1px);
+    background: transparent; color: var(--text-2);
+    cursor: pointer; transition: background .12s, color .12s;
+  }
+  .seg button:hover { background: var(--active); color: var(--text); }
+  .seg button[aria-pressed="true"] {
+    background: var(--accent-soft); color: var(--accent-text); font-weight: 600;
+  }
+  .seg .cnt {
+    font-variant-numeric: tabular-nums;
+    font-size: 11.5px; font-weight: 500;
+    min-width: 18px; text-align: center;
+    padding: 0 5px; border-radius: 9px;
+    background: var(--active); color: var(--text-2);
+  }
+  .seg button[aria-pressed="true"] .cnt { background: transparent; color: inherit; }
+  .toolbar .spacer { flex: 1 1 auto; }
+
+  /* ---------------- 列表 ---------------- */
+  .list-wrap { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 10px 10px; scrollbar-color: var(--scrollbar-thumb) transparent; }
+  ul.todo-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  .todo-item {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 8px 8px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-ctl);
+    transition: background .12s, border-color .12s;
+  }
+  .todo-item:hover { background: var(--hover); }
+  .todo-item:focus-within { background: var(--hover); border-color: var(--line); }
+  .todo-item[hidden] { display: none; }
+
+  .todo-check {
+    flex: none;
+    width: 17px; height: 17px; margin: 2px 0 0;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+  .todo-text {
+    flex: 1 1 auto; min-width: 0;
+    overflow-wrap: anywhere;
+    padding-top: 1px;
+    cursor: default;
+    user-select: text;
+  }
+  .todo-item[data-done="1"] .todo-text {
+    color: var(--text-2);
+    text-decoration: line-through;
+    text-decoration-color: var(--text-3);
+  }
+  .todo-edit-input {
+    flex: 1 1 auto; min-width: 0;
+    font: inherit; color: var(--text);
+    background: var(--input-bg);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-ctl);
+    padding: 3px 8px;
+    box-shadow: 0 0 0 2px var(--accent-soft);
+    outline: none;
+  }
+
+  .todo-actions { flex: none; display: flex; gap: 2px; opacity: 0; transition: opacity .12s; }
+  .todo-item:hover .todo-actions,
+  .todo-item:focus-within .todo-actions,
+  .todo-item.editing .todo-actions { opacity: 1; }
+  /* 触屏 / 窄宽度没有 hover：动作按钮常显，别让功能看不见摸不着 */
+  @media (hover: none), (max-width: 420px) {
+    .todo-actions { opacity: 1; }
+  }
+  .icon-btn {
+    width: 26px; height: 26px;
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 0; border: 0; border-radius: var(--radius-ctl);
+    background: transparent; color: var(--text-2);
+    cursor: pointer;
+    transition: background .12s, color .12s;
+  }
+  .icon-btn:hover { background: var(--active); color: var(--text); }
+  .icon-btn.danger:hover { background: var(--danger-soft); color: var(--danger-text); }
+  .icon-btn svg { width: 14px; height: 14px; }
+
+  /* ---------------- 空状态 ---------------- */
+  .empty {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 6px; padding: 40px 24px; text-align: center; color: var(--text-2);
+  }
+  .empty[hidden] { display: none; }
+  .empty .empty-icon { color: var(--text-3); opacity: .9; }
+  .empty .empty-title { font-size: 14px; font-weight: 600; color: var(--text); }
+  .empty .empty-hint { font-size: 12.5px; max-width: 320px; }
+
+  /* ---------------- 底栏 ---------------- */
+  .foot {
+    flex: none;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 8px 16px;
+    border-top: 1px solid var(--line);
+    background: var(--panel-bg);
+    font-size: 12px; color: var(--text-2);
+  }
+  .foot .remaining { font-variant-numeric: tabular-nums; }
+  .foot .status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .foot .status.error { color: var(--danger-text); }
+
+  /* ---------------- 窄宽度（插件窗口最小 380px，再好一点到 320px） ---------------- */
+  @media (max-width: 460px) {
+    .new-bar { padding: 10px 10px 8px; }
+    .toolbar { padding: 0 10px 8px; gap: 8px; }
+    .seg button { padding: 5px 8px; font-size: 12.5px; }
+    .toolbar .btn { padding: 6px 10px; font-size: 13px; }
+    .list-wrap { padding: 0 6px 8px; }
+    .foot { padding: 8px 10px; }
+    .empty { padding: 28px 12px; }
+  }
+</style>
+</head>
+<body>
+<h1 class="sr-only">待办事项</h1>
+
+<div class="app">
+  <form class="new-bar" id="new-form" autocomplete="off">
+    <input id="new-input" class="new-input" type="text" maxlength="200" autocomplete="off"
+           placeholder="添加待办事项，回车确认" aria-label="新的待办事项" disabled />
+    <button id="add-btn" class="btn primary" type="submit" disabled>添加</button>
+  </form>
+
+  <div class="toolbar">
+    <div class="seg" role="group" aria-label="筛选待办事项">
+      <button type="button" data-filter="all" aria-pressed="true">全部<span class="cnt" id="cnt-all">0</span></button>
+      <button type="button" data-filter="active" aria-pressed="false">未完成<span class="cnt" id="cnt-active">0</span></button>
+      <button type="button" data-filter="done" aria-pressed="false">已完成<span class="cnt" id="cnt-done">0</span></button>
+    </div>
+    <span class="spacer"></span>
+    <button type="button" id="clear-done" class="btn ghost" disabled>清除已完成</button>
+  </div>
+
+  <div class="list-wrap" id="list-wrap">
+    <ul class="todo-list" id="list" aria-label="待办事项列表"></ul>
+    <div class="empty" id="empty">
+      <svg class="empty-icon" width="44" height="44" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" stroke="currentColor" stroke-width="1.6" />
+        <path d="M7.5 9.5l1.6 1.6 3-3.1" stroke="currentColor" stroke-width="1.6"
+              stroke-linecap="round" stroke-linejoin="round" />
+        <path d="M8 15.5h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+      </svg>
+      <div class="empty-title" id="empty-title">还没有待办事项</div>
+      <div class="empty-hint" id="empty-hint">在上面的输入框写一条，按回车就加进来了。</div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span class="remaining" id="remaining">剩余 0 项未完成</span>
+    <span class="status" id="status" role="status" aria-live="polite">正在等待宿主…</span>
+  </div>
+</div>
+
+<script src="/plugin-sdk/v1/cloudnine.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var cn = window.cloudnine;
+  var MAX_ITEMS = 500;       // 存储上限 1MB（docs/plugins.md §3），500 条文本最多几十 KB
+  var MAX_TEXT = 200;
+
+  var ICON_EDIT = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">'
+    + '<path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17v3z" stroke="currentColor" stroke-width="1.8" '
+    + 'stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  var ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">'
+    + '<path d="M4.5 7h15M9.5 7V5.5A1.5 1.5 0 0 1 11 4h2a1.5 1.5 0 0 1 1.5 1.5V7M6.5 7l.8 12.1A1.5 1.5 0 0 0 8.8 20.5h6.4'
+    + 'a1.5 1.5 0 0 0 1.5-1.4L17.5 7" stroke="currentColor" stroke-width="1.8" '
+    + 'stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+  var el = {
+    form: document.getElementById('new-form'),
+    input: document.getElementById('new-input'),
+    add: document.getElementById('add-btn'),
+    clearDone: document.getElementById('clear-done'),
+    list: document.getElementById('list'),
+    empty: document.getElementById('empty'),
+    emptyTitle: document.getElementById('empty-title'),
+    emptyHint: document.getElementById('empty-hint'),
+    remaining: document.getElementById('remaining'),
+    status: document.getElementById('status'),
+    counts: {
+      all: document.getElementById('cnt-all'),
+      active: document.getElementById('cnt-active'),
+      done: document.getElementById('cnt-done')
+    },
+    filters: Array.prototype.slice.call(document.querySelectorAll('[data-filter]'))
+  };
+
+  // 只有 items 会落盘；filter 是纯 UI 状态，每次打开都回到「全部」
+  var state = { items: [], filter: 'all' };
+  var nodes = Object.create(null);   // id -> <li>，就地更新，避免整表重绘丢焦点
+  var loaded = false;                 // 读到宿主数据之前不写，别把「读失败」当空清单覆盖真实数据
+  var saveBroken = false;
+  var editingId = null;
+  var idSeq = 0;
+  var saveChain = Promise.resolve();
+  var savePending = false;
+
+  // ------------------------------------------------------------------ 工具
+
+  function nextId() {
+    idSeq += 1;
+    return 't' + Date.now().toString(36) + '-' + idSeq.toString(36);
+  }
+
+  function setStatus(text, isError) {
+    el.status.textContent = text;
+    el.status.classList.toggle('error', !!isError);
+  }
+
+  // 沙箱 iframe 里 Chrome 会拒绍「无用户激活的脚本 focus()」（控制台会报
+  // Permissions policy violation）。只在确实有用户激活时才移动焦点。
+  function focusIfAllowed(node) {
+    if (!node) return false;
+    try {
+      if (navigator.userActivation && navigator.userActivation.isActive === false) return false;
+      node.focus();
+      return document.activeElement === node;
+    } catch (e) { return false; }
+  }
+
+  function countDone() {
+    var n = 0;
+    for (var i = 0; i < state.items.length; i++) if (state.items[i].done) n += 1;
+    return n;
+  }
+
+  function findItem(id) {
+    for (var i = 0; i < state.items.length; i++) if (state.items[i].id === id) return state.items[i];
+    return null;
+  }
+
+  function matchesFilter(item) {
+    if (state.filter === 'active') return !item.done;
+    if (state.filter === 'done') return item.done;
+    return true;
+  }
+
+  // ------------------------------------------------------------------ 持久化
+
+  function payload() {
+    return {
+      version: 1,
+      items: state.items.map(function (it) {
+        return { id: it.id, text: it.text, done: !!it.done, createdAt: it.createdAt };
+      })
+    };
+  }
+
+  function save() {
+    if (!cn || !loaded || saveBroken) return Promise.resolve();
+    savePending = true;
+    saveChain = saveChain.then(function () {
+      if (!savePending) return undefined;   // 已被后一次改动合并
+      savePending = false;
+      setStatus('正在保存…');
+      return cn.storage.set(payload()).then(function () {
+        setStatus('已保存');
+      }).catch(function (e) {
+        var msg = (e && e.message) || '未知错误';
+        if (/1MB|上限|过大|413/i.test(msg)) {
+          saveBroken = true;
+          setStatus('数据超过插件存储上限（1MB），已停止保存', true);
+        } else {
+          setStatus('保存失败：' + msg, true);
+        }
+      });
+    });
+    return saveChain;
+  }
+
+  // ------------------------------------------------------------------ 渲染
+
+  function applyItem(li, item) {
+    li.dataset.done = item.done ? '1' : '0';
+    var cb = li.querySelector('.todo-check');
+    if (cb) {
+      cb.checked = !!item.done;
+      cb.setAttribute('aria-label', (item.done ? '取消完成：' : '标记完成：') + item.text);
+    }
+    var text = li.querySelector('.todo-text');
+    if (text && text.textContent !== item.text) text.textContent = item.text;
+  }
+
+  function createItemNode(item) {
+    var li = document.createElement('li');
+    li.className = 'todo-item';
+    li.dataset.id = item.id;
+
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'todo-check';
+    cb.addEventListener('change', function () { toggleDone(item.id, cb.checked); });
+
+    var text = document.createElement('span');
+    text.className = 'todo-text';
+    text.id = 'tx-' + item.id;
+    text.title = '双击编辑';
+    cb.setAttribute('aria-labelledby', text.id);
+    text.addEventListener('dblclick', function () { startEdit(item.id); });
+
+    var actions = document.createElement('div');
+    actions.className = 'todo-actions';
+
+    var editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'icon-btn';
+    editBtn.dataset.act = 'edit';
+    editBtn.title = '编辑';
+    editBtn.setAttribute('aria-label', '编辑待办');
+    editBtn.innerHTML = ICON_EDIT;
+    editBtn.addEventListener('click', function () { startEdit(item.id); });
+
+    var delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'icon-btn danger';
+    delBtn.dataset.act = 'delete';
+    delBtn.title = '删除';
+    delBtn.setAttribute('aria-label', '删除待办');
+    delBtn.innerHTML = ICON_TRASH;
+    delBtn.addEventListener('click', function () { removeItem(item.id); });
+
+    actions.appendChild(editBtn);
+    actions.appendChild(delBtn);
+
+    li.appendChild(cb);
+    li.appendChild(text);
+    li.appendChild(actions);
+    applyItem(li, item);
+    return li;
+  }
+
+  function syncCounts() {
+    var total = state.items.length;
+    var done = countDone();
+    var active = total - done;
+    el.counts.all.textContent = String(total);
+    el.counts.active.textContent = String(active);
+    el.counts.done.textContent = String(done);
+    el.remaining.textContent = total === 0 ? '暂无待办'
+      : active === 0 ? '全部完成（共 ' + total + ' 项）'
+        : '剩余 ' + active + ' 项未完成';
+    el.clearDone.disabled = done === 0;
+  }
+
+  function syncList() {
+    var visible = 0;
+    var frag = document.createDocumentFragment();
+    var alive = Object.create(null);
+
+    for (var i = 0; i < state.items.length; i++) {
+      var item = state.items[i];
+      alive[item.id] = true;
+      var li = nodes[item.id];
+      if (!li) { li = createItemNode(item); nodes[item.id] = li; }
+      applyItem(li, item);
+      if (matchesFilter(item)) {
+        visible += 1;
+        li.hidden = false;
+        frag.appendChild(li);           // 已存在的节点会被移过来，顺序随 state
+      } else {
+        li.hidden = true;               // 先隐藏；下次筛回来时再挂回去
+      }
+    }
+
+    // 已在 state 里消失的条目：连节点一起扔掉
+    Object.keys(nodes).forEach(function (id) {
+      if (!alive[id]) {
+        if (nodes[id].parentNode) nodes[id].parentNode.removeChild(nodes[id]);
+        delete nodes[id];
+      }
+    });
+
+    el.list.appendChild(frag);
+    el.empty.hidden = visible !== 0;
+    if (visible === 0) {
+      if (state.items.length === 0) {
+        el.emptyTitle.textContent = '还没有待办事项';
+        el.emptyHint.textContent = '在上面的输入框写一条，按回车就加进来了。';
+      } else if (state.filter === 'active') {
+        el.emptyTitle.textContent = '没有未完成的事项';
+        el.emptyHint.textContent = '全部勾完了，切到「已完成」看看做过什么。';
+      } else {
+        el.emptyTitle.textContent = '还没有完成的事项';
+        el.emptyHint.textContent = '勾选左边的方框，完成的事项会出现在这里。';
+      }
+    }
+    syncCounts();
+  }
+
+  // ------------------------------------------------------------------ 操作
+
+  function addItem(raw) {
+    var text = String(raw || '').replace(/\s+/g, ' ').trim();
+    if (!text) return false;
+    if (state.items.length >= MAX_ITEMS) {
+      setStatus('最多 ' + MAX_ITEMS + ' 条，请先清理已完成的', true);
+      return false;
+    }
+    state.items.unshift({
+      id: nextId(),
+      text: text.slice(0, MAX_TEXT),
+      done: false,
+      createdAt: Date.now()
+    });
+    // 新条目加在顶部，视图若停在「已完成」会看不见它 —— 切回「全部」
+    if (state.filter === 'done') setFilter('all');
+    syncList();
+    save();
+    if (el.list.parentNode) el.list.parentNode.scrollTop = 0;
+    setStatus('已添加');
+    return true;
+  }
+
+  function toggleDone(id, done) {
+    var item = findItem(id);
+    if (!item) return;
+    item.done = !!done;
+    syncList();
+    save();
+  }
+
+  function removeItem(id) {
+    var item = findItem(id);
+    if (!item) return;
+    endEdit(false);
+    state.items = state.items.filter(function (it) { return it.id !== id; });
+    syncList();
+    save();
+    setStatus('已删除');
+  }
+
+  function clearDone() {
+    var n = countDone();
+    if (!n) return;
+    endEdit(false);
+    state.items = state.items.filter(function (it) { return !it.done; });
+    syncList();
+    save();
+    setStatus('已清除 ' + n + ' 项已完成');
+    // 清完后「清除已完成」会变成禁用态，焦点交给输入框，键盘用户不会掉到 body 上
+    focusIfAllowed(el.input);
+  }
+
+  function setFilter(next) {
+    if (next !== 'all' && next !== 'active' && next !== 'done') return;
+    if (state.filter === next) return;
+    endEdit(false);
+    state.filter = next;
+    el.filters.forEach(function (b) {
+      b.setAttribute('aria-pressed', b.dataset.filter === next ? 'true' : 'false');
+    });
+    syncList();
+  }
+
+  // ------------------------------------------------------------------ 就地编辑
+
+  function startEdit(id) {
+    var item = findItem(id);
+    var li = nodes[id];
+    if (!item || !li || editingId === id) return;
+    endEdit(false);
+    editingId = id;
+    li.classList.add('editing');
+
+    var text = li.querySelector('.todo-text');
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'todo-edit-input';
+    input.id = 'edit-' + id;
+    input.maxLength = MAX_TEXT;
+    input.value = item.text;
+    input.setAttribute('aria-label', '编辑待办事项');
+    text.hidden = true;
+
+    var finished = false;
+    function close(commit) {
+      if (finished) return;
+      finished = true;
+      var value = input.value;
+      if (input.parentNode) input.parentNode.removeChild(input);
+      text.hidden = false;
+      li.classList.remove('editing');
+      editingId = null;
+      if (commit) commitEdit(id, value);
+      var target = li.querySelector('[data-act="edit"]');
+      if (target && li.isConnected) focusIfAllowed(target);
+    }
+
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); close(true); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(false); setStatus('已取消编辑'); }
+    });
+    // 点到别处 = 提交（和记事本一类桌面应用一致）；Esc 已经处理过的不会再走到这里
+    input.addEventListener('blur', function () { close(true); });
+
+    li.insertBefore(input, text);
+    if (focusIfAllowed(input)) input.select();
+  }
+
+  function commitEdit(id, raw) {
+    var item = findItem(id);
+    if (!item) return;
+    var text = String(raw || '').replace(/\s+/g, ' ').trim();
+    if (!text || text === item.text) return;   // 空内容视为取消，不把条目改成空白
+    item.text = text.slice(0, MAX_TEXT);
+    var li = nodes[id];
+    if (li) applyItem(li, item);
+    syncList();
+    save();
+    setStatus('已保存修改');
+  }
+
+  function endEdit(commit) {
+    if (!editingId) return;
+    var input = document.querySelector('.todo-edit-input');
+    if (input) {
+      if (commit) input.dispatchEvent(new Event('blur'));
+      else input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    } else {
+      editingId = null;
+    }
+  }
+
+  // ------------------------------------------------------------------ 主题
+
+  function parseColor(v) {
+    if (!v) return null;
+    var s = v.trim();
+    var m = /^#([0-9a-f]{3,8})$/i.exec(s);
+    if (m) {
+      var h = m[1];
+      if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+      if (h.length < 6) return null;
+      return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+    }
+    m = /^rgba?\(([^)]+)\)$/i.exec(s);
+    if (m) {
+      var parts = m[1].split(/[\s,/]+/).filter(Boolean).map(Number);
+      if (parts.length >= 3 && parts.slice(0, 3).every(function (n) { return isFinite(n); })) {
+        return [parts[0], parts[1], parts[2]];
+      }
+    }
+    return null;
+  }
+
+  // 沙箱 iframe 不继承宿主的 color-scheme：按 --bg 的亮度自己设一份，
+  // 滚动条 / 勾选框 / 输入框这些原生控件才会跟着亮暗走。
+  function applyColorScheme() {
+    var root = document.documentElement;
+    var rgb = parseColor(getComputedStyle(root).getPropertyValue('--bg'));
+    var scheme;
+    if (rgb) {
+      var lum = (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255;
+      scheme = lum < 0.45 ? 'dark' : 'light';
+    } else {
+      scheme = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    if (root.style.colorScheme !== scheme) root.style.colorScheme = scheme;
+  }
+
+  // 宿主切主题时 SDK 只改内联变量、不发事件：盯住 style 属性重算 color-scheme
+  if (window.MutationObserver) {
+    new MutationObserver(applyColorScheme)
+      .observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
+  }
+
+  // ------------------------------------------------------------------ 事件绑定
+
+  el.form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (addItem(el.input.value)) el.input.value = '';
+    focusIfAllowed(el.input);
+  });
+
+  el.filters.forEach(function (b) {
+    b.addEventListener('click', function () { setFilter(b.dataset.filter); });
+  });
+
+  el.clearDone.addEventListener('click', clearDone);
+
+  // Esc：编辑中由输入框自己处理；否则清空还没提交的新增内容
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape' || editingId) return;
+    if (el.input.value) {
+      el.input.value = '';
+      setStatus('已清空输入');
+    }
+  });
+
+  syncList();
+  applyColorScheme();
+
+  // ------------------------------------------------------------------ 启动
+
+  if (!cn) {
+    setStatus('没有加载到插件 SDK，界面只能离线查看', true);
+    return;
+  }
+
+  setStatus('正在读取…');
+  // 单独用浏览器打开这个文件（没有宿主）时别永远停在「正在读取…」
+  var readyTimer = setTimeout(function () {
+    if (document.documentElement.dataset.cnHost) return;
+    setStatus('未连接宿主：页面是单独打开的，改动不会被保存', true);
+  }, 3500);
+
+  cn.ready().then(function () {
+    clearTimeout(readyTimer);
+    document.documentElement.dataset.cnHost = '1';
+    applyColorScheme();
+    return cn.storage.get();
+  }).then(function (data) {
+    var items = [];
+    if (data && Array.isArray(data.items)) {
+      data.items.forEach(function (it) {
+        if (!it || typeof it !== 'object') return;
+        var text = typeof it.text === 'string' ? it.text.slice(0, MAX_TEXT) : '';
+        if (!text.trim()) return;
+        items.push({
+          id: typeof it.id === 'string' && it.id ? it.id : nextId(),
+          text: text,
+          done: !!it.done,
+          createdAt: Number(it.createdAt) || Date.now()
+        });
+      });
+    }
+    state.items = items.slice(0, MAX_ITEMS);
+    loaded = true;
+    el.input.disabled = false;
+    el.add.disabled = false;
+    syncList();
+    setStatus('已就绪');
+    // 不在这里 focus：插件刚加载时没有用户激活，Chrome 会拒绝并往控制台刷错误；
+    // 用户第一次点进窗口 / 输入框时自然会获得焦点。
+  }).catch(function (e) {
+    el.input.disabled = true;
+    el.add.disabled = true;
+    setStatus('读取失败：' + ((e && e.message) || e) + '（为避免覆盖已有数据，暂时不能编辑）', true);
+  });
+
+  cn.on('resize', applyColorScheme);
+})();
+</script>
+</body>
+</html>

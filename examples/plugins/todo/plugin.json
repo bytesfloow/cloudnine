@@ -1,0 +1,13 @@
+{
+  "id": "todo",
+  "name": "待办事项",
+  "version": "1.0.0",
+  "description": "待办清单：新增 / 完成 / 编辑 / 删除 / 筛选，数据存在插件私有存储里",
+  "author": "CloudNine",
+  "icon": "icon.svg",
+  "entry": "index.html",
+  "window": { "width": 720, "height": 560, "minWidth": 380, "minHeight": 320, "multi": false },
+  "permissions": ["storage"],
+  "onDesktop": true,
+  "inStartMenu": true
+}
