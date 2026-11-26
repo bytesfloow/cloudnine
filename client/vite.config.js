@@ -25,6 +25,10 @@ const WS_TARGET = API_TARGET.replace(/^http/, 'ws');
 
 export default defineConfig({
   plugins: [react(), shareHtmlRoute()],
+  // 依赖预打包缓存的默认位置（node_modules/.vite）允许被 CLOUDNINE_CACHE_DIR 覆盖：
+  // scripts/uitest-dev-plugin.mjs 要自己起一个 dev 实例，得用独立缓存目录，
+  // 否则会和本机正在跑的 dev 抢同一份 .vite（互相判定「依赖已过期」整页重载）。
+  cacheDir: process.env.CLOUDNINE_CACHE_DIR || 'node_modules/.vite',
   // dev 预打包：CodeMirror 全家桶 + 各语言包（原本是点开记事本时才被发现的新依赖，
   // vite 得在路中优化一次并整页重载，首次打开也就多了一大截白屏）。
   // 现在启动时就一起预构建，运行中不会再触发。
@@ -70,8 +74,19 @@ export default defineConfig({
         'src/windows/EditorSkeleton.jsx',
       ],
     },
+    // 代理清单必须与 server/src/index.js 挂的「不在 vite 里的」路由一一对应：
+    //   /api      → 所有业务接口（各 *Router 都挂在 /api 下）
+    //   /ws       → 终端的 WebSocket（server/src/terminal.js 监听 upgrade: /ws/term）
+    //   /pa       → 插件静态资源（server/src/plugins.js 的 pluginAssetRouter）
+    //   /plugin-sdk → 插件 SDK 单文件（同上 router）
+    // 漏掉 /pa 的后果不是 404：vite 会把 /pa/.../index.html 走 SPA fallback 回成它自己的
+    // index.html（带 @vite/client、/src/main.jsx），而插件 iframe 是 opaque origin
+    // （故意不给 allow-same-origin），这些脚本会被 CORS 全拦 → 插件永远不发 cn:ready。
+    // 页面路由（/ 与 /s/*）不代理：dev 下由 vite 自己出 index.html / share.html。
     proxy: {
       '/api': API_TARGET,
+      '/pa': API_TARGET,
+      '/plugin-sdk': API_TARGET,
       '/ws': { target: WS_TARGET, ws: true },
     },
   },

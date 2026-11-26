@@ -336,6 +336,36 @@ node scripts/plugin-dev-install.mjs todo --dir /tmp/cn-plugins   # 指到别的�
 - 不碰插件私有数据（`<PLUGIN_DATA_DIR>/<id>.json`）：反复安装同一插件不会丢你的待办 / 计数。
 - 装完刷新浏览器：插件列表只在登录时拉一次（§8 第 6 条），不刷新看不到新图标。
 
+### 6.5.1 dev 模式注意事项（vite dev server）
+
+开发时外壳是 **vite dev server（默认 5173）** 出的，插件资源与接口仍然归**后端（默认 8480）**。
+两边靠 `client/vite.config.js` 的 `server.proxy` 接起来，所以代理清单必须与后端挂的路由一一对应：
+
+| 代理 | 目标 | 后端来源 |
+| --- | --- | --- |
+| `/api` | 后端 | 各 `*Router` 全部挂在 `/api` 下（`server/src/index.js`） |
+| `/pa` | 后端 | 插件静态资源（`server/src/plugins.js` 的 `pluginAssetRouter`，§5） |
+| `/plugin-sdk` | 后端 | 插件 SDK 单文件（同上） |
+| `/ws` | 后端（WebSocket） | 终端（`server/src/terminal.js`，`/ws/term`） |
+
+页面路由（`/`、`/s/*`）**不代理**：dev 下由 vite 自己出 `index.html` / `share.html`。
+
+要记住的三件事：
+
+1. **后端新增任何不在 `/api` 下的路径，必须在同一提交里给 vite 补一条代理。**
+   漏了不会报 404，而是会被 vite 的 SPA fallback 兜成它自己的 `index.html`。
+2. 漏 `/pa` 的后果非常隐蔽：沙箱 iframe（`allow-scripts allow-forms`，**故意不给** `allow-same-origin`）
+   是 opaque origin，而 vite 的 `index.html` 里带 `@vite/client`、`/src/main.jsx`、`@react-refresh`，
+   这些脚本会全部被 CORS 拦掉 → 插件永远发不出 `cn:ready` → 外壳 10 秒后弹
+   「插件无法加载：10 秒内没有响应」。**插件本身完全没问题，纯粹是代理漏配。**
+3. **改完 `server.proxy` 要重启 dev。** vite 一般会自己重启，但别指望它（进程被别的工具拉起、
+   配置改动没触发 watcher 时会照旧用旧代理）；重启后再关掉插件窗口重新打开一次，iframe 才不会吃旧响应。
+
+自测：`node scripts/uitest-dev-plugin.mjs`。它自己起一套临时后端 + 临时 vite dev（独立端口、独立数据目录，
+不碰你正在跑的那两个），装 `json` / `todo` 两个真插件，断言 `/pa` 与 `/plugin-sdk` 走的是后端、
+插件窗口真的收到 `cn:ready`、控制台没有 CORS 报错。
+它**专跑 dev**，替代不了生产构建那套（`uitest-plugins` / `uitest-todo` / `uitest-json-plugin`），反之亦然。
+
 ### 6.6 文件关联与「未保存保护」
 
 声明了 `fileTypes` 之后，双击对应类型的文件就会打开你的插件（规则、选择器与冲突见 §2.1）。
@@ -483,6 +513,9 @@ node scripts/uitest-plugins.mjs    # 外壳接入：图标 / 开窗 / 沙箱 / �
 node scripts/uitest-todo.mjs       # 示例插件 todo 的端到端验收（含重启服务后的持久化、亮暗主题、窄宽度）
 node scripts/uitest-openwith.mjs   # 文件关联：打开方式 / defaultFor / file.rel / ui.markDirty / beforeunload
 node scripts/uitest-json-plugin.mjs # 示例插件 json 的端到端验收（8MB 读写上限 / 1.2MB 大文件 / 树视图 / 错误定位）
+node scripts/uitest-dev-plugin.mjs  # **dev 模式**：vite dev + 临时后端的 /pa、/plugin-sdk 代理与开窗（见 §6.5.1）
 ```
 
-四个脚本都支持 `--chrome`、`--port`、`--url`、`--keep`，默认不碰仓库里正在跑的实例。
+这些脚本都支持 `--chrome`、`--port`、`--url`、`--keep`，默认不碰仓库里正在跑的实例。
+与其它四个不同，`uitest-dev-plugin.mjs` 测的是 **vite dev server**（自起，默认 5273 / 后端 8741），
+不看 `client/dist`；生产构建那套全绿也证明不了 dev 能用。
