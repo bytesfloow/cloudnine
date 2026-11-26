@@ -193,6 +193,23 @@ export default function Desktop() {
   // Ctrl+V 粘贴系统剪贴板文件到当前文件夹（仅桌面端；移动端/分享页不安装）
   useEffect(() => installPasteUpload(), []);
 
+  // 记事本 chunk 空闲预取。
+  // 以前这个 chunk 只在你点「记事本」的那一瞬间才开始下载（1.17MB / gzip 398KB），
+  // 远程线路下光下载就 1-2s，而这段时间用户盯着的是一个转圈的窗口。
+  // 现在等桌面空下来（requestIdleCallback）就在后台把它拉进内存，真正点开时模块已就绪。
+  // 省流量开关开着（saveData）或离线时不预取，避免把移动流量当带宽用。
+  useEffect(() => {
+    const conn = navigator.connection;
+    if (conn?.saveData || navigator.onLine === false) return undefined;
+    const load = () => { import('../windows/Editor.jsx').catch(() => {}); };
+    if (typeof window.requestIdleCallback === 'function') {
+      const id = window.requestIdleCallback(load, { timeout: 4000 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const t = setTimeout(load, 1500);
+    return () => clearTimeout(t);
+  }, []);
+
   // R1：磁盘占比原先只在顶栏挂载时拉一次，顶栏一拆就再没人调。
   // 这里放在登录后常驻的桌面壳里，并真的每 20s 轮询（托盘百分比才会动）。
   useEffect(() => {

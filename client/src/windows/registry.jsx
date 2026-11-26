@@ -1,6 +1,7 @@
 import React, { Suspense, lazy } from 'react';
 import Finder from './Finder.jsx';
 import ErrorBoundary from '../ErrorBoundary.jsx';
+import EditorSkeleton from './EditorSkeleton.jsx';
 import { WINDOW_ENTRIES, appByWindowType } from '../apps/registry.jsx';
 
 // 窗口组件映射从应用注册表派生（apps/registry.jsx 里每个应用的 load 字段）。
@@ -24,12 +25,19 @@ if (orphans.length) {
   console.warn('[apps] 应用注册表里有条目既没有 load 也不是 core 组件:', orphans.map((a) => a.id));
 }
 
+// 懒加载期间的占位：编辑器有自己的骨架屏（和真实布局同尺寸，不会只剩一行 loading 干等），
+// 其它窗口继续用通用转圈。骨架组件本身不带 CodeMirror 依赖，可以随主包进来。
+function WindowFallback({ windowType }) {
+  if (windowType === 'editor') return <EditorSkeleton />;
+  return <div className="finder-loading"><div className="boot-spinner" /></div>;
+}
+
 export function renderWindow(win) {
   const C = componentFor(win.type);
   if (!C) return <div className="win-missing">未知窗口类型：{win.type}</div>;
   return (
     <ErrorBoundary label={win.type} resetKey={`${win.id}:${win.props?.path || win.props?.pluginId || ''}`}>
-      <Suspense fallback={<div className="finder-loading"><div className="boot-spinner" /></div>}>
+      <Suspense fallback={<WindowFallback windowType={win.type} />}>
         <C win={win} />
       </Suspense>
     </ErrorBoundary>

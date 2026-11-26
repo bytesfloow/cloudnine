@@ -1,6 +1,37 @@
 /* ============ 编辑器 ============ */
 .editor-window { display: flex; flex-direction: column; height: 100%; }
-.editor-window.loading { align-items: center; justify-content: center; }
+
+/* ---- 首次打开时的骨架屏 ----
+   结构与真实编辑器一一对应（窗口内菜单 / 行号栏 + 正文行 / 状态栏），尺寸也按真布局来，
+   所以 chunk 到位、换成 CodeMirror 时不会跳版。配色只用 --hover / --active 两档中性色，
+   亮/暗主题下都只是一层很淡的灰（不是整屏白块），动画只调不透明度，不闪、不动。 */
+.ed-skeleton { background: var(--win-bg); overflow: hidden; }
+.ed-skeleton > * { animation: ed-sk-breathe 1.5s ease-in-out infinite; }
+.ed-sk-menu {
+  flex: none; display: flex; align-items: center; gap: 14px; height: 27px; padding: 0 12px;
+  border-bottom: 1px solid var(--line); background: var(--bar-bg);
+}
+.ed-sk-pill { height: 7px; border-radius: 4px; background: var(--active); }
+.ed-sk-pill:nth-child(1) { width: 26px; }
+.ed-sk-pill:nth-child(2) { width: 26px; }
+.ed-sk-body { flex: 1; min-height: 0; display: flex; gap: 12px; padding: 12px 0; }
+.ed-sk-gutter { flex: none; width: 40px; display: flex; flex-direction: column; align-items: flex-end; gap: 11px; }
+.ed-sk-gutter span { width: 11px; height: 6px; border-radius: 3px; background: var(--hover); }
+.ed-sk-lines { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 11px; }
+.ed-sk-lines span { height: 6px; border-radius: 3px; background: var(--hover); max-width: 100%; }
+.ed-sk-status {
+  flex: none; display: flex; align-items: center; gap: 12px; height: 27px; padding: 0 12px;
+  border-top: 1px solid var(--line); background: var(--bar-bg);
+}
+.ed-sk-status span { height: 6px; border-radius: 3px; background: var(--active); }
+.ed-sk-status span:nth-child(1) { width: 42px; }
+.ed-sk-status span:nth-child(2) { width: 22px; }
+.ed-sk-status span:nth-child(3) { width: 56px; margin-left: auto; }
+/* 呼吸而不是扫光：低对比、不变方向，长时间开着也不嗇眼 */
+@keyframes ed-sk-breathe { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .ed-skeleton > * { animation: none; opacity: .8; }
+}
 .editor-banner { flex: none; background: var(--warn-soft); color: var(--warn); padding: 6px 12px; font-size: 12px; border-bottom: 1px solid var(--line); }
 /* 标题栏下方的窗口内菜单（规格 §1.6 / §2.1.4）：文件 / 编辑 */
 .editor-winmenu {
