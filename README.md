@@ -77,4 +77,16 @@ npm start             # 启动服务，默认 :8480
 
 生产环境的配置项、环境变量、nginx 与 systemd、部署脚本、测试和安全须知见 **[docs/deploy.md](docs/deploy.md)**。
 
+## 开发与测试
+
+```bash
+npm run install:all   # 前后端依赖
+npm run dev:server    # 后端（:8480）
+npm run dev:client    # vite dev（:5173）
+npm test              # 全部自测套件（串行，自动准备临时实例）
+npm run test:fast     # 改完推之前最快的一道闸：桌面 UI + dev 代理 + 文件关联
+```
+
+自测套件清单、分组（`test:core` / `test:plugin`）、超时与环境变量、失败怎么定位，见 **[docs/testing.md](docs/testing.md)**。
+
 License: [MIT](LICENSE)

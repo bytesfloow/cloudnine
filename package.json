@@ -8,6 +8,10 @@
     "dev:server": "npm --prefix server run dev",
     "dev:client": "npm --prefix client run dev",
     "build": "npm --prefix client run build",
-    "start": "npm --prefix server run start"
+    "start": "npm --prefix server run start",
+    "test": "node scripts/run-tests.mjs",
+    "test:core": "node scripts/run-tests.mjs --group=core",
+    "test:plugin": "node scripts/run-tests.mjs --group=plugin",
+    "test:fast": "node scripts/run-tests.mjs --only=core,dev-plugin,openwith"
   }
 }

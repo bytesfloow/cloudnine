@@ -495,29 +495,28 @@ curl -b cookie.txt -X POST 'http://127.0.0.1:8480/api/plugins/install?overwrite=
 
 ## 9. 自测
 
-```bash
-# 临时目录起一个独立实例（别碰真实的 server/data）
-DATA_DIR=/tmp/cn-plugins PLUGINS_DIR=/tmp/cn-plugins/plugins \
-PLUGIN_DATA_DIR=/tmp/cn-plugins/plugin-data PORT=8499 node server/src/index.js
-
-# 初始化账号
-curl -c /tmp/cn.txt -X POST http://127.0.0.1:8499/api/init \
-     -H 'Content-Type: application/json' -d '{"username":"tester","password":"test1234"}'
-
-# 全链路冒烟（401 / 列表 / 安装 / CSP / 穿越 / storage / 413 / 409 / 卸载 / SDK）
-python scripts/plugins_smoke.py --url http://127.0.0.1:8499 --plugins-dir /tmp/cn-plugins/plugins
-```
-
-浏览器端（自己起临时环境 + 跑完清理，需 `puppeteer-core` + 本机 Chrome）：
+插件相关的自测全部由统一入口跑，**不用手工起实例、不用手工初始化账号**：
 
 ```bash
-node scripts/uitest-plugins.mjs    # 外壳接入：图标 / 开窗 / 沙箱 / 主题注入 / 协议 / 错误码
-node scripts/uitest-todo.mjs       # 示例插件 todo 的端到端验收（含重启服务后的持久化、亮暗主题、窄宽度）
-node scripts/uitest-openwith.mjs   # 文件关联：打开方式 / defaultFor / file.rel / ui.markDirty / beforeunload
-node scripts/uitest-json-plugin.mjs # 示例插件 json 的端到端验收（8MB 读写上限 / 1.2MB 大文件 / 树视图 / 错误定位）
-node scripts/uitest-dev-plugin.mjs  # **dev 模式**：vite dev + 临时后端的 /pa、/plugin-sdk 代理与开窗（见 §6.5.1）
+npm run test:plugin   # 所有插件套件：外壳接入 / 示例插件 / 文件关联 / dev 模式 / 服务端 API 冒烟
+npm test              # 仓库全部套件（含桌面 UI 与读取解码）
+npm run --silent test -- --list          # 看套件清单与分组
+npm test -- --only=openwith              # 只跑一个（单个套件排障时用）
 ```
 
-这些脚本都支持 `--chrome`、`--port`、`--url`、`--keep`，默认不碰仓库里正在跑的实例。
-与其它四个不同，`uitest-dev-plugin.mjs` 测的是 **vite dev server**（自起，默认 5273 / 后端 8741），
-不看 `client/dist`；生产构建那套全绿也证明不了 dev 能用。
+每个套件都自己起一套临时环境（随机端口 + 临时 `DATA_DIR` / `PLUGINS_DIR` / `PLUGIN_DATA_DIR` / `FILE_ROOT`），跑完杀进程 + 删目录，**不碰** 8480 / 5173 上正在跑的实例。
+
+| 套件 | 覆盖 |
+| --- | --- |
+| `dev-plugin` | **dev 模式**：vite dev + 临时后端的 `/pa`、`/plugin-sdk` 代理与开窗（见 §6.5.1） |
+| `plugins` | 外壳接入：图标 / 开窗 / 沙箱 / 主题注入 / postMessage 协议 / 错误码 |
+| `todo` | 示例插件 `todo` 端到端（含重启服务后的持久化、亮暗主题、窄宽度） |
+| `openwith` | 文件关联：打开方式 / `defaultFor` / `file.rel` / `ui.markDirty` / beforeunload |
+| `json-plugin` | 示例插件 `json` 端到端（8MB 读写上限 / 1.2MB 大文件 / 树视图 / 错误定位） |
+| `md-plugin` | 示例插件 `markdown` 端到端（GFM / 消毒 / 大纲 / 大文件只读） |
+| `plugins-smoke` | 服务端 API 冒烟（401 / 列表 / 安装 / CSP / 穿越 / storage / 413 / 409 / 卸载 / SDK），python 标准库 |
+
+需要 `puppeteer-core` + 本机 Chrome（`dev-plugin` 还需要 vite dev 能起来）；缺依赖时 runner 会明确报错跳过并让退出码非零。
+套件也可以单独跑（`node scripts/uitest-openwith.mjs --keep`），参数见各文件头注释和 **[docs/testing.md](testing.md)**。
+
+> `dev-plugin` 生产构建那套全绿也证明不了 dev 能用：两次事故之一的「vite dev 漏代理 `/pa`」就是这么漏过去的。
