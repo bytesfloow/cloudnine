@@ -1,8 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useStore, setWindowTitle, closeWindow, notify, bus, basename, extname } from '../store.js';
+import { useStore, setWindowTitle, closeWindow, notify, bus, basename, extname, markWindowDirty, isWindowDirty } from '../store.js';
 import { api } from '../api.js';
 import { IconRefresh, IconPlugin } from '../icons.jsx';
-import { setWindowDirty, isWindowDirty } from '../desktop/WindowFrame.jsx';
 
 /* ============================================================================
    插件宿主窗口（PluginHost）
@@ -151,8 +150,8 @@ export default function PluginWindow({ win }) {
 
   useEffect(() => clearReadyTimer, []);
 
-  // 窗口消失（被关 / 被卸载）时清掉脏标记：否则 beforeunload 会为一个不存在的窗口反复拦住刷新
-  useEffect(() => () => setWindowDirty(win.id, false), [win.id]);
+  // 窗口消失（被关 / 被卸载）时清掉脏标记：否则 beforeunload 会为一个不存在的窗口拦住刷新
+  useEffect(() => () => markWindowDirty(win.id, false), [win.id]);
 
   // iframe 挂载（首次 / 重新加载）就开始计时：入口 404 时不会触发 load，只能靠它兜底
   useEffect(() => {
@@ -245,7 +244,7 @@ export default function PluginWindow({ win }) {
       }
       case 'ui.markDirty': {
         if (typeof p.dirty !== 'boolean') throw new CallError('INVALID_ARGUMENT', 'ui.markDirty 的 dirty 必须是布尔值');
-        setWindowDirty(win.id, p.dirty);
+        markWindowDirty(win.id, p.dirty);
         return { ok: true, dirty: p.dirty };
       }
       case 'ui.close': {

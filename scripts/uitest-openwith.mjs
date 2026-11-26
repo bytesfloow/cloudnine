@@ -103,6 +103,8 @@ const PROBES = [
   },
   // 只是「打开方式」候选，不是默认程序
   { id: 'filelink-md', name: 'Markdown 探针', fileTypes: ['.md'] },
+  // 也只是候选：用来验「.json 有候选但没默认程序 → 弹打开方式选择器」
+  { id: 'filelink-json-alt', name: 'JSON 备用探针', fileTypes: ['.json'] },
   // 没有 fileTypes：不许出现在打开方式里
   { id: 'filelink-nofiles', name: '无关联探针' },
   // 两个插件抢同一个扩展名 → 不默认，回退内置
@@ -347,23 +349,25 @@ async function main() {
   })));
 
   const closeAllWindows = async () => {
-    // 脏窗口点 X 会弹确认：先全部按「关闭」处理，直到没有窗口
-    for (let i = 0; i < 6; i++) {
+    // 脏窗口点 X 会弹确认、双击无默认程序的文件会弹选择器：两种都先收掉
+    for (let i = 0; i < 8; i++) {
+      const dlg = await page.evaluate(() => (document.querySelector('.dialog') ? (document.querySelector('.dialog h3')?.innerText || '').trim() : null));
+      if (dlg !== null) {
+        const dirty = /未保存/.test(dlg);
+        await page.evaluate((isDirty) => {
+          const btns = [...document.querySelectorAll('.dialog .dialog-actions .btn')];
+          (isDirty ? btns.find((b) => /关闭/.test(b.innerText)) : (btns.find((b) => /取消/.test(b.innerText)) || btns[0]))?.click();
+        }, dirty);
+        await sleep(250);
+        continue;
+      }
       const n = await page.evaluate(() => {
         document.querySelectorAll('.window .tc-close').forEach((b) => b.click());
         return document.querySelectorAll('.window').length;
       });
       await sleep(250);
-      const dlg = await page.evaluate(() => !!document.querySelector('.dialog'));
-      if (dlg) {
-        await page.evaluate(() => {
-          const btns = [...document.querySelectorAll('.dialog .dialog-actions .btn')];
-          (btns.find((b) => /关闭|确定|好/.test(b.innerText)) || btns[btns.length - 1])?.click();
-        });
-        await sleep(250);
-        continue;
-      }
-      if (!n) break;
+      const still = await page.evaluate(() => !!document.querySelector('.dialog'));
+      if (!n && !still) break;
     }
     await page.waitForFunction(() => document.querySelectorAll('.window').length === 0, { timeout: 8000 }).catch(() => {});
     await sleep(200);
@@ -375,6 +379,54 @@ async function main() {
       (btns.find((b) => /取消/.test(b.innerText)) || btns[0])?.click();
     });
     await sleep(250);
+  };
+
+  // 「打开方式」选择器（双击一个“有候选但没默认程序”的文件时弹出）
+  const openWithDialog = async () => {
+    await page.waitForSelector('.dialog', { timeout: 5000 }).catch(() => {});
+    return page.evaluate(() => {
+      const d = document.querySelector('.dialog');
+      if (!d) return null;
+      const sel = d.querySelector('select');
+      return {
+        title: (d.querySelector('h3')?.innerText || '').trim(),
+        options: [...d.querySelectorAll('select option')].map((o) => ({ value: o.value, label: o.textContent.trim() })),
+        selected: sel ? sel.value : '',
+      };
+    });
+  };
+
+  // 在选择器里选一项并点「打开」（React 受控 select 必须用原生 setter + change 事件）
+  const chooseInDialog = async (value) => {
+    await page.evaluate((v) => {
+      const sel = document.querySelector('.dialog select');
+      if (!sel) return;
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
+      setter.call(sel, v);
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }, value);
+    await sleep(150);
+    await page.evaluate(() => {
+      const btns = [...document.querySelectorAll('.dialog .dialog-actions .btn')];
+      (btns.find((b) => b.innerText.trim() === '打开') || btns[btns.length - 1])?.click();
+    });
+    await sleep(800);
+  };
+
+  // 打开文件资源管理器（主目录直览根）并等条目渲染
+  const openFinder = async () => {
+    await page.evaluate(() => document.querySelector('.tb-app[title="文件资源管理器"]')?.click());
+    await page.waitForSelector('.window .finder-item', { timeout: 15000 }).catch(() => {});
+    await sleep(500);
+  };
+
+  // 在文件管理器窗口里双击一个条目（与双击桌面图标行为必须一致）
+  const dblclickInsideFinder = async (name) => {
+    await page.evaluate((n) => {
+      const el = document.querySelector(`.window .finder-item[data-name="${n}"]`);
+      el?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    }, name);
+    await sleep(800);
   };
 
   console.log(`${BOLD}CloudNine 文件关联自测${RESET}  目标: ${URL_BASE}  截图: ${OUT_DIR}`);
@@ -447,23 +499,52 @@ async function main() {
     folderWin.length === 1 && !folderWin[0].plugin, JSON.stringify(folderWin));
   await closeAllWindows();
 
-  // ---------- c. 无 defaultFor → 内置行为不变 ----------
-  section('c. 没有默认程序时保持内置行为');
+  // ---------- c. 有候选但没默认程序 → 弹「打开方式」选择器 ----------
+  section('c. 没有默认程序时 → 打开方式选择器（内置仍是默认选中项）');
   await dblclickEntry('note.md');
-  await sleep(700);
+  const mdDlg = await openWithDialog();
+  check('双击 .md（无 defaultFor 但有候选）弹出「打开方式」选择器', mdDlg?.title === '打开方式', JSON.stringify(mdDlg));
+  check('选择器第一项是内置程序，且默认选中内置',
+    /^内置/.test(mdDlg?.options?.[0]?.label || '') && mdDlg?.selected === 'builtin', JSON.stringify(mdDlg?.options));
+  check('选择器里列出声明 .md 的插件',
+    (mdDlg?.options || []).some((o) => /Markdown 探针/.test(o.label)), JSON.stringify(mdDlg?.options));
+  check('选择器里不出现未声明 .md 的插件（无 fileTypes 的也在外）',
+    !(mdDlg?.options || []).some((o) => /无关联探针|文件关联探针|冲突甲/.test(o.label)), JSON.stringify(mdDlg?.options));
+  await shot('c-md-打开方式选择器');
+  await chooseInDialog('builtin');
   const mdWins = await windowSnapshot();
-  check('双击 .md（无 defaultFor）打开内置编辑器，不开插件',
+  check('选内置 → 打开内置编辑器（与改造前一致）',
     mdWins.length === 1 && !mdWins[0].plugin && mdWins[0].editor, JSON.stringify(mdWins));
-  await shot('c-md-无默认-内置编辑器');
+  await shot('c-md-选内置-编辑器');
   await closeAllWindows();
 
-  // ---------- c2. defaultFor 冲突 → 回退内置 ----------
+  // 取消选择器 → 什么也不打开
+  await dblclickEntry('note.md');
+  await openWithDialog();
+  await dismissDialog();
+  check('取消选择器 → 什么都不打开', (await windowSnapshot()).length === 0, JSON.stringify(await windowSnapshot()));
+
+  // ---------- c2. defaultFor 冲突 → 同样是选择器（内置仍可用） ----------
   await dblclickEntry('debug.log');
-  await sleep(700);
+  const logDlg = await openWithDialog();
+  check('两个插件抢 .log 的 defaultFor → 不默认，弹选择器', logDlg?.title === '打开方式', JSON.stringify(logDlg));
+  check('冲突的两个插件都在选择器里（由用户决定）',
+    ['冲突甲', '冲突乙'].every((n) => (logDlg?.options || []).some((o) => o.label.includes(n))),
+    JSON.stringify(logDlg?.options));
+  await shot('c-冲突-选择器');
+  await chooseInDialog('builtin');
   const logWins = await windowSnapshot();
-  check('两个插件抢 .log 的 defaultFor → 双击回退内置编辑器（不是插件）',
+  check('冲突时选内置 → 内置编辑器（回退行为与改造前一致）',
     logWins.length === 1 && !logWins[0].plugin && logWins[0].editor, JSON.stringify(logWins));
-  await shot('c-冲突-回退内置');
+  await closeAllWindows();
+
+  // ---------- c3. 没有任何候选 → 直接内置，不弹选择器 ----------
+  await dblclickEntry('plain.txt');
+  await sleep(700);
+  const txtDlg = await page.evaluate(() => !!document.querySelector('.dialog'));
+  const txtWins = await windowSnapshot();
+  check('没有任何插件声明 .txt → 双击不弹选择器，直接内置编辑器',
+    !txtDlg && txtWins.length === 1 && !txtWins[0].plugin && txtWins[0].editor, JSON.stringify(txtWins));
   await closeAllWindows();
 
   // ---------- d. 打开方式里手动选插件 ----------
@@ -483,6 +564,24 @@ async function main() {
   check('打开方式打开的 file.rel = note.md', stMd?.file?.rel === 'note.md', JSON.stringify(stMd?.file));
   check('打开方式打开也能读到原文（markdown 内容）', /markdown 内容/.test(stMd?.content || ''), (stMd?.content || '').slice(0, 60));
   await shot('d-打开方式-手动选插件');
+  await closeAllWindows();
+
+  // ---------- f. 文件管理器窗口内双击（与桌面双击同一套实现） ----------
+  section('f. 文件管理器内双击 .json → 直接进插件');
+  await openFinder();
+  const finderOk = await page.evaluate(() => !!document.querySelector('.window .finder-item[data-name="data.json"]'));
+  check('文件管理器窗口已打开且列出 data.json', finderOk);
+  await dblclickInsideFinder('data.json');
+  const finderWins = await windowSnapshot();
+  const fFrame = await probeState('filelink-probe');
+  check('文件管理器内双击 .json → 打开插件窗口（不再进内置编辑器）',
+    !!fFrame && finderWins.some((w) => w.plugin.includes('/filelink-probe/')), JSON.stringify(finderWins));
+  check('文件管理器内双击打开的 file.rel = data.json', fFrame?.file?.rel === 'data.json', JSON.stringify(fFrame?.file));
+  check('文件管理器内双击打开也能读到原文', /cloudnine-json-probe/.test(fFrame?.content || ''),
+    (fFrame?.content || '').slice(0, 60));
+  check('文件管理器内双击不会额外弹「打开方式」选择器',
+    !(await page.evaluate(() => !!document.querySelector('.dialog'))));
+  await shot('f-文件管理器内双击-进插件');
   await closeAllWindows();
 
   // ---------- e. ui.markDirty / 关闭确认 / beforeunload ----------
@@ -562,7 +661,51 @@ async function main() {
   check('取消后两个脏窗口都还在（另一个没被牵连）', stillTwo.length === 2, `窗口数=${stillTwo.length}`);
   await closeAllWindows();
 
-  // ---------- e. beforeunload（真实刷新，走浏览器原生确认框） ----------
+  // ---------- g. 任务栏右键「关闭窗口」也要过未保存确认（同一道闸） ----------
+  section('g. 任务栏右键关闭脏窗口 → 确认');
+  await dblclickEntry('data.json');
+  const tbFrame = await pluginFrame('filelink-probe');
+  await tbFrame.evaluate(() => document.getElementById('dirty-on')?.click());
+  await sleep(500);
+  check('插件窗口已脏（标题带 *）',
+    await page.evaluate(() => (document.querySelector('.window .window-title')?.innerText || '').startsWith('*')));
+
+  const taskbarClose = async () => {
+    await page.evaluate(() => {
+      const b = [...document.querySelectorAll('.tb-win')].find((x) => /文件关联探针/.test(x.innerText));
+      if (!b) return;
+      const r = b.getBoundingClientRect();
+      b.dispatchEvent(new MouseEvent('contextmenu', {
+        bubbles: true, cancelable: true, clientX: Math.round(r.x + 8), clientY: Math.round(r.y + 6),
+      }));
+    });
+    await page.waitForSelector('.context-menu', { timeout: 4000 }).catch(() => {});
+    await sleep(150);
+    await page.evaluate(() => document.querySelector('.context-menu [data-label="关闭窗口"]')?.click());
+    await page.waitForSelector('.dialog', { timeout: 4000 }).catch(() => {});
+    return page.evaluate(() => (document.querySelector('.dialog')?.innerText || '').trim());
+  };
+
+  const tbDlg = await taskbarClose();
+  check('任务栏右键「关闭窗口」也弹「未保存的更改」确认', /未保存的更改/.test(tbDlg),
+    tbDlg.replace(/\n/g, ' / ').slice(0, 90));
+  await shot('g-任务栏右键关闭-确认');
+  await dismissDialog();
+  const afterTbCancel = await page.evaluate(() => ({
+    wins: document.querySelectorAll('.window').length,
+    dirty: (document.querySelector('.window .window-title')?.innerText || '').startsWith('*'),
+  }));
+  check('任务栏取消关闭 → 窗口仍在、脏标记没丢',
+    afterTbCancel.wins === 1 && afterTbCancel.dirty, JSON.stringify(afterTbCancel));
+  await taskbarClose();
+  await page.evaluate(() => {
+    const btns = [...document.querySelectorAll('.dialog .dialog-actions .btn')];
+    (btns.find((b) => /关闭/.test(b.innerText)) || btns[btns.length - 1])?.click();
+  });
+  await page.waitForFunction(() => document.querySelectorAll('.window').length === 0, { timeout: 6000 }).catch(() => {});
+  check('任务栏确认关闭 → 窗口关掉', (await windowSnapshot()).length === 0);
+
+  // ---------- e2. beforeunload（真实刷新，走浏览器原生确认框） ----------
   section('e. beforeunload 拦截');
   let buDialogType = '';
   const onDialog = async (d) => {
@@ -601,6 +744,29 @@ async function main() {
   page.off('dialog', onDialog);
   await page.screenshot({ path: join(OUT_DIR, 'e-刷新被拦.png') });
   console.log(`${DIM}    📸 e-刷新被拦.png${RESET}`);
+
+  // ---------- h. 无 defaultFor 的 .json（卸载默认插件后）：文件管理器内双击 → 选择器 ----------
+  section('h. 无默认程序时文件管理器内双击 .json → 选择器');
+  const del = await fetch(`${URL_BASE}/api/plugins/filelink-probe`, {
+    method: 'DELETE', headers: { Cookie: `cloudnine_sid=${sid}` },
+  });
+  check('卸载默认 .json 插件（DELETE /api/plugins/filelink-probe）', del.ok, `status=${del.status}`);
+  await closeAllWindows(); // beforeunload 小节留下的脏窗口先关掉，否则下面的 reload 会被拦
+  await page.reload({ waitUntil: 'networkidle2', timeout: 45000 });
+  await page.waitForSelector('.desktop-icons', { timeout: 20000 });
+  await openFinder();
+  await dblclickInsideFinder('data.json');
+  const altDlg = await openWithDialog();
+  check('无默认程序的 .json：文件管理器双击弹「打开方式」选择器', altDlg?.title === '打开方式', JSON.stringify(altDlg));
+  check('选择器里有剩下的一插件候选与内置项',
+    (altDlg?.options || []).some((o) => /JSON 备用探针/.test(o.label))
+    && /^内置/.test(altDlg?.options?.[0]?.label || ''), JSON.stringify(altDlg?.options));
+  await shot('h-无默认-json-选择器');
+  await chooseInDialog('builtin');
+  const altWins = await windowSnapshot();
+  check('选内置 → 内置编辑器（与改造前一致）',
+    altWins.some((w) => w.editor && !w.plugin), JSON.stringify(altWins));
+  await closeAllWindows();
 
   // ---------- 控制台 ----------
   section('控制台');

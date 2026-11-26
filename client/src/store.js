@@ -78,6 +78,9 @@ let state = {
   // 已安装插件（GET /api/plugins 的 plugins 数组，服务端原样）
   // 移动端不拉取；拉取失败 / 401 一律按「无插件」处理，不阻塞桌面
   plugins: [],
+  // 窗口「未保存」标记（windowId → true）。单一真相：点 X / 任务栏关闭 /
+  // 其它任何走 closeWindow 的入口、以及页面 beforeunload 都读这一份（见下面窗口管理段）
+  dirtyWindows: {},
   // 用户从桌面移除过的虚拟应用图标（localStorage，v1 不做卸载）
   desktopAppsHidden: loadDesktopAppsHidden(),
 
@@ -397,13 +400,30 @@ export async function closeWindow(id) {
       const rest = s.windows.filter((w) => w.id !== id);
       // 焦点回落要跳过最小化窗口，否则会把焦点交给一个看不见的窗口
       const next = rest.filter((w) => !w.minimized).sort((a, b) => b.z - a.z)[0];
+      // 脏标记随窗口一起清掉，否则关掉之后 beforeunload 会一直拦刷新
+      const dirtyWindows = { ...s.dirtyWindows };
+      delete dirtyWindows[id];
       return {
         windows: rest,
         focusId: s.focusId === id ? (next?.id || null) : s.focusId,
         recent: s.recent.filter((x) => x !== id),
+        dirtyWindows,
       };
     });
   };
+  // 未保存保护（插件窗口用 cloudnine.ui.markDirty 上报）：所有关闭入口都走这里，
+  // 所以点 X、任务栏右键「关闭窗口」、任何其它调 closeWindow 的地方行为一致 —— 只问一次。
+  if (isWindowDirty(id)) {
+    const ok = await confirmDialog({
+      title: '未保存的更改',
+      message: `“${win.title}”有未保存的更改，关闭窗口会丢失这些更改。`,
+      okText: '关闭',
+      cancelText: '取消',
+      danger: true,
+    });
+    if (!ok) return; // 取消：窗口与脏标记都原样留着
+    markWindowDirty(id, false); // 已确认丢弃：别让 beforeunload 再拦一次
+  }
   if (state.editorDirty?.[id]) {
     const choice = await showDialog({
       kind: 'confirm3',
@@ -651,6 +671,34 @@ export function setDesktopIconSize(v) {
 // ---------- 编辑器未保存标记（关闭窗口时拦截） ----------
 export const markDirty = (windowId, dirty) =>
   setState((s) => ({ editorDirty: { ...s.editorDirty, [windowId]: dirty } }));
+
+// ---------- 窗口「未保存」标记（所有关闭入口 + beforeunload 共用的单一真相） ----------
+// 插件侧入口：cloudnine.ui.markDirty(bool) → PluginWindow → 这里。
+// 不进窗口对象（不跟着 openWindow/focusWindow 一起拷），而是单独一张表：
+//   - closeWindow 统一读它，所以点 X / 任务栏右键 / 其它入口都会问同一句话；
+//   - WindowFrame 只读它来决定标题前那个 `*`；
+//   - 页面级 beforeunload 也只看它（浏览器只会弹一个原生确认框）。
+export const markWindowDirty = (windowId, dirty) => setState((s) => {
+  const on = !!s.dirtyWindows[windowId];
+  if (on === !!dirty) return null; // 状态没变：不白跑一次全量重渲染
+  const next = { ...s.dirtyWindows };
+  if (dirty) next[windowId] = true; else delete next[windowId];
+  return { dirtyWindows: next };
+});
+
+export const isWindowDirty = (windowId) => !!state.dirtyWindows[windowId];
+export const anyWindowDirty = () => Object.keys(state.dirtyWindows).length > 0;
+
+// 刷新 / 关标签：只要有窗口脏着就拦一次。
+// 多个窗口脏着也只有这一道页面级监听 → 浏览器只弹一个原生框，不会弹窗炸弹。
+if (typeof window !== 'undefined' && !window.__cnDirtyBeforeUnload) {
+  window.__cnDirtyBeforeUnload = true;
+  window.addEventListener('beforeunload', (ev) => {
+    if (!anyWindowDirty()) return;
+    ev.preventDefault();
+    ev.returnValue = '有窗口还有未保存的更改'; // 旧 WebKit 只认 returnValue
+  });
+}
 
 // ---------- 打开文件（按类型分流到编辑器/预览窗口） ----------
 export async function openFile(path, name) {

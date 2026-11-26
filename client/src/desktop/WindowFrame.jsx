@@ -1,46 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
-  focusWindow, closeWindow, minimizeWindow, toggleMaxWindow, commitRect,
-  applySnap, beginMoveFromSpecial, confirmDialog,
+  useStore, focusWindow, closeWindow, minimizeWindow, toggleMaxWindow, commitRect,
+  applySnap, beginMoveFromSpecial,
   SHELL_TOP_H, SHELL_BOTTOM_H, TITLEBAR_MIN_VISIBLE, SNAP_EDGE,
 } from '../store.js';
-
-/* ============================================================================
-   未保存保护（插件窗口用，docs/plugins.md §6.6）
-   ----------------------------------------------------------------------------
-   `cloudnine.ui.markDirty(true)` 由 PluginHost 转到这里的脏窗口集合：
-     - 集合不进 store：只有标题上的 `*` 和关闭按钮需要它，没必要让整棵窗口树重渲染；
-     - 关闭（点 X）时只对「这一个」脏窗口弹一次确认；
-     - 页面级 beforeunload 只看“有没有任何一个脏窗口”，浏览器本来也只会弹一次。
-   ========================================================================== */
-
-const dirtyWindows = new Set();
-const dirtySubs = new Set();
-
-function emitDirty() { for (const fn of dirtySubs) { try { fn(); } catch { /* 单个订阅者出错不影响其它 */ } } }
-
-/** 插件窗口上报 / 清除自己的脏状态（PluginWindow → 这里） */
-export function setWindowDirty(windowId, dirty) {
-  const has = dirtyWindows.has(windowId);
-  if (dirty ? has : !has) return;
-  if (dirty) dirtyWindows.add(windowId); else dirtyWindows.delete(windowId);
-  emitDirty();
-}
-
-export const isWindowDirty = (windowId) => dirtyWindows.has(windowId);
-export const anyWindowDirty = () => dirtyWindows.size > 0;
-
-// 刷新 / 关标签：只要有窗口脏着就拦截一次（浏览器只会弹一个原生确认框，
-// 不会因为“几个窗口脏”而弹几次）。交给壳层的 beforeunload 监听器自己闭环。
-if (typeof window !== 'undefined' && !window.__cnDirtyBeforeUnload) {
-  window.__cnDirtyBeforeUnload = true;
-  window.addEventListener('beforeunload', (ev) => {
-    if (!anyWindowDirty()) return;
-    ev.preventDefault();
-    // 旧浏览器（含部分 WebKit）只认 returnValue
-    ev.returnValue = '有窗口还有未保存的更改';
-  });
-}
 
 // 顶部外壳（旧菜单栏）高度已归零：窗口可以拖到 y = 0（docs §7 R12）。
 // 底部让位给任务栏，拖动 / 缩放 / 最大化三处用同一组常量。
@@ -93,29 +56,10 @@ export default function WindowFrame({ win, focused, children }) {
   // 插件窗口里的 iframe 一旦接管指针，document 上的 pointermove 就断了 —— 拖拽会卡死。
   const [interacting, setInteracting] = useState(false);
 
-  // 脏状态：订阅模块级集合，只为了让标题多一个 `*`（这也是自动化测试看得到的标记）
-  const [dirty, setDirty] = useState(() => isWindowDirty(win.id));
-  useEffect(() => {
-    setDirty(isWindowDirty(win.id));
-    const sub = () => setDirty(isWindowDirty(win.id));
-    dirtySubs.add(sub);
-    return () => { dirtySubs.delete(sub); };
-  }, [win.id]);
-
-  // 关闭前确认：脏窗口点 X 必须先问一句（取消 = 什么都不做，窗口继续开着）
-  async function requestClose() {
-    if (!isWindowDirty(win.id)) { closeWindow(win.id); return; }
-    const ok = await confirmDialog({
-      title: '未保存的更改',
-      message: `“${win.title}”有未保存的更改，关闭窗口会丢失这些更改。`,
-      okText: '关闭',
-      cancelText: '取消',
-      danger: true,
-    });
-    if (!ok) return;
-    setWindowDirty(win.id, false); // 已确认丢弃：别让 beforeunload 再拦一次
-    closeWindow(win.id);
-  }
+  // 脏状态来自 store（单一真相）：这里只负责把它显示成标题前那个 `*`。
+  // 确认框不在这一层：closeWindow 统一拦，所以任务栏右键「关闭窗口」等入口同样会问。
+  const s = useStore();
+  const dirty = !!s.dirtyWindows[win.id];
 
   // 拖动/缩放：直接操作 DOM，pointerup 时提交，避免整棵树重渲染
   function startDrag(e) {
@@ -267,7 +211,7 @@ export default function WindowFrame({ win, focused, children }) {
         <div className="win-controls">
           <button className="tc tc-min" title="最小化" aria-label="最小化" onClick={(e) => { e.stopPropagation(); minimizeWindow(win.id); }} />
           <button className="tc tc-max" title="最大化" aria-label="最大化" onClick={(e) => { e.stopPropagation(); toggleMaxWindow(win.id); }} />
-          <button className="tc tc-close" title="关闭" aria-label="关闭" onClick={(e) => { e.stopPropagation(); requestClose(); }} />
+          <button className="tc tc-close" title="关闭" aria-label="关闭" onClick={(e) => { e.stopPropagation(); closeWindow(win.id); }} />
         </div>
         <div className="window-title">{dirty ? `*${win.title}` : win.title}</div>
         <div className="titlebar-spacer" />

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
-  useStore, getState, bus, openWindow, openContextMenu, openFile,
+  useStore, getState, bus, openWindow, openContextMenu,
   promptDialog, confirmDialog, notify, setClipboard, setWindowTitle, updateWindowProps,
   setState, setFinderSel, basename, dirname, joinPath, fmtSize, fileCat, TEXT_EDITABLE,
 } from '../store.js';
@@ -9,7 +9,7 @@ import { addUpload, pickFiles } from '../transfers.js';
 import {
   createItem, uploadTo, copyToClipboard, cutToClipboard, pasteInto, trashItems, renameItem,
   downloadItem, downloadItems, compressItems, extractItem, shareItem, shareBlockReason, copyPathText, isArchive,
-  syncTrashCount, openWithItems, openRecentItem, dropDeadRecents,
+  syncTrashCount, openWithItems, openRecentItem, dropDeadRecents, openWithDefault,
 } from '../fsops.js';
 import FinderToolbar from './finder/FinderToolbar.jsx';
 import FinderCommandBar from './finder/FinderCommandBar.jsx';
@@ -264,7 +264,9 @@ export default function Finder({ win }) {
       navigate(searchMode ? dirname(entry.path) : joinPath(cwd, entry.name));
       return;
     }
-    openFile(joinPath(cwd, entry.name), entry.name);
+    // 文件：走与桌面双击同一份实现（defaultFor 插件 → 直接进；有候选但无默认 → 打开方式选择器；
+    // 没候选 → 内置编辑器 / 预览）。判断逻辑只在 fsops.openWithDefault 里写一份。
+    return openWithDefault(joinPath(cwd, entry.name), entry.name);
   }
 
   // 点击过期条目：只在点击这一下才发一次请求（绝不预发）。文件不在了 → 友好提示 + 从「最近」剔除

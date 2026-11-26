@@ -2,9 +2,8 @@
 // 桌面改为直接呈现主目录后，两处需要的能力完全一致，集中在这里避免行为分叉。
 import {
   bus, notify, setClipboard, openWindow, openFile, promptDialog, confirmDialog, focusWindow,
-  getState, setState, basename, dirname, joinPath, fileCat, extname,
-} from './store.js';
-import { api } from './api.js';
+  getState, setState, basename, dirname, joinPath, fileCat, extname, TEXT_EDITABLE,
+} from './store.js';import { api } from './api.js';
 import { addUpload, pickFiles } from './transfers.js';
 import {
   PLUGIN_WINDOW, pluginAppsForExt, defaultPluginForExt, pluginAppById,
@@ -289,26 +288,63 @@ export function openWithPlugin(pluginId, fileRel) {
   });
 }
 
-// 双击文件的默认程序：声明了 defaultFor 且没有冲突的插件优先，否则沿用内置分流。
+// 双击文件的默认程序：声明了 defaultFor 且没有冲突的插件优先，否则走「打开方式」选择器 / 内置。
 // 冲突（多个插件抢同一个扩展名）时返回 null —— 宁可不默认，也不猜。
 const defaultPluginFor = (path) => {
   const hit = defaultPluginForExt(getState().plugins, extOf(path));
   return hit && !hit.conflict ? hit.app : null;
 };
 
-// 文件夹打开「文件」窗口；文件按类型分流：插件默认关联 → 插件，否则编辑器 / 预览
+// 内置程序的可读名字（选择器里的第一项）：与 openFile 的分流规则一致
+const builtinOpenerLabel = (name) => (TEXT_EDITABLE(name) ? '内置：文本编辑' : '内置：预览');
+
+/**
+ * 双击一个文件的**唯一入口**（桌面图标 / 文件管理器窗口 / 「最近」都走这里）。
+ * 三条分支与 docs/plugins.md §2.1 一一对应：
+ *   1. 有唯一默认插件（defaultFor）→ 直接进插件；
+ *   2. 有候选（fileTypes 命中）但没有默认（含多插件抢 defaultFor）→ 弹「打开方式」选择器，
+ *      内置项永远在第一位且是默认选中项（用户直接回车还是改造前那个行为）；
+ *   3. 没候选 → 内置分流，与安装插件前完全一致。
+ * 返回 'plugin' | 'builtin' | 'cancel'（供自测断言）。
+ */
+export async function openWithDefault(path, name = basename(path)) {
+  const def = defaultPluginFor(path);
+  if (def) {
+    openWithPlugin(def.pluginId, path);
+    return 'plugin';
+  }
+  const apps = pluginAppsForExt(getState().plugins, extOf(path));
+  if (!apps.length) {
+    await openFile(path, name);
+    return 'builtin';
+  }
+  const options = [
+    { value: 'builtin', label: builtinOpenerLabel(name) },
+    ...apps.map((a) => ({ value: `plugin:${a.pluginId}`, label: `${a.name}（插件）` })),
+  ];
+  const v = await promptDialog({
+    title: '打开方式',
+    message: `选择用什么打开“${name}”`,
+    fields: [{ key: 'app', label: '打开方式', type: 'select', value: 'builtin', options }],
+    okText: '打开',
+  });
+  if (!v) return 'cancel';
+  if (v.app === 'builtin' || !String(v.app).startsWith('plugin:')) {
+    await openFile(path, name);
+    return 'builtin';
+  }
+  openWithPlugin(String(v.app).slice('plugin:'.length), path);
+  return 'plugin';
+}
+
+// 文件夹打开「文件」窗口；文件按类型分流：插件默认关联 → 插件 / 选择器，否则编辑器 / 预览
 export function openEntry(entry, cwd) {
   const path = joinPath(cwd, entry.name);
   if (entry.type === 'dir') {
     openWindow('finder', { cwd: path });
     return;
   }
-  const def = defaultPluginFor(path);
-  if (def) {
-    openWithPlugin(def.pluginId, path);
-    return;
-  }
-  openFile(path, entry.name);
+  return openWithDefault(path, entry.name);
 }
 
 // 是否为可解压的归档包
@@ -383,11 +419,6 @@ export async function openRecentItem(item) {
   }
   if (!hit) return markRecentMissing(item);
   if (hit.type === 'dir') openWindow('finder', { cwd: item.path });
-  else {
-    // 与双击同一套「默认程序」规则：声明了 defaultFor 的插件优先
-    const def = defaultPluginFor(item.path);
-    if (def) openWithPlugin(def.pluginId, item.path);
-    else await openFile(item.path, item.name);
-  }
+  else await openWithDefault(item.path, item.name); // 与双击同一套默认程序规则
   return 'opened';
 }
