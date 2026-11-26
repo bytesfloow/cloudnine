@@ -1,24 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { EditorView } from '@codemirror/view';
 import { oneDark } from '@codemirror/theme-one-dark';
-import { javascript } from '@codemirror/lang-javascript';
-import { json } from '@codemirror/lang-json';
-import { yaml } from '@codemirror/lang-yaml';
-import { markdown } from '@codemirror/lang-markdown';
-import { python } from '@codemirror/lang-python';
-import { html } from '@codemirror/lang-html';
-import { css } from '@codemirror/lang-css';
-import { sql } from '@codemirror/lang-sql';
-import { cpp } from '@codemirror/lang-cpp';
-import { java } from '@codemirror/lang-java';
-import { go } from '@codemirror/lang-go';
-import { php } from '@codemirror/lang-php';
-import { rust } from '@codemirror/lang-rust';
-import beautify from 'js-beautify';
 import { useStore, bus, getState, setWindowTitle, updateWindowProps, markDirty, confirmDialog, promptDialog, notify, basename, dirname, joinPath, fmtSize, extname } from '../store.js';
 import { api } from '../api.js';
 import WindowMenu from './WindowMenu.jsx';
+import EditorSkeleton from './EditorSkeleton.jsx';
 
 // 文件写盘成功后通知同页其它视图刷新；格式切换/另存为可能同时影响旧、新两个目录
 function notifyFileChanged(...paths) {
@@ -26,26 +13,30 @@ function notifyFileChanged(...paths) {
   dirs.forEach((dir) => bus.emit('fs:changed', dir));
 }
 
-// langExtension：入参为扩展名（格式切换后即为目标格式的扩展名）
+// langExtension：按扩展名懒加载对应的语言包。
+// 以前这里把 14 个语言包全部静态 import，整块编辑器 chunk 被撑到 1.17MB(gzip 398KB)；
+// 而一次只有一种文件类型，等于每次打开都把用不到的十几个语言包一起下载 + 解析。
+// 现在改成 dynamic import：只有真正要用的那一个语言包会离开主 chunk。
+// 返回 Promise<Extension|null>，null = 纯文本（不高亮）。
 function langExtension(e) {
   switch (e) {
-    case 'js': case 'mjs': case 'cjs': return javascript();
-    case 'jsx': return javascript({ jsx: true });
-    case 'ts': return javascript({ typescript: true });
-    case 'tsx': return javascript({ jsx: true, typescript: true });
-    case 'json': return json();
-    case 'yaml': case 'yml': case 'toml': return yaml();
-    case 'md': case 'markdown': return markdown();
-    case 'py': return python();
-    case 'html': case 'htm': case 'xml': case 'vue': case 'svg': return html();
-    case 'css': return css();
-    case 'sql': return sql();
-    case 'c': case 'h': case 'cpp': case 'hpp': case 'cc': return cpp();
-    case 'java': return java();
-    case 'go': return go();
-    case 'php': return php();
-    case 'rs': return rust();
-    default: return [];
+    case 'js': case 'mjs': case 'cjs': return import('@codemirror/lang-javascript').then((m) => m.javascript());
+    case 'jsx': return import('@codemirror/lang-javascript').then((m) => m.javascript({ jsx: true }));
+    case 'ts': return import('@codemirror/lang-javascript').then((m) => m.javascript({ typescript: true }));
+    case 'tsx': return import('@codemirror/lang-javascript').then((m) => m.javascript({ jsx: true, typescript: true }));
+    case 'json': return import('@codemirror/lang-json').then((m) => m.json());
+    case 'yaml': case 'yml': case 'toml': return import('@codemirror/lang-yaml').then((m) => m.yaml());
+    case 'md': case 'markdown': return import('@codemirror/lang-markdown').then((m) => m.markdown());
+    case 'py': return import('@codemirror/lang-python').then((m) => m.python());
+    case 'html': case 'htm': case 'xml': case 'vue': case 'svg': return import('@codemirror/lang-html').then((m) => m.html());
+    case 'css': return import('@codemirror/lang-css').then((m) => m.css());
+    case 'sql': return import('@codemirror/lang-sql').then((m) => m.sql());
+    case 'c': case 'h': case 'cpp': case 'hpp': case 'cc': return import('@codemirror/lang-cpp').then((m) => m.cpp());
+    case 'java': return import('@codemirror/lang-java').then((m) => m.java());
+    case 'go': return import('@codemirror/lang-go').then((m) => m.go());
+    case 'php': return import('@codemirror/lang-php').then((m) => m.php());
+    case 'rs': return import('@codemirror/lang-rust').then((m) => m.rust());
+    default: return Promise.resolve(null);
   }
 }
 
@@ -81,6 +72,9 @@ export default function EditorWindow({ win }) {
   const [cursor, setCursor] = useState({ line: 1, col: 1 });
   const [fmt, setFmtState] = useState(() => (win.props.name ? fmtOf(win.props.name) : 'md')); // 新建文档默认 Markdown
   const [fmtMenu, setFmtMenu] = useState(false);
+  // 当前语言包（懒加载）：null = 纯文本 / 还在路上。先出壳建编辑器，语言包到了再配上，
+  // 不把「打开窗口」卡在一个语言包的下载上。
+  const [langExt, setLangExt] = useState(null);
   // 左下角状态：平时空白；有改动常驻「未保存」；保存成功才闪「已保存」2 秒
   const [savedFlash, setSavedFlash] = useState(false);
   const flashTimer = useRef(null);
@@ -207,8 +201,19 @@ export default function EditorWindow({ win }) {
     return () => document.removeEventListener('keydown', onKey, true);
   }, [win.id]);
 
+  // 要点亮语言包时才去拉：一种文件类型只下载它自己的那一份，切格式会跟着换
+  useEffect(() => {
+    let alive = true;
+    setLangExt(null);
+    langExtension(fmt).then((ext) => { if (alive) setLangExt(ext); }).catch(() => { if (alive) setLangExt(null); });
+    return () => { alive = false; };
+  }, [fmt]);
+  // 熊数组每次渲染都是新对象，会让 @uiw/react-codemirror 每帧重配一次编辑器；只跟着语言包变
+  const cmExtensions = useMemo(() => [langExt, EditorView.lineWrapping].filter(Boolean), [langExt]);
+
   // 格式化：JSON 重排缩进；HTML 用 js-beautify 美化
-  function formatDoc() {
+  // js-beautify（184KB）只有真的点「格式化」处理 HTML 时才需要，按需加载，不进编辑器主 chunk
+  async function formatDoc() {
     if (meta.truncated || (fmt !== 'json' && fmt !== 'html')) return;
     const text = docRef.current;
     try {
@@ -217,6 +222,7 @@ export default function EditorWindow({ win }) {
         out = JSON.stringify(JSON.parse(text), null, 2);
         if (/\n$/.test(text)) out += '\n';
       } else {
+        const beautify = (await import('js-beautify')).default;
         out = beautify.html(text, { indent_size: 2, wrap_line_length: 0, preserve_newlines: true, max_preserve_newlines: 2, end_with_newline: /\n$/.test(text) });
       }
       setDoc(out);
@@ -258,7 +264,8 @@ export default function EditorWindow({ win }) {
     } catch (e) { notify({ type: 'error', title: '另存为失败', body: e.message }); return false; }
   }
 
-  if (loading) return <div className="editor-window loading"><div className="boot-spinner" /></div>;
+  // 首次打开：先出壳（窗口内菜单 + 骨架 + 状态栏），chunk / 文件内容到位再换成编辑器
+  if (loading) return <EditorSkeleton label="正在读取文件" />;
   if (error) return <div className="editor-window"><div className="finder-empty"><p>⚠️ {error}</p></div></div>;
 
   const dark = s.theme === 'dark' || (s.theme === 'auto' && document.documentElement.dataset.theme === 'dark');
@@ -290,7 +297,7 @@ export default function EditorWindow({ win }) {
         <CodeMirror
           value={doc}
           theme={dark ? oneDark : 'light'}
-          extensions={[...[langExtension(fmt)].filter(Boolean), EditorView.lineWrapping]}
+          extensions={cmExtensions}
           basicSetup={{ foldGutter: true, highlightActiveLine: !meta.truncated }}
           editable={!meta.truncated}
           readOnly={meta.truncated}
