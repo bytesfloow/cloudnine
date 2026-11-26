@@ -17,7 +17,9 @@
 覆盖：未登录 401 / 登录后空列表 / 安装 hello / entryUrl 直取 + CSP sandbox /
 错 token 404 / 路径穿越 400-404 / storage 往返 / 超 1MB 413 / 非法 manifest 进 invalid /
 install zip 成功与重复 409 / 覆盖安装 / DELETE 后 404 / SDK 公开可取 / 无 storage 权限 403 /
-文件关联：fileTypes / defaultFor 的非法取值全部 400、合法值小写化去重、旧 manifest 补空数组。
+文件关联：fileTypes / defaultFor 的非法取值全部 400、合法值小写化去重、旧 manifest 补空数组 /
+体积：列表 / 详情的 size 是数值且等于目录实际字节数，覆盖安装后立即重算 /
+409 结构化：响应体带 code=PLUGIN_EXISTS + id + version，error 仍是字符串。
 """
 
 import argparse
@@ -209,8 +211,36 @@ def main():
     r.check("GET /api/plugins/hello 返回 200 且字段齐全",
             st == 200 and (body or {}).get("id") == "hello" and "window" in (body or {}) and (body or {}).get("permissions") == ["storage"],
             f"status={st} body={body}")
+    detail_size = (body or {}).get("size")
     st, _b, _h, _raw = c.json("GET", "/api/plugins/nope-not-exist")
     r.check("GET 不存在的插件返回 404", st == 404, f"status={st}")
+
+    # ---------- 5b. 插件体积（size） ----------
+    def dir_bytes(root):
+        total = 0
+        for dirpath, _d, files in os.walk(root):
+            for n in files:
+                try:
+                    total += os.path.getsize(os.path.join(dirpath, n))
+                except OSError:
+                    pass
+        return total
+
+    hello_bytes = dir_bytes(hello_dir)
+    st, body, _h, _raw = c.json("GET", "/api/plugins")
+    listed_hello = next((p for p in (body or {}).get("plugins") or [] if p.get("id") == "hello"), None) or {}
+    r.check("列表里每个插件都有数值 size 且 >0",
+            all(isinstance(p.get("size"), int) and p["size"] > 0 for p in (body or {}).get("plugins") or [])
+            and (body or {}).get("plugins"),
+            f"plugins={[(p.get('id'), p.get('size')) for p in (body or {}).get('plugins') or []]}")
+    r.check("size 等于插件目录下所有文件的实际字节数",
+            listed_hello.get("size") == hello_bytes, f"size={listed_hello.get('size')} expect={hello_bytes}")
+    r.check("GET /api/plugins/:id 的 size 与列表一致",
+            detail_size == listed_hello.get("size"), f"detail={detail_size} list={listed_hello.get('size')}")
+    st, body2, _h, _raw = c.json("GET", "/api/plugins")
+    again = next((p for p in (body2 or {}).get("plugins") or [] if p.get("id") == "hello"), {})
+    r.check("连续两次列表调用 size 稳定（缓存命中，数值不变）",
+            again.get("size") == listed_hello.get("size"), f"{again.get('size')} vs {listed_hello.get('size')}")
 
     # ---------- 6. entryUrl 直取（不带 cookie）+ 沙箱头 ----------
     st, hdrs, raw = c.request("GET", entry_url, auth=False)
@@ -265,9 +295,31 @@ def main():
     # ---------- 9. 重复安装 409 / 覆盖安装 ----------
     st, body, _h, raw = c.json("POST", "/api/plugins/install", hello_zip, headers={"Content-Type": "application/zip"})
     r.check("重复安装同一 zip 返回 409", st == 409, f"status={st} body={body or raw[:160]}")
+    r.check("409 带结构化字段 code=PLUGIN_EXISTS / id / version",
+            (body or {}).get("code") == "PLUGIN_EXISTS"
+            and (body or {}).get("id") == "hello"
+            and (body or {}).get("version") == "1.0.0",
+            f"body={body}")
+    r.check("409 的 error 仍是字符串（旧客户端读 error 不受影响）",
+            isinstance((body or {}).get("error"), str) and "?overwrite=1" in (body or {}).get("error", ""),
+            f"error={(body or {}).get('error')!r}")
 
-    st, body, _h, raw = c.json("POST", "/api/plugins/install?overwrite=1", hello_zip, headers={"Content-Type": "application/zip"})
+    # 覆盖安装一个更大的包：size 必须立即重算（缓存按 id 失效，不是永久的旧值）
+    big_buf = io.BytesIO()
+    with zipfile.ZipFile(big_buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for dirpath, _dirs, files in os.walk(hello_dir):
+            for name in sorted(files):
+                full = os.path.join(dirpath, name)
+                z.write(full, os.path.relpath(full, hello_dir).replace("\\", "/"))
+        z.writestr("pad.bin", b"P" * 4096)
+    hello_big_zip = big_buf.getvalue()
+
+    st, body, _h, raw = c.json("POST", "/api/plugins/install?overwrite=1", hello_big_zip, headers={"Content-Type": "application/zip"})
     r.check("带 overwrite=1 覆盖安装返回 200", st == 200 and (body or {}).get("id") == "hello", f"status={st} body={body or raw[:160]}")
+    st, body, _h, _raw = c.json("GET", "/api/plugins")
+    grown = next((p for p in (body or {}).get("plugins") or [] if p.get("id") == "hello"), {})
+    r.check("覆盖安装后 size 立即重算（+4096 字节）",
+            grown.get("size") == hello_bytes + 4096, f"size={grown.get('size')} expect={hello_bytes + 4096}")
 
     # ---------- 10. 非法 manifest 的 zip 装不进来 ----------
     bad_zip = zip_flat({
@@ -395,6 +447,10 @@ def main():
     r.check("删除后 GET 插件 → 404", st == 404, f"status={st}")
     st, _h, _raw = c.request("GET", entry_url, auth=False)
     r.check("删除后 entryUrl → 404", st == 404, f"status={st}")
+    st, body, _h, _raw = c.json("GET", "/api/plugins")
+    r.check("卸载后列表里不再有 hello（size 一并消失）",
+            all(p.get("id") != "hello" for p in (body or {}).get("plugins") or []),
+            f"ids={[p.get('id') for p in (body or {}).get('plugins') or []]}")
 
     # ---------- 清理 ----------
     c.json("DELETE", "/api/plugins/noperm")

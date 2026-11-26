@@ -262,6 +262,8 @@ function publicPlugin(m) {
     window: m.window,
     entryUrl: pluginAssetUrl(m.id, m.entry),
     iconUrl: m.icon ? pluginAssetUrl(m.id, m.icon) : null,
+    // 包体积（字节，递归统计 + 进程内缓存，见下面「插件体积」段）
+    size: pluginSize(m.id),
     onDesktop: m.onDesktop,
     inStartMenu: m.inStartMenu,
     // 文件关联（v1.1）：前端据此把插件放进「打开方式」，并按 defaultFor 决定双击默认程序。
@@ -318,6 +320,56 @@ function findPlugin(id) {
 
 const pluginDir = (id) => path.join(config.pluginsDir, id);
 const storageFile = (id) => path.join(config.pluginDataDir, `${id}.json`);
+
+// ================= 插件体积（列表里的 size） =================
+// size = 插件目录下**所有文件的字节数之和**（递归，不跟软链）：前端「设置 → 插件」直接展示，
+// 不用再去命令行 du。
+// 两个上限防止一个畸形目录把 GET /api/plugins 拖死：条目数 2000 / 总字节 64MB；
+// 触顶就停止累加，返回已经统计到的值（仍是个有意义的「至少这么大」）。
+const SIZE_MAX_ENTRIES = 2000;
+const SIZE_MAX_BYTES = 64 * 1024 * 1024;
+
+// 进程内缓存：key = 顶层目录的 mtimeMs + 顶层条目数。
+// 装 / 卸 / 覆盖都会让这两个值变化；那三条链路做完还会显式失效一次（invalidatePluginSize）。
+// 命中缓存时只做一次 readdir + 一次 stat，不再逐层 walk —— 连续调 GET /api/plugins 不反复扫盘。
+const sizeCache = new Map(); // id -> { key, size }
+
+function dirSizeKey(dir) {
+  try {
+    return `${fs.statSync(dir).mtimeMs}:${fs.readdirSync(dir).length}`;
+  } catch { return null; }
+}
+
+function walkSize(dir, acc) {
+  let entries;
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+  for (const d of entries) {
+    if (acc.count >= SIZE_MAX_ENTRIES || acc.bytes >= SIZE_MAX_BYTES) return;
+    acc.count += 1;
+    const full = path.join(dir, d.name);
+    if (d.isDirectory()) { walkSize(full, acc); continue; }
+    // 软链 / 设备文件不跟也不统计：插件包本来就只能是普通文件
+    if (!d.isFile()) continue;
+    try { acc.bytes += fs.statSync(full).size; } catch { /* 统计途中被删：略过 */ }
+  }
+}
+
+/** 某个插件的包体积（字节）。命中缓存时不扫盘。 */
+export function pluginSize(id) {
+  const key = dirSizeKey(pluginDir(String(id)));
+  if (!key) return 0;
+  const cached = sizeCache.get(String(id));
+  if (cached && cached.key === key) return cached.size;
+  const acc = { count: 0, bytes: 0 };
+  walkSize(pluginDir(String(id)), acc);
+  sizeCache.set(String(id), { key, size: acc.bytes });
+  return acc.bytes;
+}
+
+/** 安装 / 覆盖 / 卸载之后让缓存失效（磁盘已经变了，下次调用重新统计） */
+export function invalidatePluginSize(id) {
+  sizeCache.delete(String(id));
+}
 
 // ================= zip 解包（安装用） =================
 
@@ -540,12 +592,22 @@ pluginsRouter.post('/plugins/install', rawZip, async (req, res, next) => {
     const exists = fs.existsSync(target);
     const overwrite = /^(1|true|yes)$/i.test(String(req.query.overwrite || ''));
     if (exists && !overwrite) {
-      throw err(409, `插件 ${manifest.id} 已存在；如需覆盖请加 ?overwrite=1`, 'plugin_exists');
+      // 409 结构化：前端据此弹「已存在 vX，是否覆盖」，**不需要再解析文案**。
+      // 外层形状保持 `{ error: 中文说明字符串, code }` 不变（旧客户端读 error 仍然可用），
+      // 机器可读的 id / version 放在同级字段上。
+      let installed = null;
+      try { installed = readInstalledManifest(target, manifest.id); } catch { /* 旧目录 manifest 坏了：只回 id */ }
+      const version = installed?.version || null;
+      const message = version
+        ? `插件「${installed.name || manifest.id}」v${version} 已存在；如需覆盖请加 ?overwrite=1`
+        : `插件 ${manifest.id} 已存在；如需覆盖请加 ?overwrite=1`;
+      return res.status(409).json({ error: message, code: 'PLUGIN_EXISTS', id: manifest.id, version });
     }
     if (exists) await fsp.rm(target, { recursive: true, force: true });
 
     // 同一个分区内的 rename 是原子的：要么旧版本完整、要么新版本完整，不会出现半个插件目录
     await fsp.rename(root, target);
+    invalidatePluginSize(manifest.id);
     res.json(publicPlugin(manifest));
   } catch (e) {
     next(e);
@@ -563,6 +625,7 @@ pluginsRouter.delete('/plugins/:id', async (req, res, next) => {
     if (!ID_RE.test(id)) return next(err(400, '插件 id 非法'));
     await fsp.rm(pluginDir(id), { recursive: true, force: true });
     await fsp.rm(storageFile(id), { force: true });
+    invalidatePluginSize(id);
     res.json({ ok: true });
   } catch (e) { next(e); }
 });

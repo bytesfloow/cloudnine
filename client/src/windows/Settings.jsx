@@ -127,14 +127,22 @@ function PluginsPanel() {
     } catch (e) {
       setBusy(null);
       if (e?.status === 409 && !overwrite) {
-        // 409 的文案形如「插件 <id> 已存在；如需覆盖请加 ?overwrite=1」——把 id 拿出来查旧版本
-        const id = (String(e.message || '').match(/插件\s+([a-z0-9][a-z0-9._-]*)\s+已存在/i) || [])[1] || '';
-        const old = s.plugins.find((p) => p.id === id) || null;
+        // 409 返回体里带机器可读的 id / version（服务端读的是**已安装的那一份** manifest），
+        // 不在前端解析文案、也不拿 store 里的版本充数 —— 两边不一致时以服务端为准。
+        // 字段缺失时退回通用文案，不允许报错。
+        const info = e?.body && typeof e.body === 'object' ? e.body : {};
+        const existedId = typeof info.id === 'string' ? info.id : '';
+        const existedVer = typeof info.version === 'string' && info.version ? info.version : '';
+        const known = existedId ? s.plugins.find((p) => p.id === existedId) : null;
+        const label = known?.name || existedId;
+        let message;
+        if (label && existedVer) message = `已存在「${label}」v${existedVer}，是否用「${file.name}」覆盖安装？`;
+        else if (label) message = `已存在「${label}」，是否用「${file.name}」覆盖安装？`;
+        else if (existedVer) message = `已存在 v${existedVer} 的同名插件，是否用「${file.name}」覆盖安装？`;
+        else message = `已存在同名插件，是否用「${file.name}」覆盖安装？`;
         const ok = await confirmDialog({
           title: '插件已存在',
-          message: old
-            ? `已存在「${old.name}」v${old.version}，是否用「${file.name}」覆盖安装？`
-            : `已存在同名插件${id ? `「${id}」` : ''}，是否覆盖安装？`,
+          message,
           okText: '覆盖安装',
           cancelText: '取消',
           danger: true,

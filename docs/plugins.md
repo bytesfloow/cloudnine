@@ -151,6 +151,15 @@ CloudNine 的插件是一份**纯静态前端包**：`plugin.json` + 一个入�
 
 除 `GET /pa/...` 与 `GET /plugin-sdk/...` 外，全部要求登录（会话 cookie），未登录返回 **401**。
 错误统一返回 `{ "error": "中文说明", "code": "可选机器码" }`。
+**唯一的例外是安装时的 409**：外层形状不变（`error` 仍是字符串），但同级多带 `id` / `version`，
+让客户端不必去解析文案：
+
+```json
+{ "error": "插件「你好 CloudNine」v1.0.0 已存在；如需覆盖请加 ?overwrite=1",
+  "code": "PLUGIN_EXISTS", "id": "hello", "version": "1.0.0" }
+```
+
+（`version` 是**磁盘上已装那一份** manifest 的版本；旧目录 manifest 坏了时该字段为 `null`，`id` 仍然有。）
 
 | 方法 | 路径 | 说明 | 主要错误 |
 | --- | --- | --- | --- |
@@ -158,7 +167,7 @@ CloudNine 的插件是一份**纯静态前端包**：`plugin.json` + 一个入�
 | GET | `/api/plugins/:id` | 单个插件对象（字段同列表项） | 404 `plugin_not_found`；400（该目录 manifest 非法，原因见 error） |
 | GET | `/api/plugins/:id/storage` | `{data}`，无数据时 `data: null` | 404 / 403 `permission_denied` |
 | PUT | `/api/plugins/:id/storage` | body `{data}`，返回 `{ok:true,size}`；tmp+fsync+rename 原子写 | 404 / 403 / **413** `payload_too_large` / 400 `invalid_data` |
-| POST | `/api/plugins/install?overwrite=1` | body 为 zip **原始字节**（`Content-Type: application/zip`，≤ 8MB），返回新插件对象 | 400（zip 非法 / manifest 非法 / 缺 entry）/ **409** `plugin_exists` / 413（body 超 8MB） |
+| POST | `/api/plugins/install?overwrite=1` | body 为 zip **原始字节**（`Content-Type: application/zip`，≤ 8MB），返回新插件对象 | 400（zip 非法 / manifest 非法 / 缺 entry）/ **409** `PLUGIN_EXISTS`（带 `id`/`version`，见上）/ 413（body 超 8MB） |
 | DELETE | `/api/plugins/:id` | 删插件目录 + `<PLUGIN_DATA_DIR>/<id>.json`，返回 `{ok:true}`（幂等） | 400（id 非法） |
 
 插件对象（列表项 / 详情 / 安装返回值同构）：
@@ -174,6 +183,7 @@ CloudNine 的插件是一份**纯静态前端包**：`plugin.json` + 一个入�
   "window": { "width": 720, "height": 540, "minWidth": 420, "minHeight": 320, "multi": true },
   "entryUrl": "/pa/3f2a…/hello/index.html",
   "iconUrl": "/pa/3f2a…/hello/icon.svg",
+  "size": 2048,
   "onDesktop": true,
   "inStartMenu": true,
   "fileTypes": [".json", ".jsonc"],
@@ -183,6 +193,10 @@ CloudNine 的插件是一份**纯静态前端包**：`plugin.json` + 一个入�
 
 `fileTypes` / `defaultFor` 总是数组（旧插件也会被补成 `[]`，前端不用判 `undefined`）。
 `entryUrl` / `iconUrl` **由服务端拼好**，前端不要自己拼 `/pa` 的 token。
+`size` 是插件目录下**所有文件的字节数之和**（递归、不跟软链；设置里直接展示）：
+统计有条目数 2000 / 总字节 64MB 两个上限，触顶就停并返回已统计值（所以它可能是「至少这么大」）。
+结果缓存在进程内（键 = 目录 mtime + 顶层条目数），安装 / 覆盖 / 卸载后失效，
+连续调 `GET /api/plugins` 不会反复扫盘。
 
 v1 **没有** enable / disable：装了就在，卸载就删。
 
@@ -378,17 +392,17 @@ node scripts/plugin-dev-install.mjs todo --dir /tmp/cn-plugins   # 指到别的�
 
 | 区域 | 做什么 |
 | --- | --- |
-| 列表 | 每个插件一行：图标（服务端 `iconUrl` 的 `<img>`）、名称、版本、作者、插件 id、权限中文标签、能不能打开文件类型（`fileTypes`）。行尾「打开」= 直接启动插件窗口，「卸载」= 二次确认 |
+| 列表 | 每个插件一行：图标（服务端 `iconUrl` 的 `<img>`）、名称、版本、作者、插件 id、**体积**（`size`）、权限中文标签、能不能打开文件类型（`fileTypes`）。行尾「打开」= 直接启动插件窗口，「卸载」= 二次确认 |
 | 安装 | 把 zip 拖到虚线区，或点它（也有右上角「安装插件…」）选文件。上传中显示文件名 + 百分比进度；成功 / 失败都给可读文案 |
-| 覆盖 | 目标 id 已存在时服务端回 **409**，界面弹出「已存在「名字」vX，是否用 `xxx.zip` 覆盖安装？」——选取消则什么都不变，选覆盖才带 `?overwrite=1` 重试 |
+| 覆盖 | 目标 id 已存在时服务端回 **409**（带 `id` / `version`），界面弹出「已存在「名字」vX，是否用 `xxx.zip` 覆盖安装？」——版本号取的是**服务端返回的字段**，不解析文案；选取消则什么都不变，选覆盖才带 `?overwrite=1` 重试 |
 | 卸载 | 二次确认里明确写「会同时删除该插件的本地数据」。确认后前端同时收尾：列表移除、桌面图标/开始菜单项消失、它已经打开的窗口被关掉（不回 404 白板） |
 | 异常 | 一个都没装 = 空态；目录里 manifest 坏掉的插件单独列出并带原因（列表接口的 `invalid`）；zip 超过 **8MB** 在浏览器侧先拦下（不上传、不白等 413）；网络失败 / 401 给出该重试的提示 |
 
 后端接口没变（就是 §4 那三个）：`GET /api/plugins`、`POST /api/plugins/install`、`DELETE /api/plugins/:id`。
 **装 / 卸之后不需要刷新页面**：列表在 store 里，桌面图标与开始菜单跟着重渲染（§8 第 6 条）。
 
-> 已知缺口：列表接口目前**不返回插件包体积**（目录大小），所以界面上不显示体积；
-> 需要的话得在服务端 `publicPlugin()` 里加一个 `size` 字段（前端已按「有则显示」处理）。
+> 体积（`size`）由服务端递归统计并缓存在进程内（见 §4 插件对象），列表里直接显示；
+> 扫盘太慢时不会再拖累 `GET /api/plugins`。
 
 ### 6.6 文件关联与「未保存保护」
 

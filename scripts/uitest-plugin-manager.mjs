@@ -5,7 +5,8 @@
  * 覆盖：
  *   设置窗口入口（开始菜单底部「设置」）→ 插件分区 → 列出已装插件（名称 / 版本 / 权限中文标签 /
  *   文件关联 / manifest 非法的目录）→ 上传 zip 安装（进行中状态 + 进度条 + 成功提示）→
- *   **不刷新页面**列表即时新增、桌面图标即时出现 → 重复上传 409 → 「已存在 vX，是否覆盖？」→
+ *   **不刷新页面**列表即时新增、桌面图标即时出现 → 重复上传 409 → 「已存在 vX，是否覆盖？」
+ *   （版本号取 409 响应体的 version 字段，不是 store / 不是正则）→ 列表显示体积（服务端 size）→
  *   取消则什么都不变 / 确认则版本更新 → 卸载二次确认（取消仍在 / 确认后消失，界面提示会删本地数据）→
  *   桌面图标同步消失、插件私有数据文件被删、该插件的窗口自动关掉 →
  *   错误态（网络失败 / zip 超 8MB / manifest 非法）→ 600px 宽不横溢 → 暗色主题 → 空态。
@@ -478,6 +479,8 @@ async function main() {
     /不关联文件类型/.test(hello?.ftypes || ''), hello?.ftypes);
   const iconSrc = await page.evaluate(() => document.querySelector('.plug-row[data-plugin="hello"] .plug-icon-img')?.getAttribute('src') || '');
   check('图标用服务端 iconUrl（<img>，不是内联 SVG）', /^\/pa\/[0-9a-f]{32}\/hello\/icon\.svg$/.test(iconSrc), iconSrc);
+  const sizeText = await page.evaluate(() => document.querySelector('.plug-row[data-plugin="hello"] .plug-size')?.innerText.trim() || '');
+  check('列表项显示插件包体积（服务端 size 字段）', /\d+(\.\d+)?\s*(B|KB|MB|GB)/.test(sizeText), sizeText);
 
   const invalidRow = await page.evaluate(() => {
     const el = document.querySelector('.plug-invalid-row');
@@ -518,6 +521,8 @@ async function main() {
       notes1?.permLabels.includes('本地存储') && notes1?.permLabels.includes('发送通知'),
       JSON.stringify(notes1?.permLabels));
     check('新插件显示文件关联（可打开 .note）', /\.note/.test(notes1?.ftypes || ''), notes1?.ftypes);
+    const notesSize = await page.evaluate(() => document.querySelector('.plug-row[data-plugin="notes"] .plug-size')?.innerText.trim() || '');
+    check('新插件也显示体积（安装响应里的 size）', /\d+(\.\d+)?\s*(B|KB|MB|GB)/.test(notesSize), notesSize);
     const afterDesktop = await desktopIcon('notes');
     check('安装后桌面图标**立即**出现（无需刷新页面）', !!afterDesktop, JSON.stringify(afterDesktop));
     check('桌面图标用的是插件自己的 iconUrl', /\/pa\/[0-9a-f]{32}\/notes\/icon\.svg$/.test(afterDesktop?.icon || ''), afterDesktop?.icon);
@@ -549,7 +554,25 @@ async function main() {
     const allIds = rows.map((r) => r.id);
     check('取消后没有多出重复条目', allIds.length === new Set(allIds).size, allIds.join(','));
 
-    // 再来一次，这次确认覆盖成 2.0.0
+    // 再来一次，这次确认覆盖成 2.0.0。
+    // 先验证覆盖确认里的版本号确实来自**服务端响应字段**：把磁盘上的 manifest 改成 9.9.9
+    // （前端 store 还停在 v1.0.0），409 里的 version 应该是 9.9.9 —— 靠正则猜或读 store 都拿不到它。
+    {
+      const manifestPath = join(pluginsDir, 'notes', 'plugin.json');
+      const original = readFileSync(manifestPath, 'utf8');
+      writeFileSync(manifestPath, JSON.stringify({ ...JSON.parse(original), version: '9.9.9' }, null, 2));
+      await upload(join(pkgDir, 'notes-1.0.0.zip'));
+      await page.waitForSelector('.dialog', { timeout: 15000 }).catch(() => {});
+      await sleep(320);
+      const dlgSrv = await dialogText();
+      check('覆盖确认里的版本号来自 409 响应字段（不是 store / 不是文案正则）',
+        /v9\.9\.9/.test(dlgSrv?.message || ''), dlgSrv?.message);
+      await clickDialog('取消');
+      await waitNoDialog();
+      writeFileSync(manifestPath, original); // 还原成真实的 1.0.0，后续步骤继续用
+      await sleep(150);
+    }
+
     await upload(join(pkgDir, 'notes-2.0.0.zip'));
     await page.waitForSelector('.dialog', { timeout: 15000 });
     const dlg2 = await dialogText();

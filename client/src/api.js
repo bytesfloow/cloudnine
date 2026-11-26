@@ -17,6 +17,8 @@ async function request(url, opts = {}) {
     const e = new Error(data?.error || `请求失败（${res.status}）`);
     e.status = res.status;
     e.code = data?.code;
+    // 结构化错误详情原样带上（409 覆盖确认要读 id / version，不靠解析文案）
+    e.body = data;
     if (res.status === 401) e.auth = true;
     throw e;
   }
@@ -75,7 +77,7 @@ export const api = {
   pluginStorage: (id) => request(`/api/plugins/${encodeURIComponent(id)}/storage`),
   pluginStorageSet: (id, data) => request(`/api/plugins/${encodeURIComponent(id)}/storage`, { method: 'PUT', body: { data } }),
   // 安装：请求体是 zip 的**原始字节**（服务端上限 8MB），成功后返回新的插件对象；
-  // 已存在同一个 id 且没带 overwrite → 409（code=plugin_exists）。
+  // 已存在同一个 id 且没带 overwrite → 409（code=PLUGIN_EXISTS，带 id / version）。
   // 这里用 XHR 而不是 fetch：只有 XHR 能拿到上传进度，8MB 的包干等没有任何反馈。
   pluginInstall(file, { overwrite = false, onProgress } = {}) {
     return new Promise((resolve, reject) => {
@@ -92,6 +94,8 @@ export const api = {
         const e = new Error(data?.error || `请求失败（${xhr.status}）`);
         e.status = xhr.status;
         e.code = data?.code;
+        // 409 的结构化字段（id / version）从这里取，不解析文案
+        e.body = data;
         if (xhr.status === 401) e.auth = true;
         reject(e);
       };
