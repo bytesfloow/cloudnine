@@ -17,7 +17,9 @@ CloudNine 是单进程 Node.js 服务：Express 提供 API 与静态资源，ws 
 | `PORT` | 8480 | 监听端口 |
 | `HOST` | 0.0.0.0 | 建议只监听本地 + 反向代理 |
 | `FILE_ROOT` | Linux `/` | **可浏览的文件根目录，生产环境务必指向数据盘** |
-| `DATA_DIR` | `server/data` | 账号、会话、分享、回收站、上传临时文件 |
+| `DATA_DIR` | `server/data` | 账号、会话、分享、回收站、上传临时文件、插件 |
+| `PLUGINS_DIR` | `<DATA_DIR>/plugins` | 插件安装目录（每个插件一个子目录），详见 [plugins.md](plugins.md) |
+| `PLUGIN_DATA_DIR` | `<DATA_DIR>/plugin-data` | 插件私有数据（`storage` 权限，每插件一份 JSON，上限 1MB） |
 | `SESSION_DAYS` | 7 | 会话有效期（「记住我」30 天） |
 | `TRUST_PROXY` | `false` | 是否信任代理头（`X-Forwarded-For` / `X-Forwarded-Proto`）。只有确实在 nginx 等反向代理后面才设为 `1`，且反代必须**覆盖写**该头（见 `scripts/nginx/cloudnine.conf`）；直连部署保持 `false`，否则客户端伪造该头就能冒充来源 IP、绕过登录限流 |
 

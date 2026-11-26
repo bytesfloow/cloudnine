@@ -30,6 +30,8 @@ const bool = (v, d) => {
   return /^(1|true|yes|on)$/i.test(String(v).trim());
 };
 const isWin = process.platform === 'win32';
+// 数据目录先算出来：插件目录/插件数据目录的默认值都挂在它下面
+const dataDir = path.resolve(env('DATA_DIR') ?? fileConfig.dataDir ?? path.join(process.cwd(), 'data'));
 
 export const config = {
   version: String(pkg.version || '0.0.0'),
@@ -37,7 +39,7 @@ export const config = {
   host: env('HOST') ?? fileConfig.host ?? '0.0.0.0',
   // 文件系统浏览根目录：Linux 默认 /，Windows 开发环境默认用户主目录
   fileRoot: path.resolve(env('FILE_ROOT') ?? fileConfig.fileRoot ?? (isWin ? os.homedir() : '/')),
-  dataDir: path.resolve(env('DATA_DIR') ?? fileConfig.dataDir ?? path.join(process.cwd(), 'data')),
+  dataDir,
   siteName: String(env('SITE_NAME') ?? fileConfig.siteName ?? 'CloudNine').slice(0, 50),
   sessionDays: num(env('SESSION_DAYS') ?? fileConfig.sessionDays, 7),
   rememberDays: num(env('REMEMBER_DAYS') ?? fileConfig.rememberDays, 30),
@@ -52,6 +54,11 @@ export const config = {
   defaultShell: env('SHELL') ?? fileConfig.shell ?? (isWin ? process.env.ComSpec || 'cmd.exe' : 'bash'),
   // 终端默认工作目录：留空表示按 defaultCwd() 自动推导（见下）
   terminalCwd: String(env('TERMINAL_CWD') ?? fileConfig.terminalCwd ?? ''),
+  // 插件安装目录（每个插件一个子目录：<pluginsDir>/<pluginId>/）与插件私有数据目录。
+  // 两者都默认落在 DATA_DIR 下：备份/迁移时只要搬 DATA_DIR 就带走了插件本身和它的数据，
+  // 不会出现「换了机器插件配置全丢」的情况。
+  pluginsDir: path.resolve(env('PLUGINS_DIR') ?? fileConfig.pluginsDir ?? path.join(dataDir, 'plugins')),
+  pluginDataDir: path.resolve(env('PLUGIN_DATA_DIR') ?? fileConfig.pluginDataDir ?? path.join(dataDir, 'plugin-data')),
 };
 
 /**
@@ -79,10 +86,14 @@ export function defaultCwd() {
 export const dirs = {
   trash: path.join(config.dataDir, 'trash'),
   uploads: path.join(config.dataDir, 'uploads'),
+  plugins: config.pluginsDir,
+  pluginData: config.pluginDataDir,
 };
 
 export function ensureDirs() {
-  for (const d of [config.dataDir, dirs.trash, dirs.uploads]) fs.mkdirSync(d, { recursive: true });
+  for (const d of [config.dataDir, dirs.trash, dirs.uploads, dirs.plugins, dirs.pluginData]) {
+    fs.mkdirSync(d, { recursive: true });
+  }
 }
 
 // 相对路径（客户端与服务端之间统一使用 / 分隔的相对路径）→ 绝对路径

@@ -7,6 +7,16 @@ testroot/
 .workbuddy/
 data/
 
+# 插件运行时文件：装好的插件包、插件私有数据、/pa 资源 URL 的签名密钥
+#（默认都在 DATA_DIR 下面，上面两行已经覆盖，这里显式写一遍防止有人把
+# PLUGINS_DIR / PLUGIN_DATA_DIR 配到仓库内其它位置后又误提交）
+server/data/plugins/
+server/data/plugin-data/
+server/data/asset-secret
+/data/plugins/
+/data/plugin-data/
+/data/asset-secret
+
 # UI 自测截图与报告（scripts/uitest.mjs 产出）
 shots/
 

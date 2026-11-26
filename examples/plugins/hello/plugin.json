@@ -1,0 +1,13 @@
+{
+  "id": "hello",
+  "name": "你好 CloudNine",
+  "version": "1.0.0",
+  "description": "示例插件：主题色块 + 点击计数（用 storage 权限持久化）",
+  "author": "CloudNine",
+  "icon": "icon.svg",
+  "entry": "index.html",
+  "window": { "width": 720, "height": 540, "minWidth": 420, "minHeight": 320, "multi": true },
+  "permissions": ["storage"],
+  "onDesktop": true,
+  "inStartMenu": true
+}

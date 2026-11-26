@@ -9,6 +9,7 @@ import { mediaRouter, cleanOrphanTmp } from './media.js';
 import { shareAdminRouter, sharePublicRouter } from './share.js';
 import { systemRouter } from './system.js';
 import { setupTerminal } from './terminal.js';
+import { pluginsRouter, pluginAssetRouter } from './plugins.js';
 import { serveStatic } from './static.js';
 import { saveDB } from './db.js';
 
@@ -76,6 +77,9 @@ app.use('/api', fsRouter);
 app.use('/api', transferRouter);
 app.use('/api', mediaRouter);
 app.use('/api', systemRouter);
+// 插件：/api/plugins* 要登录；/pa、/plugin-sdk 是公开的（理由见 plugins.js）
+app.use('/api', pluginsRouter);
+app.use(pluginAssetRouter);
 
 app.use('/api', (req, res) => res.status(404).json({ error: '接口不存在' }));
 
@@ -100,6 +104,7 @@ server.listen(config.port, config.host, async () => {
   console.log(`[${config.siteName}] 已启动: http://${config.host === '0.0.0.0' ? 'localhost' : config.host}:${config.port}`);
   console.log(`  文件根目录: ${config.fileRoot}`);
   console.log(`  数据目录:   ${config.dataDir}（废纸篓保留 ${config.trashRetentionDays} 天，启动时清理 ${n} 项）`);
+  console.log(`  插件目录:   ${config.pluginsDir}（私有数据 ${config.pluginDataDir}）`);
   // 运维据此确认「来源 IP」是否可信：直连部署不该把 X-Forwarded-For 当真
   console.log(`  来源 IP:     ${config.trustProxy
     ? '信任反向代理头（TRUST_PROXY 已开启，取 X-Forwarded-For 最近一跳）'

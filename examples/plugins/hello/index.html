@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>你好 CloudNine</title>
+<style>
+  /* 主题变量由宿主通过 cn:init 注入到 documentElement.style，
+     这里的 :root 只是「没装进桌面、单独打开」时的兜底值。 */
+  :root {
+    --bg: #f3f3f3;
+    --text: #1b1b1b;
+    --text-2: #5a5a5a;
+    --panel-bg: #fafafa;
+    --accent: #0a7cff;
+    --accent-hi: #4aa8ff;
+    --accent-soft: rgba(10, 124, 255, 0.12);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font: 14px/1.5 "Segoe UI", system-ui, -apple-system, "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    padding: 20px;
+    gap: 16px;
+    overflow: auto;
+  }
+  header { display: flex; align-items: center; gap: 12px; }
+  header img { width: 40px; height: 40px; }
+  h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  .meta { color: var(--text-2); font-size: 12px; }
+  .card {
+    background: var(--panel-bg);
+    border-radius: 10px;
+    padding: 16px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  }
+  .card h2 { font-size: 13px; margin: 0 0 10px; color: var(--text-2); font-weight: 600; }
+  .swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+  .swatch {
+    width: 104px;
+    height: 56px;
+    border-radius: 8px;
+    border: 1px solid rgba(128, 128, 128, 0.25);
+    display: flex;
+    align-items: flex-end;
+    padding: 4px 6px;
+    font-size: 11px;
+    color: var(--text-2);
+  }
+  .counter { display: flex; align-items: center; gap: 14px; }
+  .count {
+    font-size: 40px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    min-width: 88px;
+    text-align: center;
+    color: var(--accent);
+  }
+  button {
+    font: inherit;
+    padding: 8px 16px;
+    border-radius: 6px;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: #fff;
+    cursor: pointer;
+  }
+  button:hover { background: var(--accent-hi); border-color: var(--accent-hi); }
+  button.secondary { background: transparent; color: var(--text); border-color: rgba(128, 128, 128, 0.4); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #status { color: var(--text-2); font-size: 12px; min-height: 18px; }
+  #status.error { color: #c42b1c; }
+</style>
+</head>
+<body>
+  <header>
+    <img src="icon.svg" alt="" />
+    <div>
+      <!-- 名称/版本与 plugin.json 保持一致：插件运行在沙箱 iframe 里，
+           既拿不到 manifest，也不能跨源 fetch 自己的文件（opaque origin 下会被 CORS 挡） -->
+      <h1 id="title">你好 CloudNine</h1>
+      <div class="meta">版本 <span id="version">1.0.0</span> · 插件 id <code id="pid">—</code></div>
+    </div>
+  </header>
+
+  <section class="card">
+    <h2>主题色块（来自宿主的 cn:init）</h2>
+    <div class="swatches" id="swatches"></div>
+  </section>
+
+  <section class="card">
+    <h2>点击计数（storage 权限，重启后仍在）</h2>
+    <div class="counter">
+      <div class="count" id="count">0</div>
+      <button id="hit">点我一下</button>
+      <button id="reset" class="secondary">清零</button>
+    </div>
+    <div id="status">正在等待宿主初始化…</div>
+  </section>
+
+<script src="/plugin-sdk/v1/cloudnine.js"></script>
+<script>
+(function () {
+  'use strict';
+  var cn = window.cloudnine;
+  var THEME_KEYS = ['--accent', '--accent-hi', '--accent-soft', '--panel-bg', '--text', '--text-2'];
+  var count = 0;
+  var saved = false;   // 只在拿到宿主数据后才允许写，避免把「读失败」当成 0 覆盖真实计数
+  var busy = false;
+
+  var el = {
+    count: document.getElementById('count'),
+    hit: document.getElementById('hit'),
+    reset: document.getElementById('reset'),
+    status: document.getElementById('status'),
+    pid: document.getElementById('pid'),
+    swatches: document.getElementById('swatches')
+  };
+
+  function setStatus(text, isError) {
+    el.status.textContent = text;
+    el.status.className = isError ? 'error' : '';
+  }
+
+  function renderCount() {
+    el.count.textContent = String(count);
+  }
+
+  function paintSwatches() {
+    var cs = getComputedStyle(document.documentElement);
+    el.swatches.textContent = '';
+    THEME_KEYS.forEach(function (key) {
+      var box = document.createElement('div');
+      box.className = 'swatch';
+      var value = (cs.getPropertyValue(key) || '').trim();
+      box.style.background = value || 'transparent';
+      box.textContent = key;
+      el.swatches.appendChild(box);
+    });
+  }
+
+  function save() {
+    if (!cn || !saved) return Promise.resolve();
+    return cn.storage.set({ count: count }).catch(function (e) {
+      setStatus('保存失败：' + e.message, true);
+    });
+  }
+
+  el.hit.addEventListener('click', function () {
+    if (busy) return;
+    busy = true;
+    count += 1;
+    renderCount();
+    save().then(function () { busy = false; });
+  });
+
+  el.reset.addEventListener('click', function () {
+    if (busy) return;
+    busy = true;
+    count = 0;
+    renderCount();
+    save().then(function () { busy = false; });
+  });
+
+  renderCount();
+  paintSwatches();
+
+  if (!cn) {
+    setStatus('没有加载到插件 SDK（/plugin-sdk/v1/cloudnine.js），只能离线观看界面。', true);
+    return;
+  }
+
+  cn.ready().then(function (info) {
+    el.pid.textContent = info.pluginId || '—';
+    paintSwatches();
+    setStatus('已连接宿主，正在读取计数…');
+    return cn.storage.get();
+  }).then(function (data) {
+    var n = data && typeof data.count === 'number' && isFinite(data.count) ? data.count : 0;
+    count = n;
+    saved = true;
+    renderCount();
+    setStatus('已就绪：计数保存在插件私有存储里（1MB 上限）。');
+  }).catch(function (e) {
+    setStatus('初始化失败：' + (e.code || '') + ' ' + e.message, true);
+  });
+
+  cn.on('resize', paintSwatches);
+})();
+</script>
+</body>
+</html>

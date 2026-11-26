@@ -11,5 +11,7 @@
   "maxExtractMB": 8192,
   "auditCommands": false,
   "trustProxy": false,
-  "terminalCwd": ""
+  "terminalCwd": "",
+  "pluginsDir": "./data/plugins",
+  "pluginDataDir": "./data/plugin-data"
 }
