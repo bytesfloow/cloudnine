@@ -346,20 +346,16 @@ export default function FinderCommandBar({
             icon={<IconRename size={18} />} onClick={() => act('rename')} />
         ),
       },
-      // UI-10：「下载」只在多选时可用，但它占的格子**始终在**——单选/无选中时留一个
-      // 与真按钮逐像素同宽的隐身槽（.cmd-slot，visibility:hidden），多选一成立就原地换成真按钮。
-      // 位置预留而不是「固定顺位」的理由见 finder.css 的 .cmd-slot 注释：既有的
-      // 「下载只在多选时出现」契约不动（按钮 / ⋯ 菜单 / 工具提示三处语义一致），也不让人横移。
+      // UI-10：「下载」常显，选中 < 2 项时禁用 —— 与同一栏里「重命名」（常显 / selCount!==1 禁用）
+      // 是同一套模式：选中数变化只改 disabled，不改 DOM 结构，所以后面「删除 / 排序 / 查看」的
+      // x 坐标在 0 / 1 / 2 选中下完全不变（曾经只在多选时插入，2 项时整排横移 83px，
+      // 鼠标正悬在「删除」上会突然变成「下载」）。
       {
         key: '下载',
-        node: selCount > 1 ? (
-          <Btn cmd="下载" label="下载" drop="下载" title="下载（打包）" lift
+        node: (
+          <Btn cmd="下载" label="下载" drop="下载" title="下载（打包，需选 2 项以上）" lift
+            disabled={selCount < 2}
             icon={<IconDownload size={18} sw={2} />} onClick={() => act('download')} />
-        ) : (
-          <span className="cmd-slot" aria-hidden="true">
-            <span className="cmd-ico"><IconDownload size={18} sw={2} /></span>
-            <span className="cmd-label">下载</span>
-          </span>
         ),
       },
       {

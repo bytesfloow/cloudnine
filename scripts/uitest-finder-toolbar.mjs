@@ -9,7 +9,7 @@
  *   ①d 涟漪：pointerdown 有 .cmd-ripple 节点、500ms 内移除；prefers-reduced-motion 下无涟漪无位移
  *   ①e 材质分层：静默 elev-1（细边框 + 双层投影）+ --fx-btn-bg 底，悬停 elev-2 + 8% 状态层
  *   ② Tab 走一遍工具栏：命中的控件都匹配 :focus-visible 且有 2px outline
- *   ③ 无选中时 剪切/复制/删除 disabled；选中 2 项后可启用并注入「下载」
+ *   ③ 无选中时 剪切/复制/删除/下载 disabled；选中 2 项后可启用（「下载」常显，<2 项禁用）
  *   ④ 后退按钮：初始 disabled，进一级目录后可用
  *   ⑤ 长路径（>8 级）折叠成「首段 … 末两段」，点「…」弹出被折叠的段，点其中一段能跳过去
  *   ⑥ 560px 窗口：无横向溢出、主操作仍有标签、搜索展开时把动作收进「更多」且菜单里一个不少
@@ -676,7 +676,12 @@ async function main() {
     noSel.cut === true && noSel.copy === true && noSel.del === true, JSON.stringify(noSel));
   check('无选中：重命名 disabled、剪贴板为空时粘贴 disabled',
     noSel.rename === true && noSel.paste === true, JSON.stringify(noSel));
-  check('无选中时不出现多选注入的「下载」', !(await page.$('.finder-cmdbar .cmd-btn[data-cmd="下载"]')));
+  const dl0 = await page.evaluate(() => {
+    const b = document.querySelector('.finder-cmdbar .cmd-btn[data-cmd="下载"]');
+    return b ? { exists: true, disabled: !!b.disabled, w: Math.round(b.getBoundingClientRect().width) } : { exists: false };
+  });
+  check('无选中时「下载」常显但禁用（与「重命名」同一套模式：常显 + 不满足条件禁用）',
+    dl0.exists === true && dl0.disabled === true, JSON.stringify(dl0));
   const disabledStyle = await page.evaluate(() => {
     const b = document.querySelector('.finder-cmdbar .cmd-btn[data-cmd="剪切"]');
     const cs = getComputedStyle(b);
@@ -751,7 +756,7 @@ async function main() {
   await sleep(900);
 
   // ---------- 多选态 ----------
-  section('选中 2 项：动作启用 + 注入「下载」');
+  section('选中 2 项：动作启用 + 「下载」解禁');
   await page.evaluate(() => {
     const [a, b] = ['a.txt', 'b.txt'].map((n) => document.querySelector(`.finder-item[data-name="${n}"]`));
     a?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -763,11 +768,14 @@ async function main() {
   const sel2 = {
     cut: await cmdDisabled('剪切'), copy: await cmdDisabled('复制'), del: await cmdDisabled('删除'),
     rename: await cmdDisabled('重命名'),
-    download: await page.$('.finder-cmdbar .cmd-btn[data-cmd="下载"]').then((h) => !!h),
+    download: await page.evaluate(() => {
+      const b = document.querySelector('.finder-cmdbar .cmd-btn[data-cmd="下载"]');
+      return b ? !b.disabled : null;
+    }),
   };
   check('选中 2 项后 剪切 / 复制 / 删除 均可用',
     sel2.cut === false && sel2.copy === false && sel2.del === false, JSON.stringify(sel2));
-  check('选中 2 项后注入「下载」按钮（多选操作），重命名仍限制单选',
+  check('选中 2 项后「下载」解禁（多选操作），重命名仍限制单选',
     sel2.download === true && sel2.rename === true, JSON.stringify(sel2));
   const delColor = await page.$eval('.finder-cmdbar .cmd-btn[data-cmd="删除"]', (el) => getComputedStyle(el).color);
   check('删除在有选中（可用）时用危险色 --danger-text', delColor === tokens.danger,
@@ -1041,7 +1049,7 @@ async function main() {
 
   // ---------- ⑨ UI 审查第一轮（docs/design/finder-ui-audit.md） ----------
   // 只覆盖本轮修的 5 条：UI-01 长标题压按钮 / UI-02 列表长文件名折行 / UI-03 粘贴分裂按钮接缝 /
-  // UI-06 暗色禁用态与可用态同色 / UI-10 多选插入「下载」导致整排横移。
+  // UI-06 暗色禁用态与可用态同色 / UI-10 多选插入「下载」导致整排横移（改为常显 + <2 项禁用）。
   // 每条都用计算样式或几何量断言，截图只当证据；原图编号同时写进文件名，方便与审查报告对照。
   section('⑨ UI 审查第一轮：UI-01 长标题 / UI-02 长文件名 / UI-03 分裂按钮 / UI-06 暗色禁用态 / UI-10 按钮横移');
   const AUDIT_DIR = resolve(ROOT, 'shots/ui-audit/fix-r1');
@@ -1085,16 +1093,27 @@ async function main() {
       return b ? Math.round(b.getBoundingClientRect().left * 100) / 100 : null;
     };
     const dl = document.querySelector('.finder-cmdbar .cmd-btn[data-cmd="下载"]');
-    const slot = document.querySelector('.finder-cmdbar .cmd-slot');
     return {
       rename: g('重命名'), del: g('删除'), sort: g('排序'), view: g('查看'),
       hasDownload: !!dl,
+      downloadDisabled: dl ? !!dl.disabled : null,
+      downloadX: dl ? Math.round(dl.getBoundingClientRect().left * 100) / 100 : null,
       downloadW: dl ? Math.round(dl.getBoundingClientRect().width * 100) / 100 : null,
-      slotW: slot ? Math.round(slot.getBoundingClientRect().width * 100) / 100 : null,
-      slotVisibility: slot ? getComputedStyle(slot).visibility : '',
+      // 防隐身槽回潮：位置预留方案已废弃，「下载」必须是一枚真按钮而不是 .cmd-slot
+      slotCount: document.querySelectorAll('.cmd-slot').length,
       status: (document.querySelector('.finder-statusbar')?.innerText || '').replace(/\n/g, ' '),
     };
   });
+  // 命令栏特写（0 / 1 / 2 选中三张对比图用同一裁剪框，保证能一眼对上 x 坐标）
+  const cmdbarClip = async () => {
+    const box = await page.evaluate(() => {
+      const el = document.querySelector('.finder-cmdbar');
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) };
+    });
+    return box ? { clip: box } : {};
+  };
   const cmdUnder = (pt) => page.evaluate(({ x, y }) =>
     document.elementFromPoint(x, y)?.closest?.('[data-cmd]')?.dataset.cmd || '', pt);
   // 窗口改尺寸 / 切视图都会让 Finder 重拉一次目录（加载态里 .finder-item 是空的），
@@ -1198,12 +1217,16 @@ async function main() {
   // UI-06 的亮色对照（禁用态在这里最明显：剪切 / 删除 全禁用）
   await auditShot('06-暗色禁用态-修复后-亮色.png');
 
-  // ---- UI-10：选中数变化时「删除 / 排序 / 查看」的 x 必须逐像素不变 ----
+  // ---- UI-10：「下载」常显 / <2 项禁用；选中数变化时其它按钮的 x 必须逐像素不变 ----
+  await page.mouse.move(10, 10);
+  await sleep(200);
   const x0 = await barX();
+  await auditShot('10b-下载-0选中.png', await cmdbarClip());
   await page.evaluate(() => document.querySelector('.finder-item[data-name="a.txt"]')
     ?.dispatchEvent(new MouseEvent('click', { bubbles: true })));
   await sleep(400);
   const x1 = await barX();
+  await auditShot('10b-下载-1选中.png', await cmdbarClip());
   // 悬停在「删除」中心，然后用**事件**改选中数（不移动指针）
   const delPt = await page.evaluate(() => {
     const b = document.querySelector('.finder-cmdbar .cmd-btn[data-cmd="删除"]');
@@ -1218,22 +1241,27 @@ async function main() {
   await sleep(450);
   const x2 = await barX();
   const under2 = await cmdUnder(delPt);
-  note('UI-10 x 坐标（删除/排序/查看）', { x0: [x0.del, x0.sort, x0.view], x1: [x1.del, x1.sort, x1.view], x2: [x2.del, x2.sort, x2.view], slotW: x1.slotW, downloadW: x2.downloadW });
+  note('UI-10 x 坐标（下载/删除/排序/查看）', { x0: [x0.downloadX, x0.del, x0.sort, x0.view], x1: [x1.downloadX, x1.del, x1.sort, x1.view], x2: [x2.downloadX, x2.del, x2.sort, x2.view], disabled: [x0.downloadDisabled, x1.downloadDisabled, x2.downloadDisabled], slotCount: [x0.slotCount, x1.slotCount, x2.slotCount] });
   const same = (a, b) => a !== null && a === b;
-  check('UI-10 选中 0 / 1 / 2 项时「重命名·删除·排序·查看」的 x 坐标完全一致（0 容差）',
-    same(x0.del, x1.del) && same(x0.del, x2.del)
+  check('UI-10 「下载」恒存在，选中 0 / 1 项禁用、2 项可用（常显模式，不是注入）',
+    x0.hasDownload && x1.hasDownload && x2.hasDownload
+    && x0.downloadDisabled === true && x1.downloadDisabled === true && x2.downloadDisabled === false,
+    JSON.stringify({ has: [x0.hasDownload, x1.hasDownload, x2.hasDownload], disabled: [x0.downloadDisabled, x1.downloadDisabled, x2.downloadDisabled] }));
+  check('UI-10 选中 0 / 1 / 2 项时「下载·重命名·删除·排序·查看」的 x 坐标完全一致（0 容差）',
+    same(x0.downloadX, x1.downloadX) && same(x0.downloadX, x2.downloadX)
+    && same(x0.del, x1.del) && same(x0.del, x2.del)
     && same(x0.sort, x1.sort) && same(x0.sort, x2.sort)
     && same(x0.view, x1.view) && same(x0.view, x2.view)
     && same(x0.rename, x1.rename) && same(x0.rename, x2.rename),
     JSON.stringify({ x0, x1, x2 }));
-  check('UI-10 占位槽与真实「下载」按钮同宽（±0.5px），槽位不可见且 0/1 选中时不出真按钮',
-    Math.abs((x1.slotW ?? -1) - (x2.downloadW ?? -2)) <= 0.5
-    && x1.slotVisibility === 'hidden' && x0.hasDownload === false && x1.hasDownload === false && x2.hasDownload === true,
-    JSON.stringify({ slotW: x1.slotW, downloadW: x2.downloadW, vis: x1.slotVisibility, has: [x0.hasDownload, x1.hasDownload, x2.hasDownload] }));
+  check('UI-10 隐身占位槽（.cmd-slot）已彻底移除，全页 0 个',
+    x0.slotCount === 0 && x1.slotCount === 0 && x2.slotCount === 0,
+    JSON.stringify({ slotCount: [x0.slotCount, x1.slotCount, x2.slotCount] }));
   check('UI-10 在「删除」上悬停时把选中数从 1 改成 2，光标下的动作仍是「删除」',
     under1 === '删除' && under2 === '删除', JSON.stringify({ under1, under2, pt: delPt }));
   await page.mouse.move(10, 10);
   await sleep(200);
+  await auditShot('10b-下载-2选中.png', await cmdbarClip());
   await auditShot('10-多选插入按钮-修复后.png');
 
   // ---- UI-03：粘贴分裂按钮接缝（先把剪贴板弄成「有内容」，两半才有底色/描边可看） ----

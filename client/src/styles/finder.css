@@ -293,21 +293,6 @@
   color: var(--text-2);
 }
 
-/* ---------- UI-10：多选才出现的「下载」占的固定槽位 ----------
-   与真实按钮同一套盒子（高 / 内边距 / 间隙 / 1px 边框 / 同一个 .cmd-ico 与 .cmd-label），
-   只多一条 visibility:hidden —— 不可点、不可聚焦、不进无障碍树，但**占位像素完全一致**。
-   选中数 1→2 时这个槽被真按钮原样替换，后面的「删除 / 排序 / 查看」一个像素都不动。
-   之所以选「位置预留」而不是「固定顺位」：既有契约是「下载只在多选时出现」（单选时禁用
-   会让 0 选中多出一枚灰按钮，与 ⋯ 菜单里的下载规则再分叉一次）；预留槽位既不动契约，
-   也不让按钮位移。 */
-.cmd-slot {
-  visibility: hidden; pointer-events: none; flex: none;
-  display: inline-flex; align-items: center; justify-content: center;
-  height: var(--fx-btn-h); padding: 0 var(--fx-btn-px); gap: var(--fx-btn-gap);
-  border: 1px solid transparent; border-radius: var(--fx-radius);
-  font-size: var(--fx-label); font-weight: var(--fx-label-w); white-space: nowrap;
-}
-
 /* 上传中：按钮自己带进度（底边 2px 的进度条），不另开弹层 */
 .finder-cmdbar .cmd-btn.is-uploading::after {
   content: ''; position: absolute; left: 8px; right: 8px; bottom: 3px; height: 2px; border-radius: 1px;
@@ -376,10 +361,8 @@
   .finder-cmdbar .fx-search-toggle { display: none; }
 }
 @container finder (max-width: 1089px) {
-  .finder-cmdbar .cmd-btn, .finder-cmdbar .cmd-slot { width: var(--fx-btn-h); padding: 0; gap: 0; }
+  .finder-cmdbar .cmd-btn { width: var(--fx-btn-h); padding: 0; gap: 0; }
   .finder-cmdbar .cmd-btn .cmd-label { display: none; }
-  /* 占位槽跟着真实按钮一起进图标态，否则窄窗下的位移反而更大（36 vs ~83） */
-  .finder-cmdbar .cmd-slot .cmd-label { display: none; }
   .finder-cmdbar .cmd-btn.keep-label { width: auto; padding: 0 var(--fx-btn-px); gap: var(--fx-btn-gap); }
   .finder-cmdbar .cmd-btn.keep-label .cmd-label { display: inline; }
   .finder-cmdbar .cmd-btn.keep-label .cmd-caret { margin-left: -2px; }
