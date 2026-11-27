@@ -499,35 +499,38 @@ const G = ({ size = 20, d, fill = 'currentColor', ...rest }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} xmlns="http://www.w3.org/2000/svg" {...rest}><path d={d} /></svg>
 );
 
-export const IconSearch = ({ size = 15 }) => (
+/* ⚠️ 24 视框的线性小图标都带一个可选 sw（描边宽度）：描边是**比例**，不是绝对值
+   （M3：2/24 = 8.33%）。文件管理器命令栏在 18px 下要 1.5px 视觉描边，所以传 sw={2}；
+   不传 = 保持各枚原来的手感，别的调用点（任务栏 / 开始菜单 / 移动端）一行都不用改。 */
+export const IconSearch = ({ size = 15, sw = 2.4 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" strokeWidth="2.4" />
-    <path d="M15.5 15.5L21 21" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+    <circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" strokeWidth={sw} />
+    <path d="M15.5 15.5L21 21" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" />
   </svg>
 );
-export const IconChevron = ({ size = 12, dir = 'right' }) => (
+export const IconChevron = ({ size = 12, dir = 'right', sw = 3 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={{ transform: dir === 'down' ? 'rotate(90deg)' : dir === 'left' ? 'rotate(180deg)' : dir === 'up' ? 'rotate(-90deg)' : 'none' }}>
-    <path d="M9 5l7 7-7 7" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M9 5l7 7-7 7" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
 export const IconBell = ({ size = 15 }) => (
   <G size={size} d="M12 22a2.5 2.5 0 0 0 2.5-2.5h-5A2.5 2.5 0 0 0 12 22Zm7-5.5V11a7 7 0 0 0-5.5-6.8V3a1.5 1.5 0 0 0-3 0v1.2A7 7 0 0 0 5 11v5.5L3 19v1h18v-1l-2-2.5Z" />
 );
-export const IconClose = ({ size = 14 }) => (
+export const IconClose = ({ size = 14, sw = 2.6 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-    <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
+    <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" />
   </svg>
 );
-export const IconUpload = ({ size = 16 }) => (
+export const IconUpload = ({ size = 16, sw = 2.4 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-    <path d="M12 16V4m0 0l-4.5 4.5M12 4l4.5 4.5" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-    <path d="M4 20h16" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+    <path d="M12 16V4m0 0l-4.5 4.5M12 4l4.5 4.5" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M4 20h16" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" />
   </svg>
 );
-export const IconDownload = ({ size = 16 }) => (
+export const IconDownload = ({ size = 16, sw = 2.4 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-    <path d="M12 4v12m0 0l-4.5-4.5M12 16l4.5-4.5" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-    <path d="M4 20h16" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+    <path d="M12 4v12m0 0l-4.5-4.5M12 16l4.5-4.5" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M4 20h16" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" />
   </svg>
 );
 export const IconGrid = ({ size = 16 }) => (
@@ -536,8 +539,8 @@ export const IconGrid = ({ size = 16 }) => (
     <rect x="3" y="13" width="8" height="8" rx="2" /><rect x="13" y="13" width="8" height="8" rx="2" />
   </svg>
 );
-export const IconList = ({ size = 16 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+export const IconList = ({ size = 16, sw = 2.4 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round">
     <path d="M8 6h13M8 12h13M8 18h13" /><circle cx="4" cy="6" r="1.4" fill="currentColor" /><circle cx="4" cy="12" r="1.4" fill="currentColor" /><circle cx="4" cy="18" r="1.4" fill="currentColor" />
   </svg>
 );
@@ -546,15 +549,15 @@ export const IconMore = ({ size = 16 }) => (
     <circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" />
   </svg>
 );
-export const IconPaste = ({ size = 16 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+export const IconPaste = ({ size = 16, sw = 1.9 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">
     <path d="M9 4.5h6v2.8H9z" />
     <path d="M15 5.6h2.5A1.5 1.5 0 0 1 19 7.1v12a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 19.1v-12A1.5 1.5 0 0 1 6.5 5.6H9" />
     <path d="M9 12.2h6M9 15.8h4" />
   </svg>
 );
-export const IconRefresh = ({ size = 15 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+export const IconRefresh = ({ size = 15, sw = 2.4 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round">
     <path d="M20 12a8 8 0 1 1-2.3-5.6M20 3v5h-5" />
   </svg>
 );
@@ -577,54 +580,56 @@ export const IconInfo = ({ size = 15 }) => (
 );
 
 /* ---------------- 文件资源管理器命令栏图标（T18 新增 7 枚） ----------------
-   命令按钮是「图标 16 + 中文 12.5」的 32px 高控件，所以统一 24 视框、
-   stroke: currentColor、描边 2.1、圆头圆角，与上面那组中性线性图标同一语言；
+   命令按钮是「图标 18 + 中文 13.5」的 36px 高控件（v3 材质分层），所以统一 24 视框、
+   stroke: currentColor、圆头圆角，与上面那组中性线性图标同一语言；
    这样图标能跟着 --text-2 / --text / --danger-text / --on-accent 一起变色。
+   描边 2（= 2/24，M3 的 8.33% 比例，18px 显示时正好 1.5px 视觉），并开放 sw 覆盖：
+   同一枚图标被别的尺寸复用时，调用点只传一个数就能守住「描边是比例」这条。
 
    ⚠️ 删除不用现有的 IconTrash：那枚是 48 视框 + 固定 ACCENT 蓝（桌面 / 开始菜单），
-   塞进 16px 按钮既糊又不跟 --danger-text 走，所以另起一枚 currentColor 版本。 */
+   塞进 18px 按钮既糊又不跟 --danger-text 走，所以另起一枚 currentColor 版本。 */
 
-export const IconFolderPlus = ({ size = 16 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+export const IconFolderPlus = ({ size = 16, sw = 2 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">
     <path d="M3.2 7.3A2.3 2.3 0 0 1 5.5 5h4.2l2 2.4h7.1A2.3 2.3 0 0 1 21 9.7v7.9a2.3 2.3 0 0 1-2.3 2.3H5.5a2.3 2.3 0 0 1-2.3-2.3V7.3Z" />
     <path d="M12.2 11v5.2M9.6 13.6h5.2" />
   </svg>
 );
-export const IconFolderUp = ({ size = 16 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+export const IconFolderUp = ({ size = 16, sw = 2 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">
     <path d="M3.2 7.3A2.3 2.3 0 0 1 5.5 5h4.2l2 2.4h7.1A2.3 2.3 0 0 1 21 9.7v7.9a2.3 2.3 0 0 1-2.3 2.3H5.5a2.3 2.3 0 0 1-2.3-2.3V7.3Z" />
     <path d="M12.2 16.6v-5.6m0 0L9.8 13.4M12.2 11l2.4 2.4" />
   </svg>
 );
-export const IconCut = ({ size = 16 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+export const IconCut = ({ size = 16, sw = 2 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">
     <circle cx="6.6" cy="17.6" r="2.6" />
     <circle cx="17.4" cy="17.6" r="2.6" />
     <path d="M8.5 15.8 18.6 4M15.5 15.8 5.4 4" />
   </svg>
 );
-export const IconCopy = ({ size = 16 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+export const IconCopy = ({ size = 16, sw = 2 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">
     <rect x="8.4" y="8.4" width="11.6" height="11.6" rx="2.2" />
     <path d="M15.6 5.6a2.2 2.2 0 0 0-2.2-2.2H6.2A2.2 2.2 0 0 0 4 5.6v7.2a2.2 2.2 0 0 0 2.2 2.2" />
   </svg>
 );
-export const IconRename = ({ size = 16 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+export const IconRename = ({ size = 16, sw = 2 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">
     <path d="M4.3 19.7h4l10.6-10.6a2.4 2.4 0 0 0-3.4-3.4L4.9 16.3l-.6 3.4Z" />
     <path d="M14.4 6.9 17.8 10.3" />
   </svg>
 );
-export const IconTrashLine = ({ size = 16 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+export const IconTrashLine = ({ size = 16, sw = 2 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">
     <path d="M4.2 6.6h15.6" />
     <path d="M9.6 6.6V4.9a1.4 1.4 0 0 1 1.4-1.4h2a1.4 1.4 0 0 1 1.4 1.4v1.7" />
     <path d="M6.5 6.6l.85 12.1a1.8 1.8 0 0 0 1.8 1.7h5.7a1.8 1.8 0 0 0 1.8-1.7l.85-12.1" />
     <path d="M10.4 10.6v6M13.6 10.6v6" />
   </svg>
 );
-export const IconSort = ({ size = 16 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+export const IconSort = ({ size = 16, sw = 2 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">
     <path d="M7 19.8V4.6m0 0L3.7 7.9M7 4.6l3.3 3.3" />
     <path d="M17 4.2v15.2m0 0 3.3-3.3M17 19.4l-3.3-3.3" />
   </svg>

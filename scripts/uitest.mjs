@@ -1590,8 +1590,8 @@ try {
     }, n);
 
     const bar = await cmdLabels();
-    check('命令栏五组按钮齐备（新建/上传×2/剪切/复制/粘贴/重命名/删除/排序/查看）',
-      ['新建', '上传文件…', '上传文件夹…', '剪切', '复制', '粘贴', '重命名', '删除', '排序', '查看']
+    check('命令栏五组按钮齐备（新建 / 上传 ⌄ / 剪切 / 复制 / 粘贴 / 重命名 / 删除 / 排序 / 查看）',
+      ['新建', '上传', '剪切', '复制', '粘贴', '重命名', '删除', '排序', '查看']
         .every((k) => bar.includes(k)), bar.join(','));
     check('无选中时 剪切/复制/重命名/删除 均置灰、粘贴随剪贴板置灰',
       (await cmdDisabled('剪切')) === true && (await cmdDisabled('复制')) === true
@@ -1874,8 +1874,8 @@ try {
     await page.evaluate(() => [...document.querySelectorAll('.sb-item')].find((b) => b.innerText.trim() === '回收站')?.click());
     await sleep(1000);
     const trashCmd = await cmdLabels();
-    check('回收站视图命令栏为 还原 / 彻底删除… / 清空回收站…',
-      ['还原', '彻底删除…', '清空回收站…'].every((k) => trashCmd.includes(k)), trashCmd.join(','));
+    check('回收站视图命令栏为 还原 / 彻底删除 / 清空回收站',
+      ['还原', '彻底删除', '清空回收站'].every((k) => trashCmd.includes(k)), trashCmd.join(','));
     await page.evaluate(() => [...document.querySelectorAll('.sb-item')].find((b) => b.innerText.trim() === '主目录')?.click());
     await sleep(800);
     await shot('文件窗口命令栏');
@@ -1929,18 +1929,30 @@ try {
     check('字体栈以 Segoe UI Variable Display 起头并回退微软雅黑',
       /^\s*"?Segoe UI Variable Display"?/.test(fontStack) && /Microsoft YaHei/.test(fontStack), fontStack);
 
-    // ③ 圆角：窗口/弹层 8px，控件 4px（标题栏按钮是 Win11 方角例外）
+    // ③ 圆角：窗口/弹层 8px，全局控件 4px（标题栏按钮是 Win11 方角例外）；
+    //    文件管理器命令栏自 2026-11 起改用自己的一套令牌（V3 材质分层 --fx-radius = 10px），
+    //    所以这里不再拿 .cmd-btn / .finder-search 当 4px 的样本，而是直读 --radius-ctl。
     const radii = await page.evaluate(() => {
       const g = (sel) => { const el = document.querySelector(sel); return el ? getComputedStyle(el).borderRadius : null; };
+      const probe = (v) => {
+        const d = document.createElement('div');
+        d.style.borderRadius = `var(${v})`;
+        document.body.appendChild(d);
+        const out = getComputedStyle(d).borderRadius;
+        d.remove();
+        return out;
+      };
       return {
         win: g('.window'),
-        ctrl: g('.finder-cmdbar .cmd-btn'),
+        ctrl: probe('--radius-ctl'),
+        cmd: g('.finder-cmdbar .cmd-btn'),
         search: g('.finder-search'),
         titleBtn: g('.window .tc-min'),
       };
     });
-    check('窗口圆角 8px / 控件圆角 4px',
-      radii.win === '8px' && /^4px/.test(radii.ctrl || '') && /^4px/.test(radii.search || ''),
+    check('窗口圆角 8px / 全局控件 4px（命令栏走自己的 --fx-radius 10px）',
+      radii.win === '8px' && /^4px/.test(radii.ctrl || '')
+      && /^10px/.test(radii.cmd || '') && /^10px/.test(radii.search || ''),
       JSON.stringify(radii));
 
     // ④ 纯色表面：窗口 / 任务栏 / 侧栏 / 命令栏都是不透明 rgb()，没有模糊
@@ -2343,11 +2355,20 @@ try {
     const beforeB = await countStart();
     const uploadPath = join(OUT_DIR, btnUploadName);
     writeFileSync(uploadPath, 'button upload notify test\n');
-    const btns = await page.$$('.finder-cmdbar .cmd-btn[data-cmd="上传文件…"]');
-    check('文件命令栏存在「上传文件…」按钮', btns.length >= 1, `count=${btns.length}`);
+    // 「上传」是一级短词（上传 ⌄），「上传文件」在二级菜单里：选择器跟着改，行为路径不变
+    const btns = await page.$$('.finder-cmdbar .cmd-btn[data-cmd="上传"]');
+    check('文件命令栏存在「上传 ⌄」按钮', btns.length >= 1, `count=${btns.length}`);
     const [chooser] = await Promise.all([
       page.waitForFileChooser({ timeout: 8000 }),
-      btns[btns.length - 1].click(),
+      (async () => {
+        await btns[btns.length - 1].click();
+        await sleep(280);
+        await page.evaluate(() => {
+          const item = [...document.querySelectorAll('.context-menu .dropdown-item')]
+            .find((e) => (e.dataset.label || e.innerText.trim()) === '上传文件');
+          item?.click();
+        });
+      })(),
     ]);
     await chooser.accept([uploadPath]);
     await page.waitForFunction((b) =>
@@ -2370,11 +2391,19 @@ try {
     writeFileSync(pngPath, makePng(1400, 900));
 
     // 通过文件窗口「上传文件」把测试图放进当前目录
-    const upBtns = await page.$$('.finder-cmdbar .cmd-btn[data-cmd="上传文件…"]');
+    const upBtns = await page.$$('.finder-cmdbar .cmd-btn[data-cmd="上传"]');
     if (upBtns.length) {
       const [chooser] = await Promise.all([
         page.waitForFileChooser({ timeout: 8000 }),
-        upBtns[upBtns.length - 1].click(),
+        (async () => {
+          await upBtns[upBtns.length - 1].click();
+          await sleep(280);
+          await page.evaluate(() => {
+            const item = [...document.querySelectorAll('.context-menu .dropdown-item')]
+              .find((e) => (e.dataset.label || e.innerText.trim()) === '上传文件');
+            item?.click();
+          });
+        })(),
       ]);
       await chooser.accept([pngPath]);
     }

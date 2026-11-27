@@ -1,123 +1,325 @@
 /* ============ 文件资源管理器 ============ */
-/* 两行式头部（docs/design/finder-toolbar.md 方案 A）：
-     地址行 34px（后退/前进/上一级 + 长路径药丸）
-     命令行 40px（五组命令 + 分隔线 + 右簇：上传进度 / 更多 / 搜索）
-   --bar-bg 两行共用，只保留命令行那条底线，避免“三条一样的横条 + 三道线”。
+/* v3「材质分层」两行式头部（docs/design/finder-toolbar-v2.md 的 V3 方向）：
+     地址行 36px（后退/前进/上一级 + 长路径药丸）
+     命令行 48px（五组命令 + 右簇：上传进度 / 更多 / 搜索）
+
+   v3 的三条主张：
+   ① 静默就有海拔：按钮是比工具栏更亮的一层（亮色白卡 / 暗色 #303035），配 1px 细边 + elev-1
+      双层投影；悬停抬到 elev-2 并叠 8% M3 状态层，按下沉到 elev-0 + 圆角 10→8（M3 的 shape morph）。
+   ② 动效分三档，不用一条 transition 包到底：进入/hover 70ms（Carbon fast-01，R8）、
+      按下 105ms（M3 pressed，R3）、回到静默 375ms（M3 release，R3）。
+      做法是「状态里改时长」：--fx-tdur 静默时 = 离开档，:hover 里 = 进入档，:active 里 = 按下档。
+      离开比进入慢，正是因为松手/移开时读的是静默态的时长（375 > 70）。
+   ③ 标签零截断：.cmd-label 不设 max-width / text-overflow，放不下由 FinderCommandBar 把整枚按钮
+      收进「更多」（Fluent 2 toolbar / WinUI CommandBar 的 overflow 语汇，R11/R12）。
+
+   ⚠️ 令牌一律 --fx- 前缀且只在本文件里用：全局 --accent-hover / --hover / --pressed / --radius-ctl
+      一个字都没动（任务栏、选中行、普通按钮都在读它们，改一处会波及全站）。
 
    ⚠️ container-type 挂在 .finder 上：断点量的是**窗口宽度**，不是视口宽度。
-   命令按钮的三段降级（标签 → 32×32 图标 → 收进「更多」）前两段走下面 @container，
+   命令按钮的三段降级（标签 → 纯图标 → 收进「更多」）前两段走下面 @container，
    第三段由 FinderCommandBar 的 JS 打包逻辑兜底（CSS 没法把按钮搬进菜单）。 */
 .finder { display: flex; flex-direction: column; height: 100%; container-type: inline-size; container-name: finder; }
 
+/* ---------- 令牌 · 尺寸 / 动效 / 状态层 / 海拔 ---------- */
+:root {
+  /* 尺寸（md §3.1 的 V3 列） */
+  --fx-addr-h: 36px; --fx-cmd-h: 48px; --fx-btn-h: 36px;
+  --fx-btn-px: 12px; --fx-btn-gap: 8px; --fx-nav-h: 32px; --fx-split-w: 20px;
+  --fx-gap-btns: 4px; --fx-gap-groups: 14px;
+  --fx-icon: 18px; --fx-radius: 10px; --fx-radius-pill: 10px; --fx-radius-press: 8px;
+  --fx-label: 13.5px; --fx-label-w: 500; --fx-crumb: 13px;
+  --fx-pill-h: 30px; --fx-crumb-h: 24px; --fx-crumb-px: 6px;
+  --fx-focus-w: 2px; --fx-focus-o: 2px;
+
+  /* 动效三档（R3/R8）。--fx-tdur / --fx-tease = 当前生效的时长与曲线，由下面的状态改 */
+  --fx-dur-in: 70ms; --fx-dur-press: 105ms; --fx-dur-out: 375ms; --fx-dur-pop: 200ms;
+  --fx-ease-in: cubic-bezier(0, 0, 0.38, 0.9);       /* Carbon entrance·productive（R8 与 70ms 同源） */
+  --fx-ease-press: cubic-bezier(0.33, 0, 0.67, 1);   /* Fluent curveEasyEase（R6） */
+  --fx-ease-out: cubic-bezier(0.2, 0, 0, 1);         /* M3 standard（出场 / 涟漪淡出） */
+  --fx-tdur: var(--fx-dur-out);
+  --fx-tease: var(--fx-ease-out);
+
+  /* 状态层（R1/R2：同一层色只换不透明度，悬停 8% / 按下 12%，同时只开一层） */
+  --fx-hover-a: .08; --fx-press-a: .12;
+  --fx-sink: 0.5px;
+}
+
+/* 亮色表面：内容 #fff / 工具栏 #f3f3f5 / 按钮 #fff —— 靠 1px 描边与 elev-1 讲清「按钮浮在条上」 */
+:root[data-theme='light'] {
+  --fx-bar-bg: #f3f3f5;
+  --fx-btn-bg: #ffffff; --fx-btn-bg-hover: #ffffff; --fx-btn-bg-press: #ffffff;
+  --fx-btn-line: rgba(0, 0, 0, .055); --fx-btn-line-hover: rgba(0, 0, 0, .05);
+  --fx-elev-0: 0 0 0 rgba(0, 0, 0, 0);
+  --fx-elev-1: 0 0 2px rgba(0, 0, 0, .05), 0 1px 2px rgba(0, 0, 0, .06);
+  --fx-elev-2: 0 0 2px rgba(0, 0, 0, .06), 0 2px 4px rgba(0, 0, 0, .09);
+  --fx-toolbar-shadow: 0 1px 2px rgba(0, 0, 0, .05);
+  /* 主操作：强调蓝填充（不是 V2 的近黑 —— 蓝色是产品的语义色，与选中行同源）；
+     悬停提亮 / 按下压暗（Ant 的色阶做法，R5），压暗一档放在命令栏自己的令牌里 */
+  --fx-primary-bg: #0a7cff; --fx-primary-bg-hover: #2b8dff; --fx-primary-bg-press: #0963c9;
+  --fx-primary-shadow: inset 0 1px 0 rgba(255, 255, 255, .24), 0 1px 2px rgba(10, 124, 255, .28);
+  --fx-primary-shadow-hover: inset 0 1px 0 rgba(255, 255, 255, .28), 0 2px 6px rgba(10, 124, 255, .34);
+  --fx-pill-bg: #ffffff; --fx-pill-line: #dcdcdf;
+}
+
+/* 暗色表面：工具栏比窗口底亮、按钮再亮一档（Fluent 灰阶思路，R7：实色三档，不用半透明白）。
+   暗色下阴影几乎不可见，所以「悬停更亮 / 按下更暗」全靠填色阶梯。 */
+:root[data-theme='dark'] {
+  --fx-bar-bg: #252528;
+  --fx-btn-bg: #303035; --fx-btn-bg-hover: #38383e; --fx-btn-bg-press: #2a2a2f;
+  --fx-btn-line: rgba(255, 255, 255, .05); --fx-btn-line-hover: rgba(255, 255, 255, .07);
+  --fx-elev-0: 0 0 0 rgba(0, 0, 0, 0);
+  --fx-elev-1: 0 0 2px rgba(0, 0, 0, .35), 0 1px 2px rgba(0, 0, 0, .4);
+  --fx-elev-2: 0 0 2px rgba(0, 0, 0, .4), 0 2px 4px rgba(0, 0, 0, .5);
+  --fx-toolbar-shadow: 0 1px 2px rgba(0, 0, 0, .35);
+  --fx-primary-bg: #0a6ee0; --fx-primary-bg-hover: #0a7cff; --fx-primary-bg-press: #0963c9;
+  --fx-primary-shadow: inset 0 1px 0 rgba(255, 255, 255, .14), 0 1px 2px rgba(0, 0, 0, .4);
+  --fx-primary-shadow-hover: inset 0 1px 0 rgba(255, 255, 255, .18), 0 2px 6px rgba(0, 0, 0, .5);
+  --fx-pill-bg: #1b1b1e; --fx-pill-line: #3a3a40;
+}
+
+/* 降低动效：三档全部归零，涟漪与 0.5px 下沉一并关掉（下面 .cmd-ripple / :active 有对应规则） */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --fx-dur-in: .01ms; --fx-dur-press: .01ms; --fx-dur-out: .01ms; --fx-dur-pop: .01ms;
+    --fx-sink: 0px;
+  }
+}
+
 /* ---------- 第一行 · 地址行 ---------- */
 .finder-toolbar {
-  flex: none; display: flex; align-items: center; gap: 2px; height: 34px; padding: 0 10px;
-  background: var(--bar-bg); min-width: 0; overflow: hidden;
+  flex: none; display: flex; align-items: center; gap: 2px;
+  height: var(--fx-addr-h); padding: 0 10px;
+  background: var(--fx-bar-bg); min-width: 0; overflow: hidden;
 }
-.fx-nav { display: flex; align-items: center; gap: 2px; flex: none; }
+.fx-nav { display: flex; align-items: center; gap: var(--fx-gap-btns); flex: none; }
 .tb-btn {
-  width: 28px; height: 28px; border-radius: var(--radius-ctl); display: inline-flex;
+  width: var(--fx-nav-h); height: var(--fx-nav-h); border-radius: var(--fx-radius); display: inline-flex;
   align-items: center; justify-content: center; color: var(--text-2); font-size: 14px; flex: none;
+  background: transparent; border: 1px solid transparent;
+  transition:
+    background-color var(--fx-tdur) var(--fx-tease),
+    border-color var(--fx-tdur) var(--fx-tease),
+    box-shadow var(--fx-tdur) var(--fx-tease),
+    color var(--fx-tdur) var(--fx-tease);
 }
-.tb-btn:hover:not(:disabled) { background: var(--active); color: var(--text); }
-.tb-btn:active:not(:disabled) { background: var(--pressed); }
-.tb-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* 导航键悬停才出现「一层薄卡」：v3 的按钮身份是「浮在条上的一层」 */
+.tb-btn:hover:not(:disabled) {
+  --fx-tdur: var(--fx-dur-in); --fx-tease: var(--fx-ease-in);
+  background: var(--fx-btn-bg-hover); border-color: var(--fx-btn-line-hover);
+  box-shadow: var(--fx-elev-1); color: var(--text);
+}
+.tb-btn:active:not(:disabled) {
+  --fx-tdur: var(--fx-dur-press); --fx-tease: var(--fx-ease-press);
+  background: var(--fx-btn-bg-press); box-shadow: var(--fx-elev-0);
+}
+.tb-btn:focus-visible { outline: var(--fx-focus-w) solid var(--accent); outline-offset: var(--fx-focus-o); }
 .tb-btn:disabled { color: var(--text-3); cursor: default; }
-.tb-btn.active { background: var(--accent-soft); color: var(--accent-text); }
-.tb-sep { flex: none; width: 1px; height: 20px; margin: 0 8px; background: var(--line); }
+.tb-btn.active { background: var(--accent-soft); color: var(--accent-text); box-shadow: none; }
+/* v3 不用分组竖线：地址行靠留白分组（R11：分隔线 + 留白，v3 只留留白） */
+.tb-sep { display: none; }
 
-/* 地址药丸：底用 --win-bg（暗色下 --input-bg 与 --bar-bg 同色，药丸会只剩一条描边） */
+/* 地址药丸：凸起的一层（v3 与「按钮」同一套语汇），底用 --fx-pill-bg */
 .finder-address {
-  flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 1px; height: 26px;
-  padding: 0 3px; border: 1px solid var(--line); border-radius: var(--radius-ctl);
-  background: var(--win-bg); overflow: hidden; cursor: text;
+  flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 1px;
+  height: var(--fx-pill-h); padding: 0 3px;
+  border: 1px solid var(--fx-pill-line); border-radius: var(--fx-radius-pill);
+  background: var(--fx-pill-bg); box-shadow: var(--fx-elev-1);
+  overflow: hidden; cursor: text;
+  transition:
+    border-color var(--fx-tdur) var(--fx-tease),
+    box-shadow var(--fx-tdur) var(--fx-tease);
 }
-.finder-address:hover { border-color: var(--text-3); }
+.finder-address:hover { border-color: var(--text-3); --fx-tdur: var(--fx-dur-in); --fx-tease: var(--fx-ease-in); }
 .crumb {
-  display: inline-flex; align-items: center; min-width: 0; flex: 0 1 auto; height: 20px; padding: 0 6px;
-  border-radius: 3px; color: var(--text-2); font-size: 12.5px; white-space: nowrap; text-align: left;
+  display: inline-flex; align-items: center; min-width: 0; flex: 0 1 auto;
+  height: var(--fx-crumb-h); padding: 0 var(--fx-crumb-px);
+  border-radius: calc(var(--fx-radius) + 1px); color: var(--text-2); font-size: var(--fx-crumb);
+  white-space: nowrap; text-align: left;
+  transition: background-color var(--fx-tdur) var(--fx-tease), color var(--fx-tdur) var(--fx-tease);
 }
 .crumb > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.crumb:hover { background: var(--hover); color: var(--text); }
-.crumb:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.crumb:hover {
+  --fx-tdur: var(--fx-dur-in); --fx-tease: var(--fx-ease-in);
+  background: var(--fx-btn-bg-hover); color: var(--text);
+}
+.crumb:focus-visible { outline: var(--fx-focus-w) solid var(--accent); outline-offset: -1px; }
 .crumb.current { color: var(--text); font-weight: 600; flex: 0 0 auto; max-width: 62%; }
 .crumb-static { cursor: default; }
 .crumb-more { flex: none; min-width: 22px; justify-content: center; padding: 0 4px; letter-spacing: 1px; }
 .crumb-sep { flex: none; display: inline-flex; color: var(--text-3); }
-.crumb-note { color: var(--accent-text); margin-left: 8px; font-size: 12.5px; white-space: nowrap; }
+.crumb-note { color: var(--accent-text); margin-left: 8px; font-size: var(--fx-crumb); white-space: nowrap; }
 
 /* ---------- 第二行 · 命令行 ---------- */
 .finder-cmdbar {
-  flex: none; display: flex; align-items: center; gap: 0; height: 40px; padding: 0 8px;
-  background: var(--bar-bg); border-bottom: 1px solid var(--line); min-width: 0; overflow: hidden;
+  flex: none; display: flex; align-items: center; gap: 0;
+  height: var(--fx-cmd-h); padding: 0 8px;
+  background: var(--fx-bar-bg); border-bottom: 1px solid var(--line);
+  box-shadow: var(--fx-toolbar-shadow);
+  min-width: 0; overflow: hidden;
 }
-.cmd-groups { display: flex; align-items: center; min-width: 0; flex: none; }
-.cmd-group { display: flex; align-items: center; gap: 2px; flex: none; }
-.cmd-sep { flex: none; width: 1px; height: 20px; margin: 0 8px; background: var(--line); }
+/* 分组靠 14px 留白（v3 不用竖线）；.cmd-sep 仍留在 DOM 里当语义分隔，只是不画 */
+.cmd-groups { display: flex; align-items: center; gap: var(--fx-gap-groups); min-width: 0; flex: none; }
+.cmd-group { display: flex; align-items: center; gap: var(--fx-gap-btns); flex: none; }
+.cmd-sep { display: none; }
+
+/* 命令按钮：v3 的状态机 —— 四态改「底 / 边 / 阴影 / 状态层 / 圆角」，全部走令牌。
+   三条 transition 档位由 --fx-tdur / --fx-tease 在状态里切换；几何（transform / border-radius）
+   固定读按下档，因为「圆角 10→8 + 0.5px 下沉」本身就是按下那一下的事。 */
 .finder-cmdbar .cmd-btn {
-  position: relative; height: 32px; padding: 0 10px; gap: 6px; border-radius: var(--radius-ctl);
-  display: inline-flex; align-items: center; color: var(--text); font-size: 12.5px;
+  position: relative; overflow: hidden;
+  height: var(--fx-btn-h); padding: 0 var(--fx-btn-px); gap: var(--fx-btn-gap);
+  border: 1px solid var(--fx-btn-line); border-radius: var(--fx-radius);
+  background: var(--fx-btn-bg); box-shadow: var(--fx-elev-1);
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--text); font-size: var(--fx-label); font-weight: var(--fx-label-w);
   white-space: nowrap; flex: none; max-width: none;
+  transform: translateY(0);
+  transition:
+    background-color var(--fx-tdur) var(--fx-tease),
+    border-color var(--fx-tdur) var(--fx-tease),
+    box-shadow var(--fx-tdur) var(--fx-tease),
+    color var(--fx-tdur) var(--fx-tease),
+    transform var(--fx-dur-press) var(--fx-ease-press),
+    border-radius var(--fx-dur-press) var(--fx-ease-press);
 }
-.cmd-ico { display: inline-flex; color: var(--text-2); flex: none; }
-.cmd-label { overflow: hidden; text-overflow: ellipsis; }
-/* 悬停用 --active(7%) 而不是 --hover(4%)：这是设计稿唯一“有意加强”的一处 */
-.finder-cmdbar .cmd-btn:hover:not(:disabled) { background: var(--active); }
+/* M3 状态层：一层 currentColor 覆盖，悬停 8% / 按下 12%。
+   用 absolutely positioned ::before + 内容抬到 z-index:1，保证「内容永远在状态层之上」 */
+.finder-cmdbar .cmd-btn::before {
+  content: ''; position: absolute; inset: 0; z-index: 0; border-radius: inherit;
+  background: currentColor; opacity: 0; pointer-events: none;
+  transition: opacity var(--fx-tdur) var(--fx-tease);
+}
+.finder-cmdbar .cmd-btn:hover:not(:disabled) {
+  --fx-tdur: var(--fx-dur-in); --fx-tease: var(--fx-ease-in);
+  background: var(--fx-btn-bg-hover); border-color: var(--fx-btn-line-hover);
+  box-shadow: var(--fx-elev-2);
+}
+.finder-cmdbar .cmd-btn:hover:not(:disabled)::before { opacity: var(--fx-hover-a); }
+.finder-cmdbar .cmd-btn:active:not(:disabled) {
+  --fx-tdur: var(--fx-dur-press); --fx-tease: var(--fx-ease-press);
+  background: var(--fx-btn-bg-press); box-shadow: var(--fx-elev-0);
+  border-radius: var(--fx-radius-press); transform: translateY(var(--fx-sink));
+}
+.finder-cmdbar .cmd-btn:active:not(:disabled)::before { opacity: var(--fx-press-a); }
+.finder-cmdbar .cmd-btn:focus-visible { outline: var(--fx-focus-w) solid var(--accent); outline-offset: var(--fx-focus-o); }
+/* 禁用态：字与图标一起退到 --text-3，底/边/阴影归零（不用 opacity，与 base.css 的禁用约定一致） */
+.finder-cmdbar .cmd-btn:disabled {
+  color: var(--text-3); background: transparent; border-color: transparent;
+  box-shadow: none; cursor: default;
+}
+.finder-cmdbar .cmd-btn:disabled .cmd-ico,
+.finder-cmdbar .cmd-btn:disabled .cmd-caret { color: var(--text-3); }
+
+/* 内容层：图标 / 标签 / 下拉箭头都在状态层之上 */
+.cmd-ico {
+  position: relative; z-index: 1; display: inline-flex; color: var(--text-2); flex: none;
+  width: var(--fx-icon); height: var(--fx-icon); align-items: center; justify-content: center;
+  transition: color var(--fx-tdur) var(--fx-tease);
+}
+/* 标签零截断：不设 max-width、不设 text-overflow —— 放不下就整枚按钮进「更多」 */
+.cmd-label { position: relative; z-index: 1; white-space: nowrap; flex: none; }
 .finder-cmdbar .cmd-btn:hover:not(:disabled) .cmd-ico { color: var(--text); }
-.finder-cmdbar .cmd-btn:active:not(:disabled) { background: var(--pressed); }
-.finder-cmdbar .cmd-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-/* 禁用态：字与图标一起退到 --text-3；不用 opacity，与 base.css 的禁用约定一致 */
-.finder-cmdbar .cmd-btn:disabled { color: var(--text-3); background: none; cursor: default; }
-.finder-cmdbar .cmd-btn:disabled .cmd-ico { color: var(--text-3); }
-.finder-cmdbar .cmd-btn.is-primary {
-  background: var(--accent); color: var(--on-accent); font-weight: 600; padding: 0 10px 0 11px;
+/* 光学重心：底部带横线的图标（上传/下载/删除盖）上移 0.5px，其余不动（R13 推导） */
+.cmd-ico.is-lift { transform: translateY(-.5px); }
+.cmd-caret {
+  position: relative; z-index: 1; display: inline-flex; align-items: center; color: var(--text-3);
+  flex: none; margin-left: -2px;
+  transition: color var(--fx-tdur) var(--fx-tease);
 }
-.finder-cmdbar .cmd-btn.is-primary .cmd-ico { color: var(--on-accent); }
-.finder-cmdbar .cmd-btn.is-primary .cmd-caret { color: var(--on-accent); opacity: .85; }
-.finder-cmdbar .cmd-btn.is-primary:hover:not(:disabled) { background: var(--accent-hover); }
-.finder-cmdbar .cmd-btn.is-primary:active:not(:disabled) { background: var(--accent-active); }
-.finder-cmdbar .cmd-btn.is-primary:disabled { background: var(--hover); color: var(--text-3); }
-.finder-cmdbar .cmd-btn.is-primary:disabled .cmd-ico { color: var(--text-3); }
+.finder-cmdbar .cmd-btn:hover:not(:disabled) .cmd-caret { color: var(--text-2); }
+
+/* 主操作：强调蓝填充 + 自己的投影（静默 elev 由主操作投影接管，悬停提亮、按下压暗） */
+.finder-cmdbar .cmd-btn.is-primary {
+  background: var(--fx-primary-bg); border-color: transparent;
+  color: var(--on-accent); font-weight: 600; box-shadow: var(--fx-primary-shadow);
+}
+.finder-cmdbar .cmd-btn.is-primary .cmd-ico,
+.finder-cmdbar .cmd-btn.is-primary .cmd-caret { color: var(--on-accent); }
+.finder-cmdbar .cmd-btn.is-primary:hover:not(:disabled) {
+  background: var(--fx-primary-bg-hover); border-color: transparent;
+  box-shadow: var(--fx-primary-shadow-hover); color: var(--on-accent);
+}
+.finder-cmdbar .cmd-btn.is-primary:hover:not(:disabled) .cmd-caret { color: var(--on-accent); }
+.finder-cmdbar .cmd-btn.is-primary:active:not(:disabled) {
+  background: var(--fx-primary-bg-press); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .22);
+}
+.finder-cmdbar .cmd-btn.is-primary:disabled {
+  background: var(--fx-btn-bg); border-color: var(--fx-btn-line); box-shadow: none; color: var(--text-3);
+}
+.finder-cmdbar .cmd-btn.is-primary:disabled .cmd-ico,
+.finder-cmdbar .cmd-btn.is-primary:disabled .cmd-caret { color: var(--text-3); }
+
+/* 危险操作：文字/图标用危险色，底色只在状态层里淡出（不整块染红） */
 .finder-cmdbar .cmd-btn.danger { color: var(--danger-text); }
 .finder-cmdbar .cmd-btn.danger .cmd-ico { color: var(--danger-text); }
-.finder-cmdbar .cmd-btn.danger:hover:not(:disabled) { background: var(--danger-soft); }
 .finder-cmdbar .cmd-btn.danger:disabled,
-.finder-cmdbar .cmd-btn.danger:disabled .cmd-ico { color: var(--text-3); }
-.finder-cmdbar .cmd-btn.is-icon { width: 32px; padding: 0; justify-content: center; }
+.finder-cmdbar .cmd-btn.danger:disabled .cmd-ico,
+.finder-cmdbar .cmd-btn.danger:disabled .cmd-caret { color: var(--text-3); }
+
+.finder-cmdbar .cmd-btn.is-icon { width: var(--fx-btn-h); padding: 0; }
 .finder-cmdbar .cmd-btn.is-icon .cmd-label { display: none; }
-.cmd-caret { display: inline-flex; align-items: center; color: var(--text-3); flex: none; margin-left: -2px; }
-.cmd-btn.is-primary .cmd-caret { margin-left: 0; }
-.cmd-split { display: inline-flex; align-items: stretch; flex: none; border-radius: var(--radius-ctl); }
+
+/* 分裂按钮（粘贴 ｜ ▾）：左半格 0 圆角、右半格 0 圆角，容器统一半径 */
+.cmd-split { display: inline-flex; align-items: stretch; flex: none; border-radius: var(--fx-radius); }
 .cmd-split > .cmd-btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.cmd-split > .cmd-btn:first-child:active:not(:disabled) { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .cmd-split-caret {
-  width: 18px; padding: 0 !important; justify-content: center;
+  width: var(--fx-split-w); padding: 0 !important; justify-content: center;
   border-top-left-radius: 0; border-bottom-left-radius: 0;
-  box-shadow: inset 1px 0 0 var(--line); color: var(--text-2);
+  border-left-width: 0; color: var(--text-2);
 }
+.cmd-split-caret:active:not(:disabled) { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+
 /* 上传中：按钮自己带进度（底边 2px 的进度条），不另开弹层 */
 .finder-cmdbar .cmd-btn.is-uploading::after {
-  content: ''; position: absolute; left: 8px; right: 8px; bottom: 2px; height: 2px; border-radius: 1px;
+  content: ''; position: absolute; left: 8px; right: 8px; bottom: 3px; height: 2px; border-radius: 1px;
   background: linear-gradient(to right, var(--accent) var(--up, 0%), var(--active) var(--up, 0%));
 }
 
-/* 右簇：上传进度胶囊 + 更多 + 搜索（更多与搜索同一簇，贴右）。
+/* ---------- 涟漪（M3：按下 105ms 展开，129ms 后接力 375ms 扩散淡出） ----------
+   节点由 FinderCommandBar 在 pointerdown 时插入，animationend 后移除（另有 500ms 兜底）。 */
+.cmd-ripple {
+  position: absolute; z-index: 0; border-radius: 50%; pointer-events: none;
+  background: currentColor; opacity: .18;
+  transform: translate(-50%, -50%) scale(0);
+  animation: cmd-ripple-in var(--fx-dur-press) var(--fx-ease-press) forwards;
+}
+.cmd-ripple.is-out { animation: cmd-ripple-out var(--fx-dur-out) var(--fx-ease-out) forwards; }
+@keyframes cmd-ripple-in {
+  from { transform: translate(-50%, -50%) scale(0); opacity: .18; }
+  to { transform: translate(-50%, -50%) scale(.55); opacity: .18; }
+}
+@keyframes cmd-ripple-out {
+  from { transform: translate(-50%, -50%) scale(.55); opacity: .18; }
+  to { transform: translate(-50%, -50%) scale(1); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cmd-ripple { display: none; }
+  .finder-cmdbar .cmd-btn:active:not(:disabled) { transform: none; border-radius: var(--fx-radius); }
+}
+
+/* ---------- 右簇：上传进度胶囊 + 更多 + 搜索 ----------
    两簇都 flex:none：宁可溢出让 JS 收按钮，也不能让 flex 缩小把按钮压到邻居身上 */
 .cmd-right { display: flex; align-items: center; gap: 8px; margin-left: auto; flex: none; min-width: 0; padding-left: 8px; }
 .fx-up {
-  display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; flex: none;
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; flex: none;
   border-radius: 100px; background: var(--accent-soft); color: var(--accent-text);
   font-size: 11.5px; font-weight: 600; white-space: nowrap;
 }
-.fx-up-track { width: 56px; height: 3px; border-radius: 2px; background: var(--active); overflow: hidden; flex: none; }
-.fx-up-bar { display: block; height: 100%; border-radius: 2px; background: var(--accent); transition: width .2s linear; }
+.fx-up-track { width: 52px; height: 3px; border-radius: 2px; background: currentColor; opacity: .22; overflow: hidden; flex: none; }
+.fx-up-bar { display: block; height: 100%; border-radius: 2px; background: currentColor; transition: width .24s linear; }
 .fx-up-n { font-variant-numeric: tabular-nums; }
 
 .finder-search {
-  display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 6px; width: 200px; min-width: 0; flex: none;
-  border: 1px solid var(--line); border-radius: var(--radius-ctl); background: var(--win-bg); color: var(--text-3);
+  display: flex; align-items: center; gap: 6px; height: var(--fx-btn-h); padding: 0 8px;
+  width: 200px; min-width: 0; flex: none;
+  border: 1px solid var(--line); border-radius: var(--fx-radius); background: var(--input-bg); color: var(--text-3);
+  transition: border-color var(--fx-tdur) var(--fx-tease), box-shadow var(--fx-tdur) var(--fx-tease);
 }
+.finder-search:hover { border-color: var(--text-3); --fx-tdur: var(--fx-dur-in); --fx-tease: var(--fx-ease-in); }
 .finder-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
-.finder-search input { flex: 1; min-width: 0; height: 100%; border: none; background: none; box-shadow: none; padding: 0; font-size: 12.5px; color: var(--text); }
+.finder-search input { flex: 1; min-width: 0; height: 100%; border: none; background: none; box-shadow: none; padding: 0; font-size: var(--fx-label); color: var(--text); }
 .finder-search input:focus { box-shadow: none; }
 .fx-search-ico { display: inline-flex; flex: none; }
 .finder-search .clear-btn { display: inline-flex; align-items: center; justify-content: center; color: var(--text-2); padding: 0; flex: none; border-radius: 3px; }
@@ -127,8 +329,8 @@
 .finder-cmdbar .finder-search.is-open { display: flex; }
 
 /* ---------- 三段降级（容器查询：量窗口宽度） ----------
-   ≥1090 全标签 → <1090 次要动作收成 32×32 图标 → JS 兜底收进「更多」
-   注意“图标态”必须把文案一并 display:none：只改 width 会让 label 溢出 32px 的按钮叠到邻居身上。 */
+   ≥1090 全标签 → <1090 次要动作收成 36×36 图标 → JS 兜底收进「更多」
+   注意“图标态”必须把文案一并 display:none：只改 width 会让 label 溢出按钮叠到邻居身上。 */
 /* 搜索：≥760 常显输入框（默认 860 宽的窗口打开就有得用），更窄才收成图标。
    阈值不跟标签档（1090）对齐是有意的：默认窗口宽度就够放下「图标 + 输入框」，
    而输入框必须在 DOM 里可见，Ctrl+F / F3 / 老用例的 .finder-search input 才聚焦得到。 */
@@ -137,26 +339,25 @@
   .finder-cmdbar .fx-search-toggle { display: none; }
 }
 @container finder (max-width: 1089px) {
-  .finder-cmdbar .cmd-btn { width: 32px; padding: 0; justify-content: center; gap: 0; }
+  .finder-cmdbar .cmd-btn { width: var(--fx-btn-h); padding: 0; gap: 0; }
   .finder-cmdbar .cmd-btn .cmd-label { display: none; }
-  .finder-cmdbar .cmd-sep { display: none; }
-  .finder-cmdbar .cmd-btn.keep-label { width: auto; padding: 0 10px; gap: 6px; }
+  .finder-cmdbar .cmd-btn.keep-label { width: auto; padding: 0 var(--fx-btn-px); gap: var(--fx-btn-gap); }
   .finder-cmdbar .cmd-btn.keep-label .cmd-label { display: inline; }
-  .finder-cmdbar .cmd-btn.is-primary.keep-label { padding: 0 10px 0 11px; }
-  .finder-cmdbar .cmd-btn.is-primary.keep-label .cmd-caret { margin-left: 0; }
   .finder-cmdbar .cmd-btn.keep-label .cmd-caret { margin-left: -2px; }
+  .cmd-split { border-radius: var(--fx-radius); }
   /* 宽度吃紧时进度胶囊收成「轨道 + 百分比」（让出 ~40px，别为了一个词把命令挤走） */
   .finder-cmdbar .fx-up { padding: 0 7px; gap: 5px; }
   .finder-cmdbar .fx-up-label { display: none; }
 }
 @container finder (max-width: 619px) {
-  /* 第三档：只留主操作「新建」的中文标签，其余一律纯图标 */
-  .finder-cmdbar .cmd-btn.keep-label:not(.is-primary) { width: 32px; padding: 0; justify-content: center; gap: 0; }
+  /* 第三档：只留主操作的中文标签，其余一律纯图标；分组留白压到 8px */
+  .finder-cmdbar .cmd-btn.keep-label:not(.is-primary) { width: var(--fx-btn-h); padding: 0; gap: 0; }
   .finder-cmdbar .cmd-btn.keep-label:not(.is-primary) .cmd-label { display: none; }
   .finder-cmdbar { padding: 0 6px; }
+  .cmd-groups { gap: 8px; }
   .cmd-right { gap: 6px; padding-left: 6px; }
-  .fx-up { width: 24px; height: 24px; padding: 0; justify-content: center; }
-  .fx-up .fx-up-n { display: none; }
+  .finder-cmdbar .fx-up { height: 24px; padding: 0 7px; }
+  .finder-cmdbar .fx-up .fx-up-n { display: none; }
   .fx-up-track { width: 16px; }
 }
 
@@ -214,4 +415,3 @@
   border-top: 1px solid var(--line); background: var(--bar-bg); font-size: 11.5px; color: var(--text-2);
 }
 .sb-free { margin-left: auto; }
-

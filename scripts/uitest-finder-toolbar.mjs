@@ -2,14 +2,18 @@
 /**
  * 文件资源管理器 · 顶部工具栏改版（方案 A · 紧凑命令栏）端到端验收
  *
- * 覆盖 docs/design/finder-toolbar.md 的验收点：
- *   ① 每个命令按钮都有内联 SVG 图标；宽窗下中文标签全部可见（32 高 / 图标 16 / 字号 12.5 / 圆角 4）
+ * 覆盖 docs/design/finder-toolbar-v2.md 的 V3「材质分层」验收点：
+ *   ① 每个命令按钮都有内联 SVG 图标；宽窗下中文标签全部可见（36 高 / 图标 18 / 字号 13.5·500 / 圆角 10）
+ *   ①b 标签零截断：命令按钮标签无 `…`、无 text-overflow、文字真实排版宽度不超出行内盒
+ *   ①c 动效三档：进入 70ms / 按下 105ms / 回归 375ms（读 computed transition-duration，不是读源码）
+ *   ①d 涟漪：pointerdown 有 .cmd-ripple 节点、500ms 内移除；prefers-reduced-motion 下无涟漪无位移
+ *   ①e 材质分层：静默 elev-1（细边框 + 双层投影）+ --fx-btn-bg 底，悬停 elev-2 + 8% 状态层
  *   ② Tab 走一遍工具栏：命中的控件都匹配 :focus-visible 且有 2px outline
  *   ③ 无选中时 剪切/复制/删除 disabled；选中 2 项后可启用并注入「下载」
  *   ④ 后退按钮：初始 disabled，进一级目录后可用
  *   ⑤ 长路径（>8 级）折叠成「首段 … 末两段」，点「…」弹出被折叠的段，点其中一段能跳过去
  *   ⑥ 560px 窗口：无横向溢出、主操作仍有标签、搜索展开时把动作收进「更多」且菜单里一个不少
- *   ⑦ 暗色：命令栏底色 / 文字色随令牌变化（compute style 对比，不是看截图）
+ *   ⑦ 暗色：命令栏底色 / 文字色 / 按钮底色与描边随令牌变化（compute style 对比，不是看截图）
  *   ⑧ 上传进行中：命令行出现进度胶囊 + 上传按钮自带进度条
  *
  * 默认自己起一套干净环境（不碰仓库里正在跑的 dev / 生产实例）：
@@ -275,19 +279,95 @@ async function main() {
     const cs = getComputedStyle(e);
     return {
       cmd: e.dataset.cmd || '',
+      drop: e.dataset.drop || '',
       hasSvg: !!ico,
       label: label ? label.textContent.trim() : '',
       labelShown: !!label && getComputedStyle(label).display !== 'none' && label.getBoundingClientRect().width > 0,
       w: Math.round(e.getBoundingClientRect().width),
       h: Math.round(e.getBoundingClientRect().height),
       bg: cs.backgroundColor,
+      border: cs.borderTopColor,
+      shadow: cs.boxShadow,
+      transform: cs.transform,
       color: cs.color,
-      radius: cs.borderRadius,
+      radius: cs.borderTopLeftRadius,
       fontSize: cs.fontSize,
       fontWeight: cs.fontWeight,
+      disabled: !!e.disabled,
       iconPx: ico ? Math.round(ico.getBoundingClientRect().width) : 0,
     };
   }));
+
+  // 标签审计（对应 md §8「防自欺」的判定法）：用 Range 量文字的**真实排版宽度**，
+  // 与按钮内容盒的右边界比；不用 scrollWidth 当唯一依据 —— 设计刻意不设 overflow:hidden，
+  // 真被裁的时候 label 自己的 scrollWidth 反而不报警。
+  const labelAudit = () => page.$$eval('.finder-cmdbar .cmd-btn', (els) => els
+    .filter((b) => b.getBoundingClientRect().width > 0)
+    .map((b) => {
+      const lab = b.querySelector('.cmd-label');
+      const cs = lab ? getComputedStyle(lab) : null;
+      const bb = b.getBoundingClientRect();
+      const bcs = getComputedStyle(b);
+      let natural = 0;
+      if (lab) {
+        const r = document.createRange();
+        r.selectNodeContents(lab);
+        natural = r.getBoundingClientRect().width;
+      }
+      const lr = lab ? lab.getBoundingClientRect() : null;
+      const right = bb.right - parseFloat(bcs.paddingRight) - parseFloat(bcs.borderRightWidth);
+      return {
+        cmd: b.dataset.cmd,
+        text: lab ? lab.textContent.trim() : '',
+        shown: !!lab && cs.display !== 'none' && lr.width > 0,
+        ellipsis: cs ? cs.textOverflow : '',
+        whiteSpace: cs ? cs.whiteSpace : '',
+        dots: lab ? (lab.textContent || '').includes('\u2026') : false,
+        naturalW: Math.round(natural * 10) / 10,
+        labelW: lr ? Math.round(lr.width * 10) / 10 : 0,
+        overRight: lr ? Math.round((lr.right - right) * 10) / 10 : 0,
+        selfClip: lab ? lab.scrollWidth - lab.clientWidth : 0,
+        scrollW: b.scrollWidth,
+        clientW: b.clientWidth,
+      };
+    }));
+
+  // 读某个属性当前的 transition 时长（ms）：v3 用「状态里改 --fx-tdur」实现三档，
+  // 所以同一个按钮在 hover / active / 静默三种状态下的 computed 值必须不同。
+  const transitionOf = (cmd) => page.evaluate((c) => {
+    const b = document.querySelector(`.finder-cmdbar .cmd-btn[data-cmd="${c}"]`);
+    if (!b) return null;
+    const cs = getComputedStyle(b);
+    const props = cs.transitionProperty.split(',').map((s) => s.trim());
+    const durs = cs.transitionDuration.split(',').map((s) => s.trim());
+    const eases = cs.transitionTimingFunction.split(',').map((s) => s.trim());
+    const i = props.indexOf('background-color');
+    const ms = (v) => (v.endsWith('ms') ? parseFloat(v) : parseFloat(v) * 1000);
+    return { ms: ms(durs[i < 0 ? 0 : i]), ease: eases[i < 0 ? 0 : i], all: durs.join(' ') };
+  }, cmd);
+
+  // 四态快照（v3 的「一变变四样」：底 / 海拔 / 圆角 / 状态层不透明度都是状态的一部分）
+  const stateOf = (cmd) => page.evaluate((c) => {
+    const b = document.querySelector(`.finder-cmdbar .cmd-btn[data-cmd="${c}"]`);
+    if (!b) return null;
+    const cs = getComputedStyle(b);
+    const layer = getComputedStyle(b, '::before');
+    return {
+      shadow: cs.boxShadow, radius: cs.borderTopLeftRadius, transform: cs.transform,
+      bg: cs.backgroundColor, layer: layer.opacity, layerBg: layer.backgroundColor,
+    };
+  }, cmd);
+
+  // 探针：把令牌塞进一个临时 div 上读 computed 值（与页面上真正渲染的值同源，不硬编码字面色）
+  const probe = (decl) => page.evaluate((d) => {
+    const el = document.createElement('div');
+    el.style.cssText = d;
+    document.body.appendChild(el);
+    const cs = getComputedStyle(el);
+    const out = { color: cs.color, bg: cs.backgroundColor, border: cs.borderTopColor, shadow: cs.boxShadow, radius: cs.borderTopLeftRadius };
+    el.remove();
+    return out;
+  }, decl);
   const cmdDisabled = (label) => page.evaluate((l) => {
     const b = document.querySelector(`.finder-cmdbar .cmd-btn[data-cmd="${l}"]`);
     return b ? b.disabled : null;
@@ -323,66 +403,183 @@ async function main() {
   await page.waitForFunction(() => document.querySelectorAll('.finder-item').length >= 3, { timeout: 15000 }).catch(() => {});
   await sleep(300);
 
-  // ---------- ① 结构：图标 / 标签 / 尺寸 / 强调色 ----------
-  section('① 命令按钮：内联 SVG 图标 + 中文标签 + 按 md 表的尺寸');
+  // ---------- ① 结构：图标 / 标签 / 尺寸 / 材质分层 ----------
+  section('① 命令按钮：内联 SVG 图标 + 中文标签 + v3 材质分层的几何与令牌');
   const metrics = await barMetrics();
-  check('地址行高 34px / 命令行高 40px（两行式头部）',
-    metrics.toolbar?.h === 34 && metrics.cmdbar?.h === 40, JSON.stringify({ addr: metrics.toolbar?.h, cmd: metrics.cmdbar?.h }));
+  check('地址行高 36px / 命令行高 48px（v3 两行式头部）',
+    metrics.toolbar?.h === 36 && metrics.cmdbar?.h === 48, JSON.stringify({ addr: metrics.toolbar?.h, cmd: metrics.cmdbar?.h }));
 
   const wide = await cmdInfo();
   const cmds = wide.map((c) => c.cmd);
-  const labelCmds = ['新建', '上传文件…', '上传文件夹…', '剪切', '复制', '粘贴', '重命名', '删除', '排序', '查看'];
-  check('命令按钮齐备（含五组：主操作/上传/剪贴板/选择/视图）',
-    labelCmds.every((k) => cmds.includes(k)), cmds.join(','));
+  const labelCmds = ['新建', '上传', '剪切', '复制', '粘贴', '重命名', '删除', '排序', '查看'];
+  check('命令按钮齐备（五组：主操作/上传/剪贴板/选择/视图；上传文件+上传文件夹已合成「上传 ⌄」一枚）',
+    labelCmds.every((k) => cmds.includes(k)) && !cmds.some((k) => /^上传文件|^上传文件夹/.test(k)), cmds.join(','));
   check('每个命令按钮都有内联 SVG 图标（不是文字按钮）',
-    wide.length >= 11 && wide.every((c) => c.hasSvg), `${wide.filter((c) => !c.hasSvg).map((c) => c.cmd).join(',') || '全部有图标'} / 共 ${wide.length}`);
-  // 「粘贴选项」是 18×32 的下拉半格、宽窗下「搜索」是隐藏的图标按钮（宽 0）：两者不按 32×32 计量
+    wide.length >= 10 && wide.every((c) => c.hasSvg), `${wide.filter((c) => !c.hasSvg).map((c) => c.cmd).join(',') || '全部有图标'} / 共 ${wide.length}`);
+  // 「粘贴选项」是分裂按钮的下拉半格（不是一个完整动作），宽窗下「搜索」是隐藏的图标按钮（宽 0）：两者不按 36×36 计量
   const sized = wide.filter((c) => c.cmd !== '粘贴选项' && c.w > 0);
-  check('按钮高度 32px、图标 16px、字号 12.5px、圆角 4px',
-    sized.length >= 11 && sized.every((c) => c.h === 32 && c.iconPx === 16 && c.fontSize === '12.5px' && /^4px/.test(c.radius)),
-    JSON.stringify(sized.filter((c) => !(c.h === 32 && c.iconPx === 16 && c.fontSize === '12.5px')).slice(0, 3)));
-  check('「粘贴」是分裂按钮（右侧 18px 下拉半格）', wide.find((c) => c.cmd === '粘贴选项')?.w === 18,
+  check('按钮高 36px、图标 18px、字号 13.5px、字重 500、圆角 10px',
+    sized.length >= 10 && sized.every((c) => c.h === 36 && c.iconPx === 18 && c.fontSize === '13.5px'
+      && /^10px/.test(c.radius) && (c.fontWeight === '500' || c.cmd === '新建')),
+    JSON.stringify(sized.filter((c) => !(c.h === 36 && c.iconPx === 18 && c.fontSize === '13.5px' && /^10px/.test(c.radius))).slice(0, 3)));
+  check('「粘贴」是分裂按钮（右侧 20px 下拉半格）', wide.find((c) => c.cmd === '粘贴选项')?.w === 20,
     String(wide.find((c) => c.cmd === '粘贴选项')?.w));
-  check('≥1090 宽窗下中文标签全部可见（10 枚动作按钮都带可见 label）',
+  check('≥1090 宽窗下中文标签全部可见（9 枚动作按钮都带可见 label）',
     labelCmds.every((k) => wide.find((c) => c.cmd === k)?.labelShown),
     JSON.stringify(wide.filter((c) => !c.labelShown).map((c) => c.cmd)));
 
-  // 强调色只给主操作：新建有 --accent 填充，其余按钮底透明
+  // v3 材质分层：静默就是一层「浮在条上的卡」——底色 / 描边 / 双层投影全部走 --fx-* 令牌
+  const fxBtnBg = await probe('background: var(--fx-btn-bg)');
+  const fxBtnLine = await probe('border: 1px solid var(--fx-btn-line)');
+  const fxElev1 = await probe('box-shadow: var(--fx-elev-1)');
+  const enabledOthers = wide.filter((c) => c.cmd !== '新建' && !c.disabled && c.w > 0);
+  check('v3 静默海拔：非主操作按钮底色 = --fx-btn-bg、描边 = --fx-btn-line（白卡 / #303035，不再是透明底）',
+    enabledOthers.length >= 3 && enabledOthers.every((c) => c.bg === fxBtnBg.bg && c.border === fxBtnLine.border),
+    JSON.stringify({ want: [fxBtnBg.bg, fxBtnLine.border], got: enabledOthers.slice(0, 3).map((c) => `${c.cmd}:${c.bg}/${c.border}`) }));
+  check('v3 静默海拔：按钮带 elev-1 双层投影（0 0 2px + 0 Npx Mpx），按下才归零',
+    enabledOthers.length >= 3 && enabledOthers.every((c) => c.shadow === fxElev1.shadow),
+    JSON.stringify({ want: fxElev1.shadow, got: enabledOthers.slice(0, 2).map((c) => `${c.cmd}:${c.shadow}`) }));
+
+  // 强调色只给主操作，而且仍是蓝色（V1/V2 的近黑主操作会在蓝色选中行旁边读成两个产品）
   const primary = wide.find((c) => c.cmd === '新建');
-  const accentBg = await page.evaluate(() => {
-    const d = document.createElement('div');
-    d.style.color = 'var(--accent)';
-    document.body.appendChild(d);
-    const v = getComputedStyle(d).color;
-    d.remove();
-    return v;
-  });
-  check('唯一的主操作「新建」用强调色填充（--accent）',
-    primary && primary.bg === accentBg && primary.fontWeight === '600', JSON.stringify({ bg: primary?.bg, accentBg, fw: primary?.fontWeight }));
-  check('其余命令按钮一律不上色（底色透明）',
-    wide.filter((c) => c.cmd !== '新建').every((c) => c.bg === 'rgba(0, 0, 0, 0)'),
-    JSON.stringify(wide.filter((c) => c.cmd !== '新建' && c.bg !== 'rgba(0, 0, 0, 0)').map((c) => `${c.cmd}:${c.bg}`)));
-  const tokens = await page.evaluate(() => {
-    const probe = (v) => {
-      const d = document.createElement('div');
-      d.style.color = `var(${v})`;
-      document.body.appendChild(d);
-      const out = getComputedStyle(d).color;
-      d.remove();
-      return out;
-    };
-    return { accent: probe('--accent'), danger: probe('--danger-text'), text3: probe('--text-3') };
-  });
+  const accentBg = await probe('background: var(--accent)');
+  check('唯一的主操作「新建」用强调色填充（--accent，保持蓝色、没改成近黑）',
+    primary && primary.bg === accentBg.bg && primary.fontWeight === '600',
+    JSON.stringify({ bg: primary?.bg, accentBg: accentBg.bg, fw: primary?.fontWeight }));
+  const tokens = {
+    accent: (await probe('color: var(--accent)')).color,
+    danger: (await probe('color: var(--danger-text)')).color,
+    text3: (await probe('color: var(--text-3)')).color,
+  };
   check('无选中时危险操作「删除」按设计退成禁用灰（--text-3）',
     wide.find((c) => c.cmd === '删除')?.color === tokens.text3,
     JSON.stringify({ del: wide.find((c) => c.cmd === '删除')?.color, text3: tokens.text3 }));
 
-  const seps = await page.$$eval('.finder-cmdbar .cmd-sep', (els) => els.map((e) => {
-    const cs = getComputedStyle(e);
-    return { w: Math.round(e.getBoundingClientRect().width), h: Math.round(e.getBoundingClientRect().height), m: cs.marginLeft };
-  }));
-  check('分组分隔线为 1×20 且左右各 8px 外距（4 条）',
-    seps.length === 4 && seps.every((s) => s.w === 1 && s.h === 20 && s.m === '8px'), JSON.stringify(seps));
+  // v3 不用分组竖线：.cmd-sep 留在 DOM 里当语义分隔，但 display:none，分组靠 14px 留白
+  const seps = await page.$$eval('.finder-cmdbar .cmd-sep', (els) => els.map((e) => getComputedStyle(e).display));
+  const groupGap = await page.evaluate(() => getComputedStyle(document.querySelector('.finder-cmdbar .cmd-groups')).columnGap);
+  check('v3 不画分组竖线（4 条 .cmd-sep 全部 display:none），分组改为 14px 留白',
+    seps.length === 4 && seps.every((d) => d === 'none') && groupGap === '14px', JSON.stringify({ seps, groupGap }));
+
+  // ---------- ①b 标签零截断 ----------
+  section('①b 标签零截断：无 `…`、无 text-overflow、文字真实宽度不超出行内盒');
+  const auditWide = await labelAudit();
+  check('所有命令按钮标签不含 `…`（句末标点会被读成「被裁掉了」）',
+    auditWide.every((a) => !a.dots), JSON.stringify(auditWide.filter((a) => a.dots).map((a) => a.cmd)));
+  check('所有命令按钮标签都没有 text-overflow:ellipsis（放不下就整枚进「更多」）',
+    auditWide.every((a) => a.ellipsis !== 'ellipsis'), JSON.stringify(auditWide.filter((a) => a.ellipsis === 'ellipsis').map((a) => a.cmd)));
+  check('所有命令按钮 scrollWidth ≤ clientWidth + 1（没有横向溢出藏字）',
+    auditWide.every((a) => a.scrollW <= a.clientW + 1), JSON.stringify(auditWide.filter((a) => a.scrollW > a.clientW + 1).map((a) => `${a.cmd}:${a.scrollW}/${a.clientW}`)));
+  const shownLabels = auditWide.filter((a) => a.shown);
+  check('可见标签的 Range 真实排版宽度没有被压窄、右边界在按钮内（0 处裁切）',
+    shownLabels.length >= 9 && shownLabels.every((a) => a.naturalW <= a.labelW + 0.6 && a.overRight <= 0.5 && a.selfClip <= 1),
+    JSON.stringify(shownLabels.filter((a) => a.naturalW > a.labelW + 0.6 || a.overRight > 0.5).map((a) => `${a.cmd}:${a.naturalW}/${a.labelW}/${a.overRight}`)));
+  check('「上传」一枚覆盖原来两枚（上传文件 / 上传文件夹），菜单里给全称',
+    cmds.includes('上传') && (await page.evaluate(() => {
+      const b = document.querySelector('.finder-cmdbar .cmd-btn[data-cmd="上传"]');
+      return !!b && b.dataset.drop === '上传';
+    })), cmds.join(','));
+
+  // ---------- ①c 动效三档 ----------
+  section('①c 动效三档：进入 70ms / 按下 105ms / 回归 375ms（读 computed transition-duration）');
+  const sortBtn = await page.$eval('.finder-cmdbar .cmd-btn[data-cmd="排序"]', (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  const idleDur = (await transitionOf('排序'))?.ms;
+  const idleState = await stateOf('排序');
+  await page.mouse.move(sortBtn.x, sortBtn.y);
+  await sleep(240);
+  const hoverDur = await transitionOf('排序');
+  const hoverState = await stateOf('排序');
+  await shot('light-1440-hover');
+  await page.mouse.down();
+  // 230ms > 按下档 105ms：既读到 duration（时长与已过去多久无关），又读到过渡**终点**的样式
+  await sleep(230);
+  const pressDur = await transitionOf('排序');
+  const pressState = await stateOf('排序');
+  await shot('light-1440-press');
+  // 按下后先移开再松手：既读到按下态，又不会真的把「排序」菜单点出来
+  await page.mouse.move(sortBtn.x, sortBtn.y + 220);
+  await page.mouse.up();
+  const backDur = await transitionOf('排序');
+  await sleep(460);
+  const backState = await stateOf('排序');
+  check('悬停进入 ≈70ms（Carbon fast-01）', hoverDur && hoverDur.ms >= 60 && hoverDur.ms <= 80, JSON.stringify(hoverDur));
+  check('按下 ≈105ms（M3 pressed）', pressDur && pressDur.ms >= 95 && pressDur.ms <= 115, JSON.stringify(pressDur));
+  check('回到静默 ≈375ms（M3 release）：离开比进入慢，不是 0ms 硬切',
+    backDur && backDur.ms >= 350 && backDur.ms <= 400 && idleDur >= 350 && backDur.ms > hoverDur.ms,
+    JSON.stringify({ idle: idleDur, hover: hoverDur?.ms, press: pressDur?.ms, back: backDur?.ms }));
+  check('三档曲线不是同一条（进入 / 按下 / 回归各自取 research 的值）',
+    hoverDur?.ease !== pressDur?.ease && /cubic-bezier/.test(hoverDur?.ease || ''),
+    JSON.stringify({ hover: hoverDur?.ease, press: pressDur?.ease, back: backDur?.ease }));
+
+  // ---------- ①e 状态层与海拔 ----------
+  section('①e 状态层与海拔：悬停 elev-2 + 8%，按下 elev-0 + 12% + 圆角 10→8 + 0.5px 下沉');
+  const fxElev0 = await probe('box-shadow: var(--fx-elev-0)');
+  const fxElev2 = await probe('box-shadow: var(--fx-elev-2)');
+  check('静默：elev-1 双层投影 + 圆角 10 + 状态层 0',
+    idleState.shadow === fxElev1.shadow && idleState.radius === '10px' && idleState.layer === '0',
+    JSON.stringify(idleState));
+  check('悬停：抬到 elev-2，并叠 8% M3 状态层（currentColor 覆盖）',
+    hoverState.shadow === fxElev2.shadow && Math.abs(parseFloat(hoverState.layer) - 0.08) < 0.012,
+    JSON.stringify({ shadow: hoverState.shadow, want: fxElev2.shadow, layer: hoverState.layer }));
+  check('按下：海拔降到 elev-0（不是再抬一级）+ 状态层 12%',
+    pressState.shadow === fxElev0.shadow && Math.abs(parseFloat(pressState.layer) - 0.12) < 0.015,
+    JSON.stringify({ shadow: pressState.shadow, want: fxElev0.shadow, layer: pressState.layer }));
+  check('按下：圆角 10→8 + 0.5px 下沉（M3 的 shape morph，不是只换底色）',
+    pressState.radius === '8px' && /matrix\(1, 0, 0, 1, 0, 0\.5\)/.test(pressState.transform),
+    JSON.stringify({ radius: pressState.radius, transform: pressState.transform }));
+  check('松手后回到静默海拔与圆角（elev-1 / 10px / 状态层 0）',
+    backState.shadow === fxElev1.shadow && backState.radius === '10px' && backState.layer === '0',
+    JSON.stringify(backState));
+
+  // ---------- ①d 涟漪 ----------
+  section('①d 涟漪：按下有 .cmd-ripple、500ms 内移除、reduced-motion 下不出现');
+  const rippleShot = await page.evaluate(async () => {
+    const b = document.querySelector('.finder-cmdbar .cmd-btn[data-cmd="排序"]');
+    const r = b.getBoundingClientRect();
+    const before = b.querySelectorAll('.cmd-ripple').length;
+    b.dispatchEvent(new PointerEvent('pointerdown', {
+      bubbles: true, cancelable: true, button: 0, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2,
+    }));
+    const nodes = b.querySelectorAll('.cmd-ripple');
+    const node = nodes[nodes.length - 1];
+    const info = node ? { cls: node.className, dur: getComputedStyle(node).animationDuration, added: nodes.length - before } : null;
+    await new Promise((res) => setTimeout(res, 620));
+    return { made: !!node, info, left: b.querySelectorAll('.cmd-ripple').length };
+  });
+  check('按下一枚按钮时真的插入了涟漪节点（.cmd-ripple，105ms 展开）',
+    rippleShot.made && rippleShot.info?.added === 1 && /^cmd-ripple/.test(rippleShot.info?.cls || '')
+    && Math.abs(parseFloat(rippleShot.info?.dur || '0') * 1000 - 105) <= 5, JSON.stringify(rippleShot));
+  check('涟漪播完必须从 DOM 移除（不累积节点）', rippleShot.left === 0, `残留 ${rippleShot.left} 个`);
+
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await sleep(150);
+  const reduced = await page.evaluate(() => {
+    const b = document.querySelector('.finder-cmdbar .cmd-btn[data-cmd="排序"]');
+    const r = b.getBoundingClientRect();
+    const cs = getComputedStyle(b);
+    b.dispatchEvent(new PointerEvent('pointerdown', {
+      bubbles: true, cancelable: true, button: 0, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2,
+    }));
+    return { made: !!b.querySelector('.cmd-ripple'), dur: cs.transitionDuration.split(',')[0].trim() };
+  });
+  await page.mouse.move(sortBtn.x, sortBtn.y);
+  await page.mouse.down();
+  await sleep(80);
+  const reducedTf = await page.evaluate(() => getComputedStyle(document.querySelector('.finder-cmdbar .cmd-btn[data-cmd="排序"]')).transform);
+  await page.mouse.move(sortBtn.x, sortBtn.y + 220);
+  await page.mouse.up();
+  await sleep(120);
+  check('prefers-reduced-motion: reduce 下不插涟漪节点', reduced.made === false, JSON.stringify(reduced));
+  check('prefers-reduced-motion: reduce 下按下没有 0.5px 下沉（transform 保持 none）',
+    reducedTf === 'none', reducedTf);
+  check('prefers-reduced-motion: reduce 下过渡时长归零（≤1ms）',
+    parseFloat(reduced.dur) <= 0.002, reduced.dur);
+  await page.emulateMediaFeatures([]);
+  await sleep(150);
+
   await shot('light-1440-wide');
 
   // ---------- ② focus-visible ----------
@@ -420,7 +617,7 @@ async function main() {
       });
       if (info?.inBar) out.push(info);
       // 截在命令按钮上（比截在面包屑上更能说明「命令行有焦点环」）
-      if (info?.inBar && info.tag === 'button' && /^(新建|上传文件…|剪切|复制|删除|排序|查看|更多)$/.test(info.cmd) && !focusShotTaken) {
+      if (info?.inBar && info.tag === 'button' && /^(新建|上传|剪切|复制|删除|排序|查看|更多)$/.test(info.cmd) && !focusShotTaken) {
         focusShotTaken = true;
         await shot('focus-visible');
       }
@@ -560,11 +757,20 @@ async function main() {
   check('窗口已缩到 700（±4px）', w700 && Math.abs(w700.w - 700) <= 4, JSON.stringify(w700));
   const mid = await cmdInfo();
   const midShown = mid.filter((c) => c.labelShown).map((c) => c.cmd);
-  check('700 宽：次要动作降级为 32×32 纯图标（标签隐藏）',
-    mid.filter((c) => labelCmds.includes(c.cmd)).every((c) => !c.labelShown || c.cmd === '新建' || c.cmd === '上传文件…'),
+  // 从令牌读按钮高（不硬编码）：v3 = --fx-btn-h 36，降级后的图标态按钮宽 = 高
+  const btnH = await page.evaluate(() => {
+    const el = document.createElement('div');
+    el.style.cssText = 'height: var(--fx-btn-h)';
+    document.body.appendChild(el);
+    const h = Math.round(el.getBoundingClientRect().height);
+    el.remove();
+    return h;
+  });
+  check('700 宽：次要动作降级为 36×36 纯图标（标签隐藏）',
+    mid.filter((c) => labelCmds.includes(c.cmd)).every((c) => !c.labelShown || c.cmd === '新建' || c.cmd === '上传'),
     `仍带标签：${midShown.join(',')}`);
-  check('700 宽：图标按钮宽度正好 32px',
-    mid.filter((c) => !c.labelShown).every((c) => c.w === 32), JSON.stringify(mid.filter((c) => !c.labelShown && c.w !== 32).map((c) => `${c.cmd}:${c.w}`)));
+  check('700 宽：图标按钮宽度正好 36px（= --fx-btn-h）',
+    mid.filter((c) => !c.labelShown).every((c) => c.w === btnH), JSON.stringify(mid.filter((c) => !c.labelShown && c.w !== btnH).map((c) => `${c.cmd}:${c.w}`)));
   const m700 = await barMetrics();
   check('700 宽：命令行无横向溢出', m700.cmdbar.scrollW <= m700.cmdbar.clientW + 1, JSON.stringify({ scrollW: m700.cmdbar.scrollW, clientW: m700.cmdbar.clientW }));
   await shot('light-700');
@@ -574,14 +780,14 @@ async function main() {
   const narrow = await cmdInfo();
   const narrowLabels = narrow.filter((c) => c.labelShown).map((c) => c.cmd);
   check('560 宽：主操作「新建」仍有中文标签', narrowLabels.includes('新建'), narrowLabels.join(',') || '(无)');
-  check('560 宽：其余按钮全部纯图标（32×32）',
-    narrow.filter((c) => c.cmd !== '新建').every((c) => !c.labelShown && c.w === 32),
-    JSON.stringify(narrow.filter((c) => c.cmd !== '新建' && c.labelShown).map((c) => c.cmd)));
+  check('560 宽：其余按钮全部纯图标（36×36）',
+    narrow.filter((c) => c.cmd !== '新建').every((c) => !c.labelShown && c.w === 36),
+    JSON.stringify(narrow.filter((c) => c.cmd !== '新建' && c.labelShown && c.cmd !== '粘贴选项').map((c) => `${c.cmd}:${c.w}`)));
   const m560 = await barMetrics();
   check('560 宽：命令行与整个窗口都没有横向溢出（scrollWidth ≤ clientWidth）',
     m560.cmdbar.scrollW <= m560.cmdbar.clientW + 1 && m560.finder.scrollW <= m560.finder.clientW + 1,
     JSON.stringify({ cmd: [m560.cmdbar.scrollW, m560.cmdbar.clientW], finder: [m560.finder.scrollW, m560.finder.clientW] }));
-  // 两行头部加起来 74px，且不把内容区/状态栏挤出窗口（不出现「外层 + 内容区」双滚动条）
+  // 两行头部加起来 84px，且不把内容区/状态栏挤出窗口（不出现「外层 + 内容区」双滚动条）
   const layout = await page.evaluate(() => {
     const f = document.querySelector('.finder');
     const c = document.querySelector('.finder-content');
@@ -597,11 +803,17 @@ async function main() {
       contentTop: Math.round(c.getBoundingClientRect().top),
     };
   });
-  check('两行头部共 74px（34+40），状态栏仍在窗口内、无双滚动条、内容区不被顶动',
-    layout.header === 74 && layout.outerOverflowY <= 0 && layout.contentOverflowX <= 1
+  check('两行头部共 84px（36+48），状态栏仍在窗口内、无双滚动条、内容区不被顶动',
+    layout.header === 84 && layout.outerOverflowY <= 0 && layout.contentOverflowX <= 1
     && layout.statusInside && layout.contentTop === layout.cmdBottom,
     JSON.stringify(layout));
   await shot('light-560');
+
+  // 窄窗同样零截断：标签被降级成图标，但残留的 data-cmd / tooltip 文案也不许带 `…`
+  const auditNarrow = await labelAudit();
+  check('560 宽：命令按钮依旧无 `…`、无 text-overflow、无横向溢出',
+    auditNarrow.every((a) => !a.dots && a.ellipsis !== 'ellipsis' && a.scrollW <= a.clientW + 1),
+    JSON.stringify(auditNarrow.filter((a) => a.dots || a.ellipsis === 'ellipsis' || a.scrollW > a.clientW + 1).map((a) => a.cmd)));
 
   // 「更多」在窄窗下必须能把所有动作接住
   await page.evaluate(() => document.querySelector('.finder-cmdbar .cmd-btn[data-cmd="更多"]')?.click());
@@ -609,7 +821,7 @@ async function main() {
   const moreItems = await page.$$eval('.context-menu .dropdown-item', (els) =>
     els.map((e) => e.innerText.trim().split('\n')[0].trim()));
   check('560 宽：「更多」菜单里上传 / 剪贴板 / 重命名 / 排序 / 视图 / 刷新 一个不少',
-    ['上传文件…', '上传文件夹…', '剪切', '复制', '粘贴', '重命名', '排序方式…', '视图…', '刷新'].every((k) => moreItems.includes(k)),
+    ['上传文件', '上传文件夹', '剪切', '复制', '粘贴', '重命名', '排序方式', '视图', '刷新'].every((k) => moreItems.includes(k)),
     moreItems.join(','));
   await page.keyboard.press('Escape');
   await sleep(250);
@@ -640,7 +852,7 @@ async function main() {
   }));
   check('560 宽：点搜索图标展开输入框、焦点落在输入框里', expanded.searchVisible && expanded.focusInSearch, JSON.stringify(expanded));
   check('搜索展开后仍无横向溢出，且命令行高度不变（不跳版）',
-    expanded.overflow <= 1 && expanded.cmdbarH === 40, JSON.stringify({ overflow: expanded.overflow, h: expanded.cmdbarH }));
+    expanded.overflow <= 1 && expanded.cmdbarH === 48, JSON.stringify({ overflow: expanded.overflow, h: expanded.cmdbarH }));
   check('搜索展开后命令组确实被收进「更多」（第三段降级真的在跑）',
     expanded.count < beforeExpand && expanded.hasMore, `展开前 ${beforeExpand} 个按钮 → 展开后 ${expanded.count} 个`);
   await shot('light-560-search-open');
@@ -648,11 +860,11 @@ async function main() {
   await sleep(500);
 
   // ---------- ⑦ 暗色 ----------
-  section('⑦ 暗色：命令栏 / 文字随令牌变化');
+  section('⑦ 暗色：命令栏 / 文字 / 按钮材质随令牌变化');
   const themeOf = () => page.evaluate(() => document.documentElement.dataset.theme);
   const readTheme = () => page.evaluate(() => {
     const bar = document.querySelector('.finder-cmdbar');
-    const btn = document.querySelector('.finder-cmdbar .cmd-btn[data-cmd="上传文件…"]');
+    const btn = document.querySelector('.finder-cmdbar .cmd-btn[data-cmd="上传"]');
     const pill = document.querySelector('.finder-address');
     const cs = getComputedStyle(bar);
     const csb = getComputedStyle(btn);
@@ -660,9 +872,11 @@ async function main() {
     return {
       barBg: cs.backgroundColor,
       btnColor: csb.color,
-      btnBorder: csb.borderColor,
+      btnBg: csb.backgroundColor,
+      btnBorder: csb.borderTopColor,
+      btnShadow: csb.boxShadow,
       pillBg: csp.backgroundColor,
-      pillBorder: csp.borderColor,
+      pillBorder: csp.borderTopColor,
     };
   });
   await restore();
@@ -689,11 +903,22 @@ async function main() {
   await page.keyboard.press('Escape');
   await sleep(400);
   const darkTheme = await readTheme();
+  const darkElev1 = await probe('box-shadow: var(--fx-elev-1)');
   check('⑦ 暗色下命令栏底色随令牌变化（不硬编码颜色）',
     darkTheme.barBg !== lightTheme.barBg, JSON.stringify({ light: lightTheme.barBg, dark: darkTheme.barBg }));
   check('⑦ 暗色下按钮文字色随令牌变化', darkTheme.btnColor !== lightTheme.btnColor,
     JSON.stringify({ light: lightTheme.btnColor, dark: darkTheme.btnColor }));
-  check('⑦ 地址药丸用 --win-bg 做凹底（暗色下与工具栏底色不同）',
+  // v3 材质分层：暗色下阴影几乎不可见，靠实色阶梯（#303035 → #38383e → #2a2a2f）区分三态，
+  // 所以「按钮底色 / 描边」必须跟着令牌走，不能是亮色那套白卡硬编码
+  check('⑦ 暗色下按钮底色随令牌变化（白卡 → #303035 级灰阶）',
+    darkTheme.btnBg !== lightTheme.btnBg, JSON.stringify({ light: lightTheme.btnBg, dark: darkTheme.btnBg }));
+  check('⑦ 暗色下按钮描边随令牌变化（黑 5.5% → 白 5%）',
+    darkTheme.btnBorder !== lightTheme.btnBorder, JSON.stringify({ light: lightTheme.btnBorder, dark: darkTheme.btnBorder }));
+  check('⑦ 暗色下按钮仍是 elev-1 双层投影（按下才归零）',
+    darkTheme.btnShadow === darkElev1.shadow && darkTheme.btnShadow !== lightTheme.btnShadow
+    && darkTheme.btnShadow.split(',').length >= 2,
+    JSON.stringify({ light: lightTheme.btnShadow, dark: darkTheme.btnShadow, want: darkElev1.shadow }));
+  check('⑦ 地址药丸用 --fx-pill-bg 做凸面（暗色下与工具栏底色不同）',
     darkTheme.pillBg !== darkTheme.barBg, JSON.stringify({ pill: darkTheme.pillBg, bar: darkTheme.barBg }));
   await shot('dark-1440');
 
@@ -733,20 +958,30 @@ async function main() {
   });
   const bigFile = join(tmpRoot || os.tmpdir(), 'uitest-big-upload.bin');
   writeFileSync(bigFile, Buffer.alloc(16 * 1024 * 1024, 0x61)); // 16MB → 4 个 4MB 分片
-  const upBtn = await page.$('.finder-cmdbar .cmd-btn[data-cmd="上传文件…"]');
+  const upBtn = await page.$('.finder-cmdbar .cmd-btn[data-cmd="上传"]');
   let uploadErr = '';
   try {
+    // 「上传」现在是一级短词（上传 ⌄）+ 二级菜单（上传文件 / 上传文件夹）：
+    // 选择器跟着改，但「点击→系统文件选择器」这条行为路径一字未动
     const [chooser] = await Promise.all([
       page.waitForFileChooser({ timeout: 10000 }),
-      upBtn.click(),
+      (async () => {
+        await upBtn.click();
+        await sleep(280);
+        await page.evaluate(() => {
+          const item = [...document.querySelectorAll('.context-menu .dropdown-item')]
+            .find((e) => (e.dataset.label || e.innerText.trim()) === '上传文件');
+          item?.click();
+        });
+      })(),
     ]);
     await chooser.accept([bigFile]);
   } catch (e) { uploadErr = String(e?.message || e); }
-  check('⑧ 上传文件选择器已选到文件', !uploadErr, uploadErr);
+  check('⑧ 「上传 ⌄ → 上传文件」打开系统文件选择器并选到文件', !uploadErr, uploadErr);
 
   const upState = await page.waitForFunction(() => {
     const pill = document.querySelector('.finder-cmdbar .fx-up');
-    const btn = document.querySelector('.finder-cmdbar .cmd-btn[data-cmd="上传文件…"]');
+    const btn = document.querySelector('.finder-cmdbar .cmd-btn[data-cmd="上传"]');
     if (!pill || !btn?.classList.contains('is-uploading')) return null;
     return {
       pillText: pill.innerText.replace(/\n/g, ' '),
@@ -760,7 +995,7 @@ async function main() {
     !!upState && /\d+%/.test(upState.pct) && upState.hasTrack, JSON.stringify(upState));
   check('⑧ 上传按钮自身带进度态（is-uploading，不另开弹层）',
     !!upState && /is-uploading/.test(upState.bar), upState?.bar);
-  check('⑧ 上传中命令行高度不变（无跳动）', !!upState && upState.cmdbarH === 40, String(upState?.cmdbarH));
+  check('⑧ 上传中命令行高度不变（无跳动）', !!upState && upState.cmdbarH === 48, String(upState?.cmdbarH));
   const advanced = await page.waitForFunction(() => {
     const n = document.querySelector('.finder-cmdbar .fx-up-n');
     return n && parseInt(n.textContent, 10) > 0;

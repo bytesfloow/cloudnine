@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { openContextMenu } from '../../store.js';
 import { IconChevron } from '../../icons.jsx';
 
-// 文件资源管理器 · 地址行（docs/design/finder-toolbar.md §3.1 第一行，高 34）
+// 文件资源管理器 · 地址行（docs/design/finder-toolbar-v2.md 的 V3，高 36）
 //
 //   [←] [→] [↑] │ 主目录 › … › windows › finder
 //
