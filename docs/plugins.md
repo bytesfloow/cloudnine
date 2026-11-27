@@ -133,7 +133,7 @@ CloudNine 的插件是一份**纯静态前端包**：`plugin.json` + 一个入�
 | 权限 | 允许做的事 | 限制 / 真实风险 |
 | --- | --- | --- |
 | `storage` | 读写自己的私有数据（`storage.get/set`，落 `<PLUGIN_DATA_DIR>/<id>.json`） | 序列化后上限 **1MB**，超出返回 413；插件之间互相不可见（每个 id 一份文件） |
-| `fs.read` | 列目录、读文本文件（`fs.list` / `fs.readText`），范围是服务端配置的 `FILE_ROOT` | **单用户自托管下，Linux 默认 `FILE_ROOT=/`，等于整个磁盘可读**。这是声明式约束，不是沙箱。单次读取默认 512KB、上限 8MB（§6.2） |
+| `fs.read` | 列目录、读文本文件、读图片（`fs.list` / `fs.readText` / `fs.readBinary`），范围是服务端配置的 `FILE_ROOT` | **单用户自托管下，Linux 默认 `FILE_ROOT=/`，等于整个磁盘可读**。这是声明式约束，不是沙箱。单次读取默认 512KB、上限 8MB（§6.2）。`fs.readBinary` 只能拿**图片**的 data URL（类型白名单 + 8MB 上限），读不到任意二进制 |
 | `fs.write` | 写文本文件（`fs.writeText`），范围同样是 `FILE_ROOT` | 同上：服务进程权限内可写的位置都能写（含覆盖你自己的文件）。单次写入上限 8MB（UTF-8 字节） |
 | `clipboard.write` | 往系统剪贴板写文本（`clipboard.writeText`） | 只能写、不能读；写入发生在用户的操作上下文里；单次上限 256KB |
 | `notify` | 弹一条桌面通知（`notify`） | 不能读通知、不能交互，只是单向提示 |
@@ -143,7 +143,8 @@ CloudNine 的插件是一份**纯静态前端包**：`plugin.json` + 一个入�
 - 插件自建后端 / 监听端口 / 注册路由 —— manifest 不接受 `server`/`main`。
 - 终端（PTY）、执行命令、起子进程。
 - 读剪贴板、读 cookie / 登录态、读写 `db.json`、访问别的插件的存储。
-- 读任意二进制文件（`fs.readText` 是文本接口，内容按 UTF-8 返回）。
+- 读任意二进制文件：`fs.readText` 是文本接口（按 UTF-8 返回），`fs.readBinary` **只回图片的 data URL**
+  （类型白名单见 §6.2.1），拿不到原始字节，也读不了 pdf / zip / 可执行文件这类东西。
 
 ---
 
@@ -261,6 +262,7 @@ GET /plugin-sdk/v1/cloudnine.js     # 公开，Content-Type: application/javascr
 | `fs.list` | `{path}` | `{entries:[{name, dir, size, mtime}]}`：`dir` 是布尔（服务端 `type === 'dir'`）、`size` 字节、`mtime` = 服务端的 `mtimeMs`。宿主是拿 `GET /api/fs/list?path=` 自己拼的，那个接口实际返回 `{path, entries:[{name, type, size, mtimeMs, birthtimeMs, atimeMs, mode, modeStr, uid, gid, hidden, target}], free, total}`，`type` 取 `file` / `dir` / `symlink` / `broken`（**不是** `{dir, size, mtime}`，别把两个形状记混） |
 | `fs.readText` | `{path, maxKB?}` | `{text, encoding, truncated, size, mtimeMs}`：`text` 是文本，`encoding` 是服务端实际用的解码（`utf-8` / `gb18030` / `latin1`），`truncated` 表示**内容被截断**（没读完），`size` 是文件真实字节数（截断时也准确）。被 `maxKB` 截断的 UTF-8 文件仍然报 `utf-8`：截断点切在多字节字符中间时，服务端会丢掉不足一个字符的尾巴，`text` 始终是合法 UTF-8 前缀，**不会**因为一个半截字符就把整篇当 `gb18030`（只有非尾部字节非法才判为非 UTF-8）。`maxKB` 不传 = 默认 **512KB**；显式传就按你要求的读，服务端硬上限 **8192KB（8MB）**，超过的按 8MB 读。详见下面的「读写上限」 |
 | `fs.writeText` | `{path,text}` | `{ok:true, size}`；`text` 上限 **8MB（按 UTF-8 字节算，中文一个 3 字节）**，超了回 `PAYLOAD_TOO_LARGE`，message 里带真实体积与上限 |
+| `fs.readBinary` | `{path, maxBytes?}` | `{dataUrl, mime, bytes}`：把**图片**读成 `data:<mime>;base64,…`，详情见 §6.2.1 |
 | `clipboard.writeText` | `{text}` | `{ok:true}`；`text` 上限 **256KB（UTF-8 字节）**，超了回 `PAYLOAD_TOO_LARGE`（不会静默失败） |
 | `notify` | `{title, body}` | `{ok:true}` |
 | `ui.setTitle` | `{title}` | `{ok:true}` |
@@ -279,6 +281,7 @@ GET /plugin-sdk/v1/cloudnine.js     # 公开，Content-Type: application/javascr
 | `fs.readText(path)` | 512KB | 8MB | 不传 `maxKB` 就只拿得到前 512KB，`truncated: true` |
 | `fs.readText(path, {maxKB})` | 你给的值 | 8192（=8MB） | 传超过 8192 按 8192 读；值不合法回 `INVALID_ARGUMENT` |
 | `fs.writeText` | — | 8MB（UTF-8 字节） | `PAYLOAD_TOO_LARGE` + 真实体积 |
+| `fs.readBinary` | 4MB | 8MB（图片字节） | `PAYLOAD_TOO_LARGE` + 真实体积；超限的**图片不会返回** |
 | `clipboard.writeText` | — | 256KB（UTF-8 字节） | `PAYLOAD_TOO_LARGE` + 真实体积 |
 
 写一个「大文件编辑器」的正确姿势：**先问大小，再按需读**（`fs.list(父目录)` 的 `size`，或先读一次看 `size`），
@@ -293,6 +296,52 @@ if (r.truncated) {
   renderReadOnly(r.text, `文件 ${size} 字节，超过读取上限`);
 }
 ```
+
+### 6.2.1 `fs.readBinary`：预览本地图片（为什么需要它）
+
+**沙箱里为什么不能直接 `<img src="./local.png">`**
+
+插件页面跑在 `sandbox="allow-scripts allow-forms"` 的 iframe 里，是 **opaque origin**，`src` 的相对路径按 iframe 自己的 URL
+（`/pa/<token>/<id>/index.html`）解析 —— `./local.png` 变成 `/pa/<token>/<id>/local.png`，那是**插件包内部**的路径，
+用户磁盘上的图片永远不在那儿，结果只能是 404。而且插件没有任何读二进制的手段（`fs.readText` 是 UTF-8 文本接口），
+自己 `fetch` 用户文件也会被跨源 + 无 cookie 拦住。
+
+所以由**宿主代读**：宿主页面带着登录 cookie 去现有的 `GET /api/download?inline=1&path=…` 拿字节，
+转成 `data:<mime>;base64,…` 交回插件，插件把它塞进 `<img src>` 即可（opaque origin 下 data URL 是允许的）。
+**没有新增任何服务端接口**，也没有给插件开新的权限（`fs.read` 一权两用）。
+
+```js
+const r = await cloudnine.fs.readBinary('docs/pic.png');   // 需要 fs.read 权限
+img.src = r.dataUrl;                                        // {dataUrl, mime, bytes}
+```
+
+| 项 | 规则 |
+| --- | --- |
+| 签名 | `cloudnine.fs.readBinary(rel, {maxBytes}?) → Promise<{dataUrl, mime, bytes}>` |
+| 权限 | `fs.read`（和 `fs.readText` 同一个，不新增权限） |
+| `rel` | 相对 `FILE_ROOT` 的路径，与 `fs.*` 同一口径：字符串、≤ 4096、**不含 `..`**、不是盘符。**额外允许以 `/` 开头**（约定为「从 `FILE_ROOT` 算起」），宿主内部归一成不带头的安全 rel（`/a/b.png` → `a/b.png`） |
+| `maxBytes` | 不传 = **4MB**；可显式请求更小/更大的值，宿主**硬上限 8MB**（超过按 8MB 算）。非正数 → `INVALID_ARGUMENT` |
+| 类型白名单 | 只放行 `image/png` `image/jpeg` `image/gif` `image/webp` `image/svg+xml` `image/bmp` `image/avif`，其余一律 `UNSUPPORTED_TYPE`（`text/*` / `application/pdf` / 未知类型都进不来） |
+| 返回 | `dataUrl`（`data:<mime>;base64,…`，直接给 `<img src>`）、`mime`、`bytes`（真实字节数） |
+| 超时 | 8 秒（和别的调用一样，超时后迟到的结果直接丢弃） |
+
+错误码（`error.code`，`message` 里带可读原因与真实体积）：
+
+| code | 什么时候 |
+| --- | --- |
+| `UNSUPPORTED_TYPE` | 文件不是白名单里的图片类型（比如把 `.txt` 当图片引用） |
+| `PAYLOAD_TOO_LARGE` | 图片超过 `maxBytes` / 8MB 硬上限（先看 `Content-Length`，再按流式累计卡一遍，谎报长度也拦得住） |
+| `FS_NOT_FOUND` | 路径不存在 / 不是文件 |
+| `PERMISSION_DENIED` | 插件没声明 `fs.read` |
+| `INVALID_ARGUMENT` | `rel` 带 `..`、是根目录、`maxBytes` 不合法 |
+
+已经内置好的用法（Markdown 插件）：相对路径按**当前 md 所在目录**解析 → 只对视口附近的图片发请求（`IntersectionObserver`，
+没有就全部立即加载）→ 同一张图多处引用按 `rel` 缓存 data URL，只请求一次；失败按类型分开提示
+（`不支持的类型` / `太大` / `不存在`），不再一律写「本地图片暂不支持」。需要参考实现就看
+[`examples/plugins/md/`](../examples/plugins/md/) 里的 `resolveImageRel` / `hydrateLocalImages` / `requestLocalImage`。
+
+> 大图注意：data URL 比原图大约 **1.34 倍**（base64），4MB 的图会变成 ~5.3MB 字符串。
+> 一个页面里塞几十张 4MB 图，光字符串就上百 MB —— 所以**按需懒加载 + 缓存**不是优化，是必须做的事。
 
 ### 6.3 插件里怎么写
 
@@ -548,6 +597,8 @@ node scripts/uitest-openwith.mjs        # 文件关联：打开方式 / defaultF
 node scripts/uitest-plugin-manager.mjs  # 设置 → 插件：列表 / 上传安装 / 409 覆盖 / 卸载 / 即时刷新 / 空态与暗色
 node scripts/uitest-json-plugin.mjs     # 示例插件 json 的端到端验收（8MB 读写上限 / 1.2MB 大文件 / 树视图 / 错误定位）
 node scripts/uitest-dev-plugin.mjs      # **dev 模式**：vite dev + 临时后端的 /pa、/plugin-sdk 代理与开窗（见 §6.5.1）
+node scripts/uitest-md-plugin.mjs       # 示例插件 markdown 端到端（GFM / 消毒 / 大纲 / 大文件只读）
+node scripts/uitest-md-images.mjs       # markdown 本地图片（fs.readBinary）：相对路径 / 子目录 / svg / 太大 / 类型 / 懒加载 / 缓存
 ```
 
 每个套件都自己起一套临时环境（随机端口 + 临时 `DATA_DIR` / `PLUGINS_DIR` / `PLUGIN_DATA_DIR` / `FILE_ROOT`），跑完杀进程 + 删目录，**不碰** 8480 / 5173 上正在跑的实例。
@@ -561,6 +612,7 @@ node scripts/uitest-dev-plugin.mjs      # **dev 模式**：vite dev + 临时后�
 | `plugin-manager` | 设置 → 插件：列表 / 上传安装 / 409 覆盖确认（版本取响应字段）/ 卸载 / 列表与桌面即时刷新 / 空态与暗色 |
 | `json-plugin` | 示例插件 `json` 端到端（8MB 读写上限 / 1.2MB 大文件 / 树视图 / 错误定位） |
 | `md-plugin` | 示例插件 `markdown` 端到端（GFM / 消毒 / 大纲 / 大文件只读） |
+| `md-images` | markdown 本地图片（`fs.readBinary`，§6.2.1）：相对路径基准 / 子目录 / svg / 太大 / 类型拒绝 / 懒加载 / 同一图只请求一次 / 暗色截图 |
 | `plugins-smoke` | 服务端 API 冒烟（401 / 列表 / 安装 / CSP / 穿越 / storage / 413 / 409 / 卸载 / SDK），python 标准库 |
 
 需要 `puppeteer-core` + 本机 Chrome（`dev-plugin` 还需要 vite dev 能起来）；缺依赖时 runner 会明确报错跳过并让退出码非零。

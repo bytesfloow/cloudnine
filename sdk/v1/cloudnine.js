@@ -228,6 +228,23 @@
         if (opts && typeof opts === 'object' && opts.maxKB != null) params.maxKB = Number(opts.maxKB);
         return call('fs.readText', params);
       },
+      // 读图片（本地图片预览）：沙箱是 opaque origin，相对路径会被解析成
+      // /pa/<token>/<id>/<rel> 而 404，插件也拿不到二进制 —— 所以由宿主代读，
+      // 返回 data URL 直接塞给 <img src>。
+      //
+      //   opts.maxBytes：请求的体积上限，默认 4MB；宿主硬上限 8MB（超过按 8MB 算）。
+      //
+      // 返回 {dataUrl, mime, bytes}；失败 reject，code 有：
+      //   UNSUPPORTED_TYPE（不是图片：只支持 png/jpeg/gif/webp/svg/bmp/avif）
+      //   PAYLOAD_TOO_LARGE（超过上限，message 带真实体积）
+      //   FS_NOT_FOUND / PERMISSION_DENIED（没声明 fs.read）
+      // 相对路径的基准是 FILE_ROOT：传「当前 md 所在目录 + 文件名」的 rel，
+      // 不能带 ..（宿主拒绝），根相对写法请自己归一成不带开头的 / 的形式。
+      readBinary: function (p, opts) {
+        var params = { path: p };
+        if (opts && typeof opts === 'object' && opts.maxBytes != null) params.maxBytes = Number(opts.maxBytes);
+        return call('fs.readBinary', params);
+      },
       writeText: function (p, text) { return call('fs.writeText', { path: p, text: text }); }
     },
     clipboard: {

@@ -26,6 +26,8 @@ import { IconRefresh, IconPlugin } from '../icons.jsx';
        的消息（沙箱 iframe 是 opaque origin，origin 一律是字符串 'null'）；
        其它窗口 / 宿主自己页面发来的一律丢弃。
      - 每个 method 都校验参数 + 权限声明（permissions），没有权限回 PERMISSION_DENIED。
+     - `fs.readBinary` 是唯一返回二进制的接口，且只返回图片的 data URL（类型白名单 + 体积上限，
+       见 docs/plugins.md §6.2）：宿主带 cookie 去 /api/download 取字节，插件拿不到原始文件句柄。
      - 单次调用 8 秒超时（SDK 侧也有，这里兜服务端卡住的场景）。
      - `ui.openExternal` 是唯一能“跳出沙箱”的出口：只放行 http / https / mailto，
        其它协议（javascript: / data: / file: …）一律 INVALID_ARGUMENT。
@@ -110,6 +112,101 @@ function checkRelPath(v, field = 'path') {
   return v;
 }
 
+/**
+ * fs.readBinary 的路径校验：规则与 checkRelPath 同一口径（字符串、≤4096、不含 ..、不是盘符），
+ * 唯一放宽的是「允许以 / 开头」—— Markdown 里写成 ![](/pics/a.png) 时是「相对 FILE_ROOT 的根」，
+ * 归一成 pics/a.png 之后与 fs.* 完全一致（服务端 safeJoin 只认相对 FILE_ROOT 的相对路径）。
+ */
+function normalizeBinaryRel(v, field = 'path') {
+  if (typeof v !== 'string') throw new CallError('INVALID_ARGUMENT', `${field} 必须是字符串`);
+  if (v.length > 4096) throw new CallError('INVALID_ARGUMENT', `${field} 过长`);
+  const slashed = v.replace(/\\/g, '/');
+  if (slashed.split('/').some((seg) => seg === '..')) {
+    throw new CallError('INVALID_ARGUMENT', `${field} 不能包含 .. 路径段`);
+  }
+  if (/^[a-zA-Z]:/.test(slashed)) throw new CallError('INVALID_ARGUMENT', `${field} 必须是相对路径`);
+  const segs = [];
+  for (const seg of slashed.split('/')) {
+    if (!seg || seg === '.') continue;
+    segs.push(seg);
+  }
+  const rel = segs.join('/');
+  if (!rel) throw new CallError('INVALID_ARGUMENT', `${field} 不能是根目录`);
+  return rel;
+}
+
+// Uint8Array → base64：分块走 String.fromCharCode，别一次性 apply 整个数组（大图会爆栈）
+function bytesToBase64(bytes) {
+  const CHUNK = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
+/**
+ * 宿主自己（带 cookie）去 /api/download 取字节，转成 data URL 交给插件 —— 不新增服务端接口。
+ * 沙箱 iframe 是 opaque origin，它的 fetch 既跨源又不带 cookie，所以这件事只能宿主做。
+ *
+ * 顺序很重要：先看 Content-Type（不支持的类型直接拒，不下载正文），
+ * 再按 Content-Length / 流式累计卡体积（不信任头，谎报长度也拦得住）。
+ */
+async function readImageDataUrl(rel, maxBytes) {
+  const res = await fetch(`/api/download?inline=1&path=${encodeURIComponent(rel)}`, {
+    credentials: 'same-origin',
+  });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json())?.error || ''; } catch { /* 非 JSON 响应 */ }
+    // 服务的 /api/download 对“文件不存在”抛的是 ENOENT → 500（不是 404），两种都当 FS_NOT_FOUND；
+    // 对插件只说“文件不存在”，不把 ENOENT 绝对路径吐给插件
+    if (res.status === 404 || /ENOENT|ENOTDIR|no such file/i.test(detail)) {
+      throw new CallError('FS_NOT_FOUND', `${rel} 不存在`);
+    }
+    if (res.status === 401 || res.status === 403) {
+      throw new CallError('PERMISSION_DENIED', detail || `没有权限读取：${rel}`);
+    }
+    throw new CallError('FAILED', detail || `读取失败（HTTP ${res.status}）：${rel}`);
+  }
+  // 服务端按扩展名给 Content-Type（mime-types），这里去掉 charset 之类的参数再比对
+  const mime = String(res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  if (!IMAGE_MIME_WHITELIST.has(mime)) {
+    throw new CallError('UNSUPPORTED_TYPE',
+      `${rel} 的类型是 ${mime || '未知'}，不是可预览的图片（只支持 png / jpeg / gif / webp / svg / bmp / avif）`);
+  }
+  const declared = Number(res.headers.get('content-length') || 0);
+  if (declared > maxBytes) {
+    throw new CallError('PAYLOAD_TOO_LARGE', `${rel} 是 ${fmtBytes(declared)}，超过上限 ${fmtBytes(maxBytes)}`);
+  }
+  const chunks = [];
+  let total = 0;
+  if (res.body) {
+    const reader = res.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.length;
+      if (total > maxBytes) {
+        try { await reader.cancel(); } catch { /* 已经断了 */ }
+        throw new CallError('PAYLOAD_TOO_LARGE', `${rel} 超过上限 ${fmtBytes(maxBytes)}（已读 ${fmtBytes(total)}）`);
+      }
+      chunks.push(value);
+    }
+  } else {
+    const buf = new Uint8Array(await res.arrayBuffer());
+    total = buf.length;
+    if (total > maxBytes) {
+      throw new CallError('PAYLOAD_TOO_LARGE', `${rel} 是 ${fmtBytes(total)}，超过上限 ${fmtBytes(maxBytes)}`);
+    }
+    chunks.push(buf);
+  }
+  const bytes = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) { bytes.set(c, off); off += c.length; }
+  return { dataUrl: `data:${mime};base64,${bytesToBase64(bytes)}`, mime, bytes: total };
+}
+
 function checkText(v, field, max = 1024 * 1024) {
   if (typeof v !== 'string') throw new CallError('INVALID_ARGUMENT', `${field} 必须是字符串`);
   if (v.length > max) throw new CallError('INVALID_ARGUMENT', `${field} 过长`);
@@ -125,6 +222,17 @@ const MAX_WRITE_BYTES = 8 * 1024 * 1024;
 const OPEN_EXTERNAL_PROTOCOLS = ['http:', 'https:', 'mailto:'];
 // clipboard 只写文本，上限 256KB（整棵 JSON 子树也能塞下）
 const MAX_CLIPBOARD_BYTES = 256 * 1024;
+
+// ---- fs.readBinary（本地图片预览，docs/plugins.md §6.2） ----
+// 插件不传 maxBytes 时的默认读取上限，以及插件的请求值宿主的硬上限。
+// 一次 8MB 的图片转成 base64 是 ~10.7MB 字符串，再大就没意义了（内存 / 克隆开销）。
+const BINARY_DEFAULT_BYTES = 4 * 1024 * 1024;
+const BINARY_HARD_MAX_BYTES = 8 * 1024 * 1024;
+// 只放行浏览器能直接当 <img> 用的图片类型：其余（text/*、pdf、zip、任意二进制）一律 UNSUPPORTED_TYPE。
+// 白名单而不是黑名单 —— 未知的新类型默认拒绝，别让插件把宿主当成任意文件读取器。
+const IMAGE_MIME_WHITELIST = new Set([
+  'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp', 'image/avif',
+]);
 
 function utf8Bytes(s) {
   return new TextEncoder().encode(s).length;
@@ -257,6 +365,21 @@ export default function PluginWindow({ win }) {
           size: r.size,
           mtimeMs: r.mtimeMs,
         };
+      }
+      case 'fs.readBinary': {
+        // 本地图片预览：权限沿用 fs.read（不新增权限），返回 data URL —— 插件只能拿到
+        // 「这张图长什么样」，拿不到原始字节，也读不了非图片类型
+        need('fs.read');
+        const rel = normalizeBinaryRel(p.path);
+        let maxBytes = BINARY_DEFAULT_BYTES;
+        if (p.maxBytes != null) {
+          const n = Number(p.maxBytes);
+          if (!Number.isFinite(n) || n <= 0) {
+            throw new CallError('INVALID_ARGUMENT', 'fs.readBinary 的 maxBytes 必须是正数');
+          }
+          maxBytes = Math.min(Math.ceil(n), BINARY_HARD_MAX_BYTES);
+        }
+        return await readImageDataUrl(rel, maxBytes);
       }
       case 'fs.writeText': {
         need('fs.write');

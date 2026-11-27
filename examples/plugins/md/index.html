@@ -400,8 +400,21 @@
   .md .md-img {
     display: block; max-width: 100%; height: auto;
     margin: .8em 0; border-radius: 6px;
+    /* 轻微边框 + 底色：透明 PNG / SVG 在暗色下不会糊成一团又不会刺眼 */
     border: 1px solid var(--line);
+    background: var(--input-bg);
   }
+  /* 本地图片加载中的占位：固定最小高度 + 同样的边框，图出来时不会把后面的内容顶得跳一下 */
+  .md .md-img-ph {
+    display: flex; align-items: center; gap: 9px;
+    margin: .8em 0; padding: 10px 12px;
+    min-height: 96px;
+    border: 1px solid var(--line); border-radius: 8px;
+    background: var(--input-bg);
+    color: var(--text-2); font-size: 12.5px; line-height: 1.5;
+  }
+  .md .md-img-ph svg { flex: none; color: var(--text-3); }
+  .md .md-img-ph-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .md .md-img-missing {
     display: flex; align-items: center; gap: 9px;
     margin: .8em 0; padding: 10px 12px;
@@ -691,7 +704,10 @@
     linenums: false,
     split: 50,
     loaded: false,
-    prefsBroken: false
+    prefsBroken: false,
+    baseDir: '',        // 当前 md 所在目录：相对路径图片的基准（file.rel 的 dirname）
+    imgs: Object.create(null),  // rel -> {status:'loading'|'ok'|'error', dataUrl, code, message}
+    imgRequests: 0      // 真正发出去的 fs.readBinary 次数（同一张图多处引用只算一次）
   };
 
   /* ==================================================================== */
@@ -805,6 +821,148 @@
     return out;
   }
 
+  /* ==================================================================== */
+  /* 图片：外链直渲染 / 本地走宿主 fs.readBinary（懒加载 + 按 rel 缓存）  */
+  /* ==================================================================== */
+
+  var IMG_PH_SVG =
+    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">' +
+    '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5" stroke="currentColor" stroke-width="1.6"/>' +
+    '<circle cx="9" cy="10" r="1.6" fill="currentColor"/>' +
+    '<path d="M5 17.5l4.6-4.2 3.1 2.8 2.6-2.4L19 17.5" stroke="currentColor" stroke-width="1.6" ' +
+    'stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+  // 把 md 里的图片路径解析成「相对 FILE_ROOT 的安全 rel」：
+  //   基准是当前 md 文件所在目录（![](./a.png) 与 ![](a.png) 等价）；
+  //   以 / 开头 = 从 FILE_ROOT 算起；.. 在这里就消掉，因为宿主拒绝带 .. 的 rel。
+  function resolveImageRel(baseDir, raw) {
+    var s = String(raw == null ? '' : raw).trim();
+    s = s.replace(/[?#].*$/, '');                  // 本地文件用不上 query / hash
+    try { s = decodeURIComponent(s); } catch (e) { /* 非法转义就按原样用 */ }
+    s = s.replace(/\\/g, '/');
+    var parts = s.charAt(0) === '/' ? [] : String(baseDir || '').split('/').filter(Boolean);
+    var segs = s.split('/');
+    for (var i = 0; i < segs.length; i++) {
+      var seg = segs[i];
+      if (!seg || seg === '.') continue;
+      if (seg === '..') { parts.pop(); continue; }
+      parts.push(seg);
+    }
+    return parts.join('/');
+  }
+
+  // 失败原因要分开说：不支持的类型 / 太大 / 没找到，不能一律「暂不支持」
+  function imgFailText(entry) {
+    var code = (entry && entry.code) || '';
+    var msg = (entry && entry.message) || '';
+    if (code === 'UNSUPPORTED_TYPE') {
+      var m = /([\w.+-]+\/[\w.+-]+)/.exec(msg);
+      return '不支持的图片类型' + (m ? '（' + m[1] + '）' : '') + '，只支持 png / jpeg / gif / webp / svg / bmp / avif';
+    }
+    if (code === 'PAYLOAD_TOO_LARGE') return '图片太大，超过预览上限' + (msg ? '（' + msg + '）' : '');
+    if (code === 'FS_NOT_FOUND') return '找不到这张图片' + (msg ? '（' + msg + '）' : '');
+    if (code === 'PERMISSION_DENIED') return '插件没有 fs.read 权限，读不了本地图片';
+    if (code === 'TIMEOUT') return '读取超时（图片可能太大或磁盘很慢）';
+    return '图片读取失败' + (msg ? '（' + msg + '）' : '');
+  }
+
+  function imgMissingMarkup(alt, name, why) {
+    return '<span class="md-img-missing" role="img" aria-label="' + escAttr(alt || name) + '">' + IMG_PH_SVG +
+      '<span><span class="md-img-name">' + esc(name) + '</span> —— ' + esc(why) + '</span></span>';
+  }
+
+  function imgLoadingMarkup(alt, rel, name) {
+    return '<span class="md-img-ph" role="img" aria-label="' + escAttr(alt || name) + '"' +
+      ' data-img="' + escAttr(rel) + '" data-name="' + escAttr(name) + '" data-alt="' + escAttr(alt || '') + '">' +
+      IMG_PH_SVG + '<span class="md-img-ph-text">图片加载中… <span class="md-img-name">' + esc(name) + '</span></span></span>';
+  }
+
+  function imgMarkup(alt, rel, dataUrl) {
+    return '<img class="md-img md-img-local" data-img="' + escAttr(rel) + '" src="' + escAttr(dataUrl) + '"' +
+      ' alt="' + escAttr(alt || '') + '" decoding="async">';
+  }
+
+  function localImageMarkup(alt, raw) {
+    var rel = resolveImageRel(state.baseDir, raw);
+    if (!rel) return imgMissingMarkup(alt, raw, '图片地址解析不出文件名');
+    var name = basename(rel) || raw;
+    var hit = state.imgs[rel];
+    if (hit && hit.status === 'ok') return imgMarkup(alt, rel, hit.dataUrl);
+    if (hit && hit.status === 'error') return imgMissingMarkup(alt, name, imgFailText(hit));
+    return imgLoadingMarkup(alt, rel, name);
+  }
+
+  // 懒加载：只对靠近视口的图片发请求。没有 IntersectionObserver 就全部直接加载（降级）。
+  var imgObserver = null;
+  function hydrateLocalImages() {
+    var phs = el.preview.querySelectorAll('.md-img-ph[data-img]');
+    if (imgObserver) { imgObserver.disconnect(); imgObserver = null; }
+    if (!phs.length) return;
+    if (typeof window.IntersectionObserver !== 'function') {
+      for (var i = 0; i < phs.length; i++) requestLocalImage(phs[i].getAttribute('data-img'));
+      return;
+    }
+    imgObserver = new IntersectionObserver(function (entries) {
+      for (var k = 0; k < entries.length; k++) {
+        if (!entries[k].isIntersecting) continue;
+        imgObserver.unobserve(entries[k].target);
+        requestLocalImage(entries[k].target.getAttribute('data-img'));
+      }
+    }, { root: el.previewPane, rootMargin: '320px 0px' });
+    for (var j = 0; j < phs.length; j++) imgObserver.observe(phs[j]);
+  }
+
+  // 同一张图多处引用只发一次：rel 就是缓存键，'loading' 也算命中（直接 return）
+  function requestLocalImage(rel) {
+    if (!rel || !cn) return;
+    var hit = state.imgs[rel];
+    if (hit && hit.status === 'loading') return;
+    if (hit && (hit.status === 'ok' || hit.status === 'error')) { applyLocalImage(rel); return; }
+    state.imgs[rel] = { status: 'loading' };
+    state.imgRequests += 1;
+    cn.fs.readBinary(rel).then(function (r) {
+      state.imgs[rel] = {
+        status: 'ok',
+        dataUrl: (r && r.dataUrl) || '',
+        mime: (r && r.mime) || '',
+        bytes: (r && r.bytes) || 0
+      };
+    }).catch(function (e) {
+      state.imgs[rel] = {
+        status: 'error',
+        code: (e && e.code) || 'FAILED',
+        message: (e && e.message) || String(e)
+      };
+    }).then(function () { applyLocalImage(rel); });
+  }
+
+  // 结果回来后就地替换占位（不整篇重渲染，避免打断输入 / 丢失滚动位置）
+  function applyLocalImage(rel) {
+    var entry = state.imgs[rel];
+    if (!entry || entry.status === 'loading') return;
+    var nodes = el.preview.querySelectorAll('[data-img]');
+    var replaced = 0;
+    for (var i = 0; i < nodes.length; i++) {
+      var node = nodes[i];
+      if (node.tagName === 'IMG') continue;
+      if (node.getAttribute('data-img') !== rel) continue;
+      var alt = node.getAttribute('data-alt') || '';
+      var name = node.getAttribute('data-name') || basename(rel);
+      var html = entry.status === 'ok'
+        ? imgMarkup(alt, rel, entry.dataUrl)
+        : imgMissingMarkup(alt, name, imgFailText(entry));
+      var tpl = document.createElement('span');
+      tpl.innerHTML = html;                      // 只放自己生成的标记（全部经过 esc）
+      var next = tpl.firstChild;
+      if (next && node.parentNode) {
+        node.parentNode.replaceChild(next, node);
+        replaced += 1;
+      }
+    }
+    // 图片撑开后行高会变：滚动联动的地图重建一次（只重建有变化的）
+    if (replaced) buildScrollMap();
+  }
+
   var IMG_RE = /!\[([^\]]*)\]\(([^)\s]+)\)/g;
   var LINK_RE = /\[([^\]]*)\]\(([^)\s]+)\)/g;
 
@@ -817,15 +975,15 @@
         return '<img class="md-img" src="' + escAttr(c.url) + '" alt="' + escAttr(alt) +
           '" loading="lazy" decoding="async" referrerpolicy="no-referrer">';
       }
-      var name = alt || c.url || '图片';
-      return '<span class="md-img-missing" role="img" aria-label="' + escAttr(name) + '">' +
-        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">' +
-        '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5" stroke="currentColor" stroke-width="1.6"/>' +
-        '<circle cx="9" cy="10" r="1.6" fill="currentColor"/>' +
-        '<path d="M5 17.5l4.6-4.2 3.1 2.8 2.6-2.4L19 17.5" stroke="currentColor" stroke-width="1.6" ' +
-        'stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-        '<span><span class="md-img-name">' + esc(name) + '</span> —— 本地图片暂不支持预览，请用外链（https 开头）</span>' +
-        '</span>';
+      // 相对 / 根相对：沙箱 iframe 里直接写 src 会变成 /pa/<token>/md/… 的假路径，
+      // 所以交给宿主的 fs.readBinary 读成 data URL（懒加载 + 按 rel 缓存）
+      if (c.kind === 'relative') return localImageMarkup(alt, c.url);
+      // data: / javascript: / #锚点：名称只用 alt 或通用字，别把一个 base64 当文件名递给用户看
+      var name = alt || (c.kind === 'scheme' ? '图片' : basename(c.url)) || '图片';
+      var why = c.kind === 'scheme'
+        ? '不支持的图片协议（只支持 http / https 外链与本地文件路径）'
+        : (c.kind === 'anchor' ? '这不是图片地址（# 锚点）' : '图片地址为空');
+      return imgMissingMarkup(alt, name, why);
     });
 
     s = s.replace(LINK_RE, function (m, label, url) {
@@ -1485,15 +1643,20 @@
     var imgs = el.preview.querySelectorAll('img.md-img');
     for (var i = 0; i < imgs.length; i++) {
       (function (img) {
+        // 图片撑开后行高变了：滚动联动的地图重算一次
+        img.addEventListener('load', function () { buildScrollMap(); });
         img.addEventListener('error', function () {
           var span = document.createElement('span');
           span.className = 'md-img-missing';
           span.setAttribute('role', 'img');
-          span.textContent = (img.getAttribute('alt') || '图片') + ' —— 这张外链图片加载失败';
+          span.textContent = (img.getAttribute('alt') || '图片') +
+            (img.classList.contains('md-img-local') ? ' —— 这张本地图片浏览器解不开（文件可能损坏）' : ' —— 这张外链图片加载失败');
           if (img.parentNode) img.parentNode.replaceChild(span, img);
         });
       })(imgs[i]);
     }
+    // 本地图片：只对视口附近的发请求（IntersectionObserver），缓存命中则直接就是 <img>
+    hydrateLocalImages();
     // 悬停链接：状态栏显示完整 URL（移开就恢复）
     var links = el.preview.querySelectorAll('a');
     for (var k = 0; k < links.length; k++) {
@@ -1743,6 +1906,8 @@
 
   function loadDoc(file) {
     state.doc = { rel: file.rel, name: file.name || basename(file.rel) };
+    // 相对路径图片的基准：这个 md 所在目录（不是插件包目录）
+    state.baseDir = dirOf(state.doc.rel);
     if (cn) cn.ui.setTitle(state.doc.name).catch(function () {});
     el.docName.textContent = state.doc.name;
     el.docName.title = state.doc.name;
@@ -2253,7 +2418,17 @@
       badEncoding: state.badEncoding,
       headings: state.headings ? state.headings.length : 0,
       outline: state.outline, linenums: state.linenums, split: state.split,
-      dragging: splitDragging
+      dragging: splitDragging,
+      // 本地图片：真正发出去的次数 / 每张图的状态（供自测与排障）
+      imgRequests: state.imgRequests,
+      baseDir: state.baseDir,
+      imgs: Object.keys(state.imgs).map(function (k) {
+        return {
+          rel: k, status: state.imgs[k].status, code: state.imgs[k].code || '',
+          bytes: state.imgs[k].bytes || 0,
+          message: String(state.imgs[k].message || '').slice(0, 200)
+        };
+      })
     };
   };
 

@@ -713,8 +713,22 @@ async function main() {
   check('相对链接 / javascript: 链接都不生成 href（变成不可点的文本）',
     pv.deadLinks.length === 2 && !pv.html.includes('javascript:')
     && pv.deadLinks.every((d) => /已忽略/.test(d.title)), JSON.stringify(pv.deadLinks));
-  check('本地相对图片渲染成占位框（不是破图，文案不惊悚）',
-    pv.missingImgs.length === 1 && /本地图片暂不支持预览/.test(pv.missingImgs[0]), JSON.stringify(pv.missingImgs));
+  // 本地图片走宿主 fs.readBinary（docs/plugins.md §6.2.1）：这份文件里引用的 local-image.png 不存在，
+  // 所以应该是「找不到这张图片」，而不是改造前那句「本地图片暂不支持预览」
+  // （图片是懒加载的：先滚到它附近才会发请求）
+  await frame.evaluate(() => {
+    const node = document.querySelector('#preview .md-img-ph') || document.querySelector('#preview .md-img-missing');
+    if (node) node.scrollIntoView({ block: 'center' });
+  });
+  await frame.waitForFunction(() => document.querySelectorAll('#preview .md-img-missing').length >= 1
+    && !document.querySelectorAll('#preview .md-img-ph').length, { timeout: 8000, polling: 100 }).catch(() => {});
+  const localImgPv = await frame.evaluate(() => ({
+    missing: [...document.querySelectorAll('#preview .md-img-missing')].map((s) => s.textContent.trim()),
+    pending: document.querySelectorAll('#preview .md-img-ph').length,
+  }));
+  check('本地相对图片不存在时给「找不到这张图片」占位（不再是「暂不支持」）',
+    localImgPv.missing.length === 1 && /找不到这张图片/.test(localImgPv.missing[0])
+    && !/暂不支持/.test(localImgPv.missing[0]), JSON.stringify(localImgPv));
   check('预览没有横向溢出（长表格 / 代码块自己滚）', pv.wide <= 0, String(pv.wide));
   await shot('纯预览-GFM');
 
@@ -1089,8 +1103,15 @@ async function main() {
   console.log(`${DIM}    相对图片的控制台报错：${imgConsole.slice(-2).join(' | ') || '（无）'}${RESET}`);
   await frame.evaluate(() => document.querySelector('[data-mode="preview"]').click());
   await sleep(300);
-  check('插件自己的预览没有发这个请求（用的是占位框，不会刷 404）',
-    (await previewInfo(frame)).missingImgs.length >= 1);
+  check('预览里这张相对图片由宿主 fs.readBinary 去读（文件不存在 → 占位，不刷 404 页面）',
+    await (async () => {
+      await frame.evaluate(() => {
+        const node = document.querySelector('#preview .md-img-ph') || document.querySelector('#preview .md-img-missing');
+        if (node) node.scrollIntoView({ block: 'center' });
+      });
+      await sleep(1200);
+      return (await previewInfo(frame)).missingImgs.length >= 1;
+    })());
   await closeAllWindows();
 
   // ---------- 12b. 预览外链交给宿主打开 ----------
