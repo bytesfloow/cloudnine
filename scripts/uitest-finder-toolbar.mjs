@@ -77,6 +77,12 @@ const CHROME = arg('chrome', process.platform === 'win32'
 const KEEP = flag('keep');
 const OUT_DIR = resolve(ROOT, arg('out', 'shots/finder-toolbar'));
 
+// UI 审查第一轮（docs/design/finder-ui-audit.md：UI-01 长标题 / UI-02 长文件名）的夹具名字。
+// 长度要真的超出一条内容宽度（560 窗宽下标题可用宽 ≈ 262px、列表名称列 ≈ 133px），
+// 否则「截断」与「行高恒定」根本测不到。
+const LONG_DIR = '一个名字特别长的目录用来验证标题栏会不会压住最小化最大化关闭按钮_2026_ui_audit';
+const LONG_FILE = '这是一个名字特别长的文件用来验证列表视图会不会折行把行高撑爆_abcdefghijklmnopqrstuvwxyz.txt';
+
 const GREEN = '\x1b[32m', RED = '\x1b[31m', YELLOW = '\x1b[33m', CYAN = '\x1b[36m', DIM = '\x1b[2m', BOLD = '\x1b[1m', RESET = '\x1b[0m';
 const passed = [];
 const failed = [];
@@ -95,6 +101,19 @@ function check(name, cond, detail = '') {
 }
 function section(t) { console.log(`\n${BOLD}${CYAN}▸ ${t}${RESET}`); }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// 对比度（WCAG 相对亮度）：UI-06 的「禁用比可用弱多少」要给数字，不能靠肉眼估。
+const relLum = (rgb) => {
+  const [r, g, b] = (String(rgb).match(/[\d.]+/g) || ['0', '0', '0']).slice(0, 3).map(Number).map((v) => {
+    const s = v / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const contrast = (a, b) => {
+  const la = relLum(a), lb = relLum(b);
+  return Math.round(((Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)) * 100) / 100;
+};
 
 // ================= 1. 干净环境 =================
 let child = null;
@@ -146,6 +165,12 @@ async function prepareEnv() {
   const deep = join(filesRoot, 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j');
   mkdirSync(deep, { recursive: true });
   writeFileSync(join(deep, 'deep.txt'), 'deep\n');
+
+  // UI 审查第一轮（UI-01 长标题 / UI-02 长文件名）的夹具：
+  // 一个超长名的目录（进得去，窗口标题就是它）+ 里面一个超长名的文件 + 一个普通文件当行高基准
+  mkdirSync(join(filesRoot, LONG_DIR), { recursive: true });
+  writeFileSync(join(filesRoot, LONG_DIR, LONG_FILE), 'long name\n');
+  writeFileSync(join(filesRoot, LONG_DIR, 'short.txt'), 'short name\n');
 
   serverEnv = {
     ...process.env,
@@ -1013,6 +1038,382 @@ async function main() {
     offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1,
   }).catch(() => {});
   await cdp.detach().catch(() => {});
+
+  // ---------- ⑨ UI 审查第一轮（docs/design/finder-ui-audit.md） ----------
+  // 只覆盖本轮修的 5 条：UI-01 长标题压按钮 / UI-02 列表长文件名折行 / UI-03 粘贴分裂按钮接缝 /
+  // UI-06 暗色禁用态与可用态同色 / UI-10 多选插入「下载」导致整排横移。
+  // 每条都用计算样式或几何量断言，截图只当证据；原图编号同时写进文件名，方便与审查报告对照。
+  section('⑨ UI 审查第一轮：UI-01 长标题 / UI-02 长文件名 / UI-03 分裂按钮 / UI-06 暗色禁用态 / UI-10 按钮横移');
+  const AUDIT_DIR = resolve(ROOT, 'shots/ui-audit/fix-r1');
+  mkdirSync(AUDIT_DIR, { recursive: true });
+  const auditShot = async (name, opts = {}) => {
+    await page.screenshot({ path: join(AUDIT_DIR, name), ...opts });
+    console.log(`${DIM}    📸 fix-r1/${name}${RESET}`);
+    return name;
+  };
+
+  const note = (label, obj) => console.log(`${DIM}    · ${label}: ${JSON.stringify(obj)}${RESET}`);
+
+  const setTheme = async (which) => {
+    const cur = await page.evaluate(() => document.documentElement.dataset.theme);
+    if (cur === which) return cur;
+    await page.evaluate(() => document.querySelector('.tray-account')?.click());
+    await sleep(300);
+    await page.evaluate((w) => {
+      [...document.querySelectorAll('.tb-popover .account-popover .dropdown-item')]
+        .find((b) => b.innerText.includes(w === 'dark' ? '深色主题' : '浅色主题'))?.click();
+    }, which);
+    await sleep(500);
+    await page.keyboard.press('Escape');
+    await sleep(300);
+    return page.evaluate(() => document.documentElement.dataset.theme);
+  };
+
+  const openViewMenu = async (label) => {
+    await page.evaluate(() => document.querySelector('.finder-cmdbar .cmd-btn[data-cmd="查看"]')?.click());
+    await sleep(350);
+    await page.evaluate((l) => {
+      [...document.querySelectorAll('.context-menu .dropdown-item')].find((e) => e.innerText.trim() === l)?.click();
+    }, label);
+    await sleep(700);
+  };
+
+  // 量「选择类分组」里每个按钮的 x：UI-10 要的就是这组数字在选中数变化时**逐像素不变**
+  const barX = () => page.evaluate(() => {
+    const g = (c) => {
+      const b = document.querySelector(`.finder-cmdbar .cmd-btn[data-cmd="${c}"]`);
+      return b ? Math.round(b.getBoundingClientRect().left * 100) / 100 : null;
+    };
+    const dl = document.querySelector('.finder-cmdbar .cmd-btn[data-cmd="下载"]');
+    const slot = document.querySelector('.finder-cmdbar .cmd-slot');
+    return {
+      rename: g('重命名'), del: g('删除'), sort: g('排序'), view: g('查看'),
+      hasDownload: !!dl,
+      downloadW: dl ? Math.round(dl.getBoundingClientRect().width * 100) / 100 : null,
+      slotW: slot ? Math.round(slot.getBoundingClientRect().width * 100) / 100 : null,
+      slotVisibility: slot ? getComputedStyle(slot).visibility : '',
+      status: (document.querySelector('.finder-statusbar')?.innerText || '').replace(/\n/g, ' '),
+    };
+  });
+  const cmdUnder = (pt) => page.evaluate(({ x, y }) =>
+    document.elementFromPoint(x, y)?.closest?.('[data-cmd]')?.dataset.cmd || '', pt);
+  // 窗口改尺寸 / 切视图都会让 Finder 重拉一次目录（加载态里 .finder-item 是空的），
+  // 量行高前必须等到行真的回来，否则会量到一张「加载中」的空壳
+  const waitRows = async (n = 2) => {
+    await page.waitForFunction((k) => document.querySelectorAll('.finder-item').length >= k, { timeout: 15000 }, n).catch(() => {});
+    await sleep(350);
+  };
+
+  // UI-01：标题盒 / 控制按钮区 / 关闭键中心的 elementFromPoint
+  const titleGeom = () => page.evaluate(() => {
+    const win = document.querySelector('.finder')?.closest('.window');
+    if (!win) return null;
+    const t = win.querySelector('.window-title');
+    const ctl = win.querySelector('.win-controls');
+    const close = win.querySelector('.tc-close');
+    if (!t || !ctl || !close) return null;
+    const cs = getComputedStyle(t);
+    const r = t.getBoundingClientRect();
+    const cr = ctl.getBoundingClientRect();
+    const br = close.getBoundingClientRect();
+    const cx = Math.round(br.x + br.width / 2), cy = Math.round(br.y + br.height / 2);
+    const hit = document.elementFromPoint(cx, cy);
+    const hitTc = hit ? hit.closest('.tc') : null;
+    const contentRight = r.right - parseFloat(cs.paddingRight);
+    return {
+      text: (t.textContent || '').slice(0, 12) + (t.textContent.length > 12 ? '…' : ''),
+      fullLen: t.textContent.length,
+      whiteSpace: cs.whiteSpace, textOverflow: cs.textOverflow, overflowX: cs.overflowX,
+      clientW: Math.round(t.clientWidth), scrollW: Math.round(t.scrollWidth),
+      titleW: Math.round(r.width),
+      contentRight: Math.round(contentRight * 10) / 10,
+      controlsLeft: Math.round(cr.left * 10) / 10,
+      controlsW: Math.round(cr.width),
+      gap: Math.round((cr.left - contentRight) * 10) / 10,
+      hitTag: hit ? hit.tagName.toLowerCase() : '',
+      hitIsClose: !!hitTc && hitTc.classList.contains('tc-close'),
+      closeCenter: [cx, cy],
+      titlebar: Math.round(win.querySelector('.window-titlebar').getBoundingClientRect().width),
+    };
+  });
+
+  // 标题栏特写（与审查报告 79 号证据同一个角度）：只说一件事 —— 标题右边是 − □ ✕
+  const titleClip = async () => {
+    const box = await page.evaluate(() => {
+      const bar = document.querySelector('.finder')?.closest('.window')?.querySelector('.window-titlebar');
+      if (!bar) return null;
+      const r = bar.getBoundingClientRect();
+      return { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) + 18 };
+    });
+    return box ? { clip: box } : {};
+  };
+
+  // UI-03：分裂按钮两半的圆角 / 边框 / 接缝
+  const splitGeom = () => page.evaluate(() => {
+    const left = document.querySelector('.cmd-split > .cmd-btn:first-child');
+    const right = document.querySelector('.cmd-split > .cmd-split-caret');
+    if (!left || !right) return null;
+    const l = left.getBoundingClientRect(), r = right.getBoundingClientRect();
+    const lc = getComputedStyle(left), rc = getComputedStyle(right);
+    const px = (v) => Math.round(parseFloat(v) * 100) / 100;
+    return {
+      leftTr: lc.borderTopRightRadius, leftBr: lc.borderBottomRightRadius, leftTl: lc.borderTopLeftRadius,
+      rightTl: rc.borderTopLeftRadius, rightBl: rc.borderBottomLeftRadius,
+      rightTr: rc.borderTopRightRadius, rightBr: rc.borderBottomRightRadius,
+      leftBwR: px(lc.borderRightWidth), rightBwL: px(rc.borderLeftWidth),
+      seamPx: px(lc.borderRightWidth) + px(rc.borderLeftWidth),
+      gapPx: px(r.left - l.right),
+      overlapPx: px(l.right - r.left),
+      leftW: px(l.width), rightW: px(r.width),
+    };
+  });
+
+  // UI-02：列表行高与名称单元格的截断方式
+  const listRows = () => page.evaluate(() => [...document.querySelectorAll('.list-item')].map((row) => {
+    const n = row.querySelector('.item-name');
+    const cs = n ? getComputedStyle(n) : null;
+    const lh = cs ? parseFloat(cs.lineHeight) || 0 : 0;
+    return {
+      name: row.dataset.name,
+      h: Math.round(row.getBoundingClientRect().height * 100) / 100,
+      whiteSpace: cs ? cs.whiteSpace : '', textOverflow: cs ? cs.textOverflow : '',
+      overflow: cs ? cs.overflow : '',
+      clientW: n ? n.clientWidth : 0, scrollW: n ? n.scrollWidth : 0,
+      clientH: n ? n.clientHeight : 0, scrollH: n ? n.scrollHeight : 0,
+      lines: n && lh ? Math.round(n.scrollHeight / lh) : 0,
+    };
+  }));
+
+  // 回到干净起点：亮色 / 最大化 / 主目录 / 无选中
+  await setTheme('light');
+  await restore();
+  await maximize();
+  await sleep(400);
+  await page.evaluate(() => [...document.querySelectorAll('.sb-item')].find((b) => b.innerText.trim() === '主目录')?.click());
+  await sleep(1000);
+  await page.evaluate(() => document.body.click());
+  await sleep(250);
+  await waitRows(3);
+  await shot('light-nosel-audit');
+  // UI-06 的亮色对照（禁用态在这里最明显：剪切 / 删除 全禁用）
+  await auditShot('06-暗色禁用态-修复后-亮色.png');
+
+  // ---- UI-10：选中数变化时「删除 / 排序 / 查看」的 x 必须逐像素不变 ----
+  const x0 = await barX();
+  await page.evaluate(() => document.querySelector('.finder-item[data-name="a.txt"]')
+    ?.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  await sleep(400);
+  const x1 = await barX();
+  // 悬停在「删除」中心，然后用**事件**改选中数（不移动指针）
+  const delPt = await page.evaluate(() => {
+    const b = document.querySelector('.finder-cmdbar .cmd-btn[data-cmd="删除"]');
+    const r = b.getBoundingClientRect();
+    return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+  });
+  await page.mouse.move(delPt.x, delPt.y);
+  await sleep(280);
+  const under1 = await cmdUnder(delPt);
+  await page.evaluate(() => document.querySelector('.finder-item[data-name="b.txt"]')
+    ?.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true })));
+  await sleep(450);
+  const x2 = await barX();
+  const under2 = await cmdUnder(delPt);
+  note('UI-10 x 坐标（删除/排序/查看）', { x0: [x0.del, x0.sort, x0.view], x1: [x1.del, x1.sort, x1.view], x2: [x2.del, x2.sort, x2.view], slotW: x1.slotW, downloadW: x2.downloadW });
+  const same = (a, b) => a !== null && a === b;
+  check('UI-10 选中 0 / 1 / 2 项时「重命名·删除·排序·查看」的 x 坐标完全一致（0 容差）',
+    same(x0.del, x1.del) && same(x0.del, x2.del)
+    && same(x0.sort, x1.sort) && same(x0.sort, x2.sort)
+    && same(x0.view, x1.view) && same(x0.view, x2.view)
+    && same(x0.rename, x1.rename) && same(x0.rename, x2.rename),
+    JSON.stringify({ x0, x1, x2 }));
+  check('UI-10 占位槽与真实「下载」按钮同宽（±0.5px），槽位不可见且 0/1 选中时不出真按钮',
+    Math.abs((x1.slotW ?? -1) - (x2.downloadW ?? -2)) <= 0.5
+    && x1.slotVisibility === 'hidden' && x0.hasDownload === false && x1.hasDownload === false && x2.hasDownload === true,
+    JSON.stringify({ slotW: x1.slotW, downloadW: x2.downloadW, vis: x1.slotVisibility, has: [x0.hasDownload, x1.hasDownload, x2.hasDownload] }));
+  check('UI-10 在「删除」上悬停时把选中数从 1 改成 2，光标下的动作仍是「删除」',
+    under1 === '删除' && under2 === '删除', JSON.stringify({ under1, under2, pt: delPt }));
+  await page.mouse.move(10, 10);
+  await sleep(200);
+  await auditShot('10-多选插入按钮-修复后.png');
+
+  // ---- UI-03：粘贴分裂按钮接缝（先把剪贴板弄成「有内容」，两半才有底色/描边可看） ----
+  await page.evaluate(() => document.querySelector('.finder-cmdbar .cmd-btn[data-cmd="复制"]')?.click());
+  await sleep(500);
+  const splitIdle = await splitGeom();
+  check('UI-03 分裂按钮：左半右两角 0 / 右半左两角 0，外侧角仍是 10px（读 computed border-radius）',
+    splitIdle && splitIdle.leftTr === '0px' && splitIdle.leftBr === '0px'
+    && splitIdle.rightTl === '0px' && splitIdle.rightBl === '0px'
+    && /^10px/.test(splitIdle.rightTr) && /^10px/.test(splitIdle.rightBr) && /^10px/.test(splitIdle.leftTl),
+    JSON.stringify(splitIdle));
+  check('UI-03 接缝只有 1px（左半 border-right 0 + 右半 border-left 1），且两半严丝合缝无重叠',
+    splitIdle && splitIdle.leftBwR === 0 && splitIdle.rightBwL === 1
+    && splitIdle.seamPx === 1 && Math.abs(splitIdle.gapPx) <= 0.5 && Math.abs(splitIdle.overlapPx) <= 0.5,
+    JSON.stringify(splitIdle));
+  // 悬停 / 按下时不许把内侧圆角再长回来（按下档是 10→8 的 shape morph，只作用在外侧角）
+  const caretPt = await page.evaluate(() => {
+    const b = document.querySelector('.cmd-split > .cmd-split-caret');
+    const r = b.getBoundingClientRect();
+    return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+  });
+  await page.mouse.move(caretPt.x, caretPt.y);
+  await sleep(250);
+  const splitHover = await splitGeom();
+  await page.mouse.down();
+  await sleep(220);
+  const splitPress = await splitGeom();
+  await page.mouse.move(caretPt.x, caretPt.y + 260);
+  await page.mouse.up();
+  await page.keyboard.press('Escape');
+  await sleep(300);
+  // 截图前把焦点吹掉：鼠标点过右半格会留下 2px 蓝色 focus-visible 环，
+  // 在「接缝是否连续」的证据图上会被误读成「右半格是独立控件」
+  await page.evaluate(() => document.activeElement?.blur?.());
+  await sleep(250);
+  note('UI-03 分裂按钮几何', { idle: splitIdle, hover: splitHover, press: splitPress });
+  check('UI-03 悬停 / 按下时内侧圆角与接缝不反弹（左半 tr/br 仍是 0，接缝仍是 1px）',
+    splitHover && /^0px/.test(splitHover.leftTr) && /^0px/.test(splitHover.leftBr) && splitHover.seamPx === 1
+    && splitPress && /^0px/.test(splitPress.leftTr) && /^0px/.test(splitPress.leftBr) && splitPress.seamPx === 1,
+    JSON.stringify({ hover: splitHover, press: splitPress }));
+  const splitClip = await page.evaluate(() => {
+    const r = document.querySelector('.cmd-split').getBoundingClientRect();
+    return { x: Math.round(r.x) - 16, y: Math.round(r.y) - 12, width: Math.round(r.width) + 32, height: Math.round(r.height) + 24 };
+  });
+  await auditShot('03-粘贴分裂按钮-修复后.png', { clip: splitClip });
+
+  // ---- UI-01 / UI-02：进长目录 → 560 宽 ----
+  await page.evaluate((n) => document.querySelector(`.finder-item[data-name="${n}"]`)
+    ?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })), LONG_DIR);
+  await sleep(1200);
+  const inLong = await page.evaluate(() => (document.querySelector('.finder-address')?.innerText || '').replace(/\n/g, ' '));
+  check('UI-01 已进入超长名目录（窗口标题就是它）', inLong.includes('2026_ui_audit'), inLong);
+
+  // 列表视图要在宽窗下切（560 时「查看」可能已被收进「更多」）
+  await openViewMenu('列表');
+  await waitRows();
+  const listState = await page.evaluate(() => ({
+    rows: document.querySelectorAll('.list-item').length,
+    view: !!document.querySelector('.list-view'),
+  }));
+  check('UI-02 已切到列表视图（行数 ≥ 2，含超长名与普通名各一行）', listState.view && listState.rows >= 2, JSON.stringify(listState));
+
+  await restore();
+  await sleep(300);
+  const w560b = await resizeFinderTo(560);
+  check('UI-01 窗口已缩到 560（±4px）', w560b && Math.abs(w560b.w - 560) <= 4, JSON.stringify(w560b));
+  await sleep(400);
+  const tg = await titleGeom();
+  // ① 标题真的被截断（scrollWidth > clientWidth + 省略号 + nowrap）
+  check('UI-01 560 宽 + 长目录名：标题单行截断（nowrap + ellipsis，scrollWidth > clientWidth）',
+    tg && tg.whiteSpace === 'nowrap' && tg.textOverflow === 'ellipsis'
+    && tg.overflowX === 'hidden' && tg.scrollW > tg.clientW + 20 && tg.fullLen >= 30,
+    JSON.stringify(tg));
+  // ② 文字排不到控制按钮底下（对称留白：标题内容盒右缘距控制区左缘 ≥ 8px）
+  check('UI-01 标题内容盒右缘与控制按钮区左缘留 ≥ 8px（文字不再铺到 − □ ✕ 上）',
+    tg && tg.gap >= 8 && tg.contentRight <= tg.controlsLeft - 8, JSON.stringify({ gap: tg?.gap, contentRight: tg?.contentRight, controlsLeft: tg?.controlsLeft, controlsW: tg?.controlsW }));
+  // ③ 关闭键中心命中的就是关闭键（elementFromPoint 自证，不是「看起来在」）
+  check('UI-01 document.elementFromPoint(关闭键中心) 命中的是关闭键本身',
+    tg && tg.hitIsClose === true, JSON.stringify({ hit: tg?.hitTag, isClose: tg?.hitIsClose, center: tg?.closeCenter }));
+  note('UI-01 560 宽标题栏', { titleClientW: tg?.clientW, titleScrollW: tg?.scrollW, contentRight: tg?.contentRight, controlsLeft: tg?.controlsLeft, gap: tg?.gap, titleTextLen: tg?.fullLen });
+  await auditShot('01-标题栏-长标题-修复后.png', await titleClip());
+
+  // ---- UI-02：560 宽 + 超长文件名 ----
+  const rows560 = await (async () => { await waitRows(); return listRows(); })();
+  const longRow = rows560.find((r) => r.name === LONG_FILE);
+  const baseRow = rows560.find((r) => r.name === 'short.txt') || rows560.find((r) => r.name !== LONG_FILE);
+  check('UI-02 560 宽：超长名行高与普通行一致（相差 ≤1px，行高恒定）',
+    longRow && baseRow && Math.abs(longRow.h - baseRow.h) <= 1, JSON.stringify({ long: longRow?.h, base: baseRow?.h }));
+  check('UI-02 名称单元格是 nowrap + ellipsis，且真的被截断（scrollWidth > clientWidth）',
+    longRow && longRow.whiteSpace === 'nowrap' && longRow.textOverflow === 'ellipsis'
+    && longRow.scrollW > longRow.clientW + 20, JSON.stringify(longRow));
+  check('UI-02 超长名单行渲染（scrollHeight ≤ clientHeight + 1，不再折行）',
+    longRow && longRow.scrollH <= longRow.clientH + 1, JSON.stringify(longRow));
+  note('UI-02 560 宽列表行高', { long: longRow?.h, base: baseRow?.h, nameClientW: longRow?.clientW, nameScrollW: longRow?.scrollW, whiteSpace: longRow?.whiteSpace, textOverflow: longRow?.textOverflow });
+  await auditShot('02-列表视图-长文件名-修复后-560.png');
+
+  // ---- 暗色：01 / 02 同一角度补拍 ----
+  await setTheme('dark');
+  await sleep(500);
+  const tgDark = await titleGeom();
+  check('UI-01 暗色 560 宽：标题同样截断且关闭键仍可命中',
+    tgDark && tgDark.scrollW > tgDark.clientW + 20 && tgDark.hitIsClose === true, JSON.stringify(tgDark));
+  await auditShot('01-标题栏-长标题-修复后-暗色.png', await titleClip());
+  const rowsDark = await (async () => { await waitRows(); return listRows(); })();
+  const longDark = rowsDark.find((r) => r.name === LONG_FILE);
+  check('UI-02 暗色 560 宽：超长名仍是单行 + 行高恒定',
+    longDark && longDark.whiteSpace === 'nowrap' && longDark.scrollH <= longDark.clientH + 1
+    && Math.abs(longDark.h - (rowsDark.find((r) => r.name !== LONG_FILE)?.h ?? -1)) <= 1,
+    JSON.stringify(longDark));
+  await auditShot('02-列表视图-长文件名-修复后-560-暗色.png');
+
+  // ---- UI-06：暗色下禁用 / 可用的前景色与对比度 ----
+  await restore();
+  await sleep(250);
+  await maximize();
+  await sleep(400);
+  await openViewMenu('图标');
+  await page.evaluate(() => [...document.querySelectorAll('.sb-item')].find((b) => b.innerText.trim() === '主目录')?.click());
+  await sleep(1000);
+  await page.evaluate(() => document.body.click());
+  await sleep(300);
+  await waitRows(3);
+  const darkFg = await page.evaluate(() => {
+    const bar = document.querySelector('.finder-toolbar');
+    const dis = document.querySelector('.finder-toolbar .tb-btn:disabled');
+    const en = document.querySelector('.finder-toolbar .tb-btn[title^="上一级"]');
+    const cmdDis = document.querySelector('.finder-cmdbar .cmd-btn:disabled');
+    const cmdEn = document.querySelector('.finder-cmdbar .cmd-btn[data-cmd="排序"]');
+    const g = (el) => (el ? getComputedStyle(el).color : '');
+    return {
+      barBg: getComputedStyle(bar).backgroundColor,
+      navDisabled: g(dis), navEnabled: g(en),
+      cmdDisabled: g(cmdDis), cmdEnabled: g(cmdEn),
+      disabledCmd: dis ? (dis.title || '') : '',
+      theme: document.documentElement.dataset.theme,
+    };
+  });
+  const cNavDis = contrast(darkFg.navDisabled, darkFg.barBg);
+  const cNavEn = contrast(darkFg.navEnabled, darkFg.barBg);
+  const cCmdDis = contrast(darkFg.cmdDisabled, darkFg.barBg);
+  const cCmdEn = contrast(darkFg.cmdEnabled, darkFg.barBg);
+  note('UI-06 暗色对比度（对命令栏底）', { navDisabled: cNavDis, navEnabled: cNavEn, cmdDisabled: cCmdDis, cmdEnabled: cCmdEn, colors: darkFg });
+  // 阈值的来历：可用态在暗色下 6.36:1（--text-2 的既有值）；禁用态必须明显更弱，
+  // 取「对比度差 ≥ 2.0 档 且 禁用态 ≤ 3.6:1」——原来是两个值完全相同（差 0）。
+  check('UI-06 暗色下禁用与可用的前景色不同（地址行导航键）',
+    darkFg.theme === 'dark' && !!darkFg.navDisabled && darkFg.navDisabled !== darkFg.navEnabled,
+    JSON.stringify(darkFg));
+  check('UI-06 暗色下禁用态对比度 ≤3.6:1 且与可用态相差 ≥2.0 档（实测见 detail）',
+    cNavDis <= 3.6 && cNavEn - cNavDis >= 2.0 && cCmdDis <= 3.6 && cCmdEn - cCmdDis >= 2.0,
+    JSON.stringify({ nav: [cNavDis, cNavEn], cmd: [cCmdDis, cCmdEn], colors: darkFg }));
+  await auditShot('06-暗色禁用态-修复后.png');
+
+  // ---- 暗色下的 10 / 03 同角度补拍 ----
+  await page.evaluate(() => {
+    document.querySelector('.finder-item[data-name="a.txt"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    document.querySelector('.finder-item[data-name="b.txt"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true }));
+  });
+  await sleep(500);
+  await page.mouse.move(10, 10);
+  await sleep(200);
+  const xDark = await barX();
+  check('UI-10 暗色下多选时「删除 / 排序 / 查看」的 x 与亮色逐像素一致（主题不参与布局）',
+    xDark.hasDownload === true && same(xDark.del, x2.del) && same(xDark.sort, x2.sort) && same(xDark.view, x2.view),
+    JSON.stringify({ dark: xDark, light: x2 }));
+  await auditShot('10-多选插入按钮-修复后-暗色.png');
+  const splitDark = await splitGeom();
+  check('UI-03 暗色下接缝仍是 1px、内侧角仍是 0',
+    splitDark && splitDark.seamPx === 1 && splitDark.leftBwR === 0 && splitDark.rightBwL === 1
+    && /^0px/.test(splitDark.leftTr) && /^0px/.test(splitDark.rightTl),
+    JSON.stringify(splitDark));
+  const splitClipDark = await page.evaluate(() => {
+    const r = document.querySelector('.cmd-split').getBoundingClientRect();
+    return { x: Math.round(r.x) - 16, y: Math.round(r.y) - 12, width: Math.round(r.width) + 32, height: Math.round(r.height) + 24 };
+  });
+  await auditShot('03-粘贴分裂按钮-修复后-暗色.png', { clip: splitClipDark });
+
+  // 收尾：回亮色 / 取消选中，后面的收尾截图与最终态与既有行为一致
+  await setTheme('light');
+  await page.evaluate(() => document.body.click());
+  await sleep(400);
 
   // ---------- 控制台 ----------
   section('控制台');

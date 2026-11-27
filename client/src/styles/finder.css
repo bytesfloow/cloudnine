@@ -43,6 +43,11 @@
   /* 状态层（R1/R2：同一层色只换不透明度，悬停 8% / 按下 12%，同时只开一层） */
   --fx-hover-a: .08; --fx-press-a: .12;
   --fx-sink: 0.5px;
+
+  /* 禁用态前景（UI-06）：亮色直接读全局 --text-3（与 base.css 的「不用 opacity」禁用约定同源），
+     暗色在下面的色块里单独给一档更暗的值 —— 暗色的 --text-2(#a6a6a6) 与 --text-3(#949494)
+     只差 1.06:1，禁用与可用在视觉上等于不存在。只在 Finder 局部拉开，不动全局令牌。 */
+  --fx-fg-disabled: var(--text-3);
 }
 
 /* 亮色表面：内容 #fff / 工具栏 #f3f3f5 / 按钮 #fff —— 靠 1px 描边与 elev-1 讲清「按钮浮在条上」 */
@@ -76,6 +81,9 @@
   --fx-primary-shadow: inset 0 1px 0 rgba(255, 255, 255, .14), 0 1px 2px rgba(0, 0, 0, .4);
   --fx-primary-shadow-hover: inset 0 1px 0 rgba(255, 255, 255, .18), 0 2px 6px rgba(0, 0, 0, .5);
   --fx-pill-bg: #1b1b1e; --fx-pill-line: #3a3a40;
+  /* UI-06：暗色禁用态前景。#6a6a6c 对 #252528 的对比度 2.87:1，可用态 --text-2 是 6.36:1
+     —— 相差 3.5 档（原来是 6.36 vs 5.10，只差 1.26，禁用态读不出来）。 */
+  --fx-fg-disabled: #6a6a6c;
 }
 
 /* 降低动效：三档全部归零，涟漪与 0.5px 下沉一并关掉（下面 .cmd-ripple / :active 有对应规则） */
@@ -114,7 +122,7 @@
   background: var(--fx-btn-bg-press); box-shadow: var(--fx-elev-0);
 }
 .tb-btn:focus-visible { outline: var(--fx-focus-w) solid var(--accent); outline-offset: var(--fx-focus-o); }
-.tb-btn:disabled { color: var(--text-3); cursor: default; }
+.tb-btn:disabled { color: var(--fx-fg-disabled); cursor: default; }
 .tb-btn.active { background: var(--accent-soft); color: var(--accent-text); box-shadow: none; }
 /* v3 不用分组竖线：地址行靠留白分组（R11：分隔线 + 留白，v3 只留留白） */
 .tb-sep { display: none; }
@@ -203,13 +211,14 @@
 }
 .finder-cmdbar .cmd-btn:active:not(:disabled)::before { opacity: var(--fx-press-a); }
 .finder-cmdbar .cmd-btn:focus-visible { outline: var(--fx-focus-w) solid var(--accent); outline-offset: var(--fx-focus-o); }
-/* 禁用态：字与图标一起退到 --text-3，底/边/阴影归零（不用 opacity，与 base.css 的禁用约定一致） */
+/* 禁用态：字与图标一起退到 --fx-fg-disabled（亮色 = 全局 --text-3，暗色单独给一档），
+   底/边/阴影归零（不用 opacity，与 base.css 的禁用约定一致） */
 .finder-cmdbar .cmd-btn:disabled {
-  color: var(--text-3); background: transparent; border-color: transparent;
+  color: var(--fx-fg-disabled); background: transparent; border-color: transparent;
   box-shadow: none; cursor: default;
 }
 .finder-cmdbar .cmd-btn:disabled .cmd-ico,
-.finder-cmdbar .cmd-btn:disabled .cmd-caret { color: var(--text-3); }
+.finder-cmdbar .cmd-btn:disabled .cmd-caret { color: var(--fx-fg-disabled); }
 
 /* 内容层：图标 / 标签 / 下拉箭头都在状态层之上 */
 .cmd-ico {
@@ -245,31 +254,59 @@
   background: var(--fx-primary-bg-press); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .22);
 }
 .finder-cmdbar .cmd-btn.is-primary:disabled {
-  background: var(--fx-btn-bg); border-color: var(--fx-btn-line); box-shadow: none; color: var(--text-3);
+  background: var(--fx-btn-bg); border-color: var(--fx-btn-line); box-shadow: none; color: var(--fx-fg-disabled);
 }
 .finder-cmdbar .cmd-btn.is-primary:disabled .cmd-ico,
-.finder-cmdbar .cmd-btn.is-primary:disabled .cmd-caret { color: var(--text-3); }
+.finder-cmdbar .cmd-btn.is-primary:disabled .cmd-caret { color: var(--fx-fg-disabled); }
 
 /* 危险操作：文字/图标用危险色，底色只在状态层里淡出（不整块染红） */
 .finder-cmdbar .cmd-btn.danger { color: var(--danger-text); }
 .finder-cmdbar .cmd-btn.danger .cmd-ico { color: var(--danger-text); }
 .finder-cmdbar .cmd-btn.danger:disabled,
 .finder-cmdbar .cmd-btn.danger:disabled .cmd-ico,
-.finder-cmdbar .cmd-btn.danger:disabled .cmd-caret { color: var(--text-3); }
+.finder-cmdbar .cmd-btn.danger:disabled .cmd-caret { color: var(--fx-fg-disabled); }
 
 .finder-cmdbar .cmd-btn.is-icon { width: var(--fx-btn-h); padding: 0; }
 .finder-cmdbar .cmd-btn.is-icon .cmd-label { display: none; }
 
-/* 分裂按钮（粘贴 ｜ ▾）：左半格 0 圆角、右半格 0 圆角，容器统一半径 */
-.cmd-split { display: inline-flex; align-items: stretch; flex: none; border-radius: var(--fx-radius); }
-.cmd-split > .cmd-btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.cmd-split > .cmd-btn:first-child:active:not(:disabled) { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+/* 分裂按钮（粘贴 ｜ ▾）：两半拼成的是一枚**连续**的控件 ——
+   外侧角 10px、内侧角 0、接缝只留 1px（由右半格的 border-left 担任）。
+   ⚠️ 下面三条必须带 .finder-cmdbar 前缀并为 :hover/:active 各写一份：
+   不带前缀的 .cmd-split-caret(0,1,0) 会被 `.finder-cmdbar .cmd-btn`(0,2,0) 的
+   border / border-radius 覆盖，按下态还会被 `.cmd-btn:active`(0,4,0) 的圆角 10→8 再抹一次 ——
+   上一版就是这么漏掉的：右半格四角 10px + 保留左边框 = 2px 双描边 + 内侧独立圆角。 */
+.cmd-split { display: inline-flex; align-items: stretch; flex: none; border-radius: var(--fx-radius); gap: 0; }
+.finder-cmdbar .cmd-split > .cmd-btn:first-child,
+.finder-cmdbar .cmd-split > .cmd-btn:first-child:hover:not(:disabled),
+.finder-cmdbar .cmd-split > .cmd-btn:first-child:active:not(:disabled) {
+  border-top-right-radius: 0; border-bottom-right-radius: 0;
+  border-right-width: 0;
+}
+.finder-cmdbar .cmd-split > .cmd-split-caret,
+.finder-cmdbar .cmd-split > .cmd-split-caret:hover:not(:disabled),
+.finder-cmdbar .cmd-split > .cmd-split-caret:active:not(:disabled) {
+  border-top-left-radius: 0; border-bottom-left-radius: 0;
+  border-left-width: 1px;   /* 接缝的唯一 1px 在这一条上，左半格的右边框已归零 */
+}
 .cmd-split-caret {
   width: var(--fx-split-w); padding: 0 !important; justify-content: center;
-  border-top-left-radius: 0; border-bottom-left-radius: 0;
-  border-left-width: 0; color: var(--text-2);
+  color: var(--text-2);
 }
-.cmd-split-caret:active:not(:disabled) { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+
+/* ---------- UI-10：多选才出现的「下载」占的固定槽位 ----------
+   与真实按钮同一套盒子（高 / 内边距 / 间隙 / 1px 边框 / 同一个 .cmd-ico 与 .cmd-label），
+   只多一条 visibility:hidden —— 不可点、不可聚焦、不进无障碍树，但**占位像素完全一致**。
+   选中数 1→2 时这个槽被真按钮原样替换，后面的「删除 / 排序 / 查看」一个像素都不动。
+   之所以选「位置预留」而不是「固定顺位」：既有契约是「下载只在多选时出现」（单选时禁用
+   会让 0 选中多出一枚灰按钮，与 ⋯ 菜单里的下载规则再分叉一次）；预留槽位既不动契约，
+   也不让按钮位移。 */
+.cmd-slot {
+  visibility: hidden; pointer-events: none; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  height: var(--fx-btn-h); padding: 0 var(--fx-btn-px); gap: var(--fx-btn-gap);
+  border: 1px solid transparent; border-radius: var(--fx-radius);
+  font-size: var(--fx-label); font-weight: var(--fx-label-w); white-space: nowrap;
+}
 
 /* 上传中：按钮自己带进度（底边 2px 的进度条），不另开弹层 */
 .finder-cmdbar .cmd-btn.is-uploading::after {
@@ -339,8 +376,10 @@
   .finder-cmdbar .fx-search-toggle { display: none; }
 }
 @container finder (max-width: 1089px) {
-  .finder-cmdbar .cmd-btn { width: var(--fx-btn-h); padding: 0; gap: 0; }
+  .finder-cmdbar .cmd-btn, .finder-cmdbar .cmd-slot { width: var(--fx-btn-h); padding: 0; gap: 0; }
   .finder-cmdbar .cmd-btn .cmd-label { display: none; }
+  /* 占位槽跟着真实按钮一起进图标态，否则窄窗下的位移反而更大（36 vs ~83） */
+  .finder-cmdbar .cmd-slot .cmd-label { display: none; }
   .finder-cmdbar .cmd-btn.keep-label { width: auto; padding: 0 var(--fx-btn-px); gap: var(--fx-btn-gap); }
   .finder-cmdbar .cmd-btn.keep-label .cmd-label { display: inline; }
   .finder-cmdbar .cmd-btn.keep-label .cmd-caret { margin-left: -2px; }
@@ -402,10 +441,20 @@
 .list-header { position: sticky; top: 0; background: var(--panel-bg); font-weight: 600; color: var(--text-2); font-size: 11.5px; z-index: 2; border-bottom: 1px solid var(--line); border-radius: 0; }
 .list-header span { cursor: pointer; }
 .list-item:hover { background: var(--hover); }
+/* 行高钉死 28px：内容高 = 20px 文件图标 + 上下 4px 内边距；钉死是为了防另一种回归 ——
+   换行 / 图标 / 就地重命名输入框把某一行撑高，行与行之间不再对齐 */
+.list-item { height: 28px; }
 .list-item.selected { background: var(--accent); color: var(--on-accent); }
 .list-item.selected .muted { color: var(--on-accent-2); }
 .item-file { display: flex; align-items: center; gap: 7px; min-width: 0; }
-.item-file .item-name { max-width: none; flex: 1; text-align: left; display: block; -webkit-line-clamp: 1; }
+/* UI-02：列表里的文件名是**单行**的 —— 折行会把行高从 28px 撑到 36.75px（562 宽下 6 行），
+   整份列表的节奏当场崩掉。这里把 .item-name 那套 -webkit-box + line-clamp 换成
+   display:block + nowrap + ellipsis（clamp 在没有 display:-webkit-box 时本来就是失效的）。 */
+.item-file .item-name {
+  max-width: none; flex: 1; min-width: 0; text-align: left;
+  display: block; -webkit-line-clamp: 1; -webkit-box-orient: initial;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; word-break: normal;
+}
 .col-size, .col-mtime, .col-mode, .col-owner { color: var(--text-2); font-size: 11.5px; }
 .list-item.selected .col-size, .list-item.selected .col-mtime, .list-item.selected .col-mode, .list-item.selected .col-owner { color: var(--on-accent-2); }
 

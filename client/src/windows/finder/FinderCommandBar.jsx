@@ -346,13 +346,22 @@ export default function FinderCommandBar({
             icon={<IconRename size={18} />} onClick={() => act('rename')} />
         ),
       },
-      ...(selCount > 1 ? [{
+      // UI-10：「下载」只在多选时可用，但它占的格子**始终在**——单选/无选中时留一个
+      // 与真按钮逐像素同宽的隐身槽（.cmd-slot，visibility:hidden），多选一成立就原地换成真按钮。
+      // 位置预留而不是「固定顺位」的理由见 finder.css 的 .cmd-slot 注释：既有的
+      // 「下载只在多选时出现」契约不动（按钮 / ⋯ 菜单 / 工具提示三处语义一致），也不让人横移。
+      {
         key: '下载',
-        node: (
+        node: selCount > 1 ? (
           <Btn cmd="下载" label="下载" drop="下载" title="下载（打包）" lift
             icon={<IconDownload size={18} sw={2} />} onClick={() => act('download')} />
+        ) : (
+          <span className="cmd-slot" aria-hidden="true">
+            <span className="cmd-ico"><IconDownload size={18} sw={2} /></span>
+            <span className="cmd-label">下载</span>
+          </span>
         ),
-      }] : []),
+      },
       {
         key: '删除',
         node: (

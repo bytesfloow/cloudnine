@@ -28,7 +28,8 @@
   border-bottom: 1px solid var(--line); cursor: default; user-select: none;
   background: var(--bar-bg);
 }
-.win-controls { display: flex; margin-left: auto; align-self: stretch; }
+/* z-index：窗口控制按钮永远画在标题之上（标题万一被写坏也不许盖住 − □ ✕） */
+.win-controls { display: flex; margin-left: auto; align-self: stretch; position: relative; z-index: 2; }
 /* Windows 风格标题栏按钮：矩形平铺于右上角，细线符号常显；符号用 SVG（mask）绘制，
    画布 14 单位按 1:1 渲染（无缩放模糊），坐标对称于中心 (7,7) */
 .tc {
@@ -69,6 +70,13 @@
 .window-title {
   position: absolute; left: 0; right: 0; text-align: center; pointer-events: none;
   font-weight: 600; font-size: 13px; color: var(--text-2);
+  /* 长标题（UI-01）：标题只在「控制按钮区之外」排版，超出一律单行省略号。
+     控制区 = 3 × 46px（.tc 的定宽）+ 10px 安全边距 = 148px，左右对称留白
+     ⇒ 内容盒宽度 = 标题栏宽 − 296，文字右端最多停在「✕ 左边 10px」。
+     左右留白对称是为了不改动绝对定位 + text-align:center 的居中语义：
+     放得下的标题位置一个像素都不变，只有放不下的才开始省略。 */
+  padding: 0 calc(3 * 46px + 10px);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .window.focused .window-title { color: var(--text); }
 .window-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
